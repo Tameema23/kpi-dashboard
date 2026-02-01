@@ -1,12 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from jose import jwt
-import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from backend.database import SessionLocal, create_db, User, DailyLog
 
@@ -14,7 +13,7 @@ SECRET_KEY = "supersecretkey"
 
 app = FastAPI()
 
-# ---------- Serve frontend properly (NO API hijacking) ----------
+# ---------------- SERVE FRONTEND SAFELY ---------------- #
 
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
@@ -22,7 +21,7 @@ app.mount("/static", StaticFiles(directory="frontend"), name="static")
 def serve_home():
     return FileResponse("frontend/login.html")
 
-# ---------------------------------------------------------------
+# ------------------------------------------------------ #
 
 app.add_middleware(
     CORSMiddleware,

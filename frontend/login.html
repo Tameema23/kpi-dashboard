@@ -2,7 +2,7 @@
 <html>
 <head>
   <title>KPI Login</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
@@ -17,36 +17,38 @@
 <input id="username" placeholder="Username">
 <input id="password" type="password" placeholder="Password">
 
-<button class="btn" onclick="login()">Login</button>
+<button class="btn" onclick="submitAuth()">Login</button>
 
 <p class="switch" onclick="toggleForm()">Create an account</p>
 
 <p id="msg"></p>
 
 </div>
-
 </div>
 
 <script>
-const API_BASE = "https://data-log.onrender.com"
-
 let isSignup = false
 
 function toggleForm() {
   isSignup = !isSignup
-  document.getElementById("formTitle").innerText = isSignup ? "Create Account" : "Login"
-  document.querySelector(".btn").innerText = isSignup ? "Create Account" : "Login"
-  document.querySelector(".switch").innerText = isSignup ? "Back to login" : "Create an account"
+  document.getElementById("formTitle").innerText =
+    isSignup ? "Create Account" : "Login"
+
+  document.querySelector(".btn").innerText =
+    isSignup ? "Create Account" : "Login"
+
+  document.querySelector(".switch").innerText =
+    isSignup ? "Back to login" : "Create an account"
+
   document.getElementById("msg").innerText = ""
 }
 
-async function login() {
+async function submitAuth() {
   const username = document.getElementById("username").value
   const password = document.getElementById("password").value
+  const msg = document.getElementById("msg")
 
-  const url = isSignup 
-    ? `${API_BASE}/create-user` 
-    : `${API_BASE}/login`
+  const url = isSignup ? "/create-user" : "/login"
 
   try {
     const res = await fetch(url, {
@@ -55,10 +57,10 @@ async function login() {
       body: JSON.stringify({ username, password })
     })
 
-    const msg = document.getElementById("msg")
-
     if (!res.ok) {
-      msg.innerText = isSignup ? "Username already exists" : "Invalid credentials"
+      msg.innerText = isSignup
+        ? "Username already exists"
+        : "Invalid credentials"
       msg.style.color = "red"
       return
     }
@@ -66,7 +68,7 @@ async function login() {
     if (isSignup) {
       msg.innerText = "Account created! You can now log in."
       msg.style.color = "green"
-      setTimeout(() => toggleForm(), 1200)
+      setTimeout(toggleForm, 1200)
       return
     }
 
@@ -74,9 +76,9 @@ async function login() {
     localStorage.setItem("token", data.token)
     window.location.href = "index.html"
 
-  } catch (err) {
-    document.getElementById("msg").innerText = "Server connection failed"
-    document.getElementById("msg").style.color = "red"
+  } catch {
+    msg.innerText = "Server error"
+    msg.style.color = "red"
   }
 }
 </script>
