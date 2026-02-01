@@ -1,13 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from jose import jwt
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 import os
-
 
 from backend.database import SessionLocal, create_db, User, DailyLog
 
@@ -15,9 +14,15 @@ SECRET_KEY = "supersecretkey"
 
 app = FastAPI()
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+# ---------- Serve frontend properly (NO API hijacking) ----------
 
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
+@app.get("/")
+def serve_home():
+    return FileResponse("frontend/login.html")
+
+# ---------------------------------------------------------------
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,14 +47,17 @@ class UserPayload(BaseModel):
     username: str
     password: str
 
-def create_token(user_id):
+def create_token(user_id: int):
     return jwt.encode(
         {"user_id": user_id, "exp": datetime.utcnow() + timedelta(days=7)},
         SECRET_KEY,
         algorithm="HS256"
     )
 
-def get_current_user(authorization: str = Header(...), db: Session = Depends(get_db)):
+def get_current_user(
+    authorization: str = Header(...),
+    db: Session = Depends(get_db)
+):
     try:
         token = authorization.replace("Bearer ", "")
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
@@ -65,7 +73,10 @@ def create_user(data: UserPayload, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(400, "User exists")
 
-    user = User(username=data.username, password=data.password)
+    user = User(
+        username=data.username,
+        password=data.password
+    )
     db.add(user)
     db.commit()
     return {"status": "created"}
@@ -117,8 +128,20 @@ def history(
     db: Session = Depends(get_db)
 ):
     logs = db.query(DailyLog).filter(DailyLog.user_id == user.id).all()
-    return [l.__dict__ for l in logs]
 
-@app.get("/")
-def serve_home():
-    return FileResponse("frontend/login.html")
+    return [
+        {
+            "id": l.id,
+            "date": l.date,
+            "appointments_start": l.appointments_start,
+            "appointments_finish": l.appointments_finish,
+            "total_presentations": l.total_presentations,
+            "total_sales": l.total_sales,
+            "total_alp": l.total_alp,
+            "total_ah": l.total_ah,
+            "referrals_collected": l.referrals_collected,
+            "referral_presentations": l.referral_presentations,
+            "referral_sales": l.referral_sales
+        }
+        for l in logs
+    ]
