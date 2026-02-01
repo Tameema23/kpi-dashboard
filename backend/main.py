@@ -144,3 +144,19 @@ def history(
         }
         for l in logs
     ]
+
+@app.get("/index.html")
+def dashboard():
+    return FileResponse("frontend/index.html")
+
+@app.get("/log.html")
+def log_page():
+    return FileResponse("frontend/log.html")
+
+@app.get("/reports.html")
+def reports_page():
+    return FileResponse("frontend/reports.html")
+
+@app.get("/history.html")
+def history_page():
+    return FileResponse("frontend/history.html")
