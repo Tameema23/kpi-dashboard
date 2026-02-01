@@ -2,6 +2,9 @@ if (!localStorage.getItem("token") && !window.location.href.includes("login")) {
   window.location.href = "login.html";
 }
 
+const API_BASE = window.location.origin;
+
+
 const API = window.location.origin;
 const TOKEN = localStorage.getItem("token");
 
