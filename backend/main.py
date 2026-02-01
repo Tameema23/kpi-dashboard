@@ -14,7 +14,9 @@ from backend.database import SessionLocal, create_db, User, DailyLog
 SECRET_KEY = "supersecretkey"
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+
 
 
 app.add_middleware(
