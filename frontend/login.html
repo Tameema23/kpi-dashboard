@@ -74,7 +74,8 @@ async function submitAuth() {
 
     const data = await res.json()
     localStorage.setItem("token", data.token)
-    window.location.href = "index.html"
+    window.location.href = "/"
+
 
   } catch {
     msg.innerText = "Server error"
