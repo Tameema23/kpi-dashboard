@@ -2,7 +2,7 @@ if (!localStorage.getItem("token") && !window.location.href.includes("login")) {
   window.location.href = "login.html";
 }
 
-const API = "http://127.0.0.1:8000";
+const API = window.location.origin;
 const TOKEN = localStorage.getItem("token");
 
 if (!TOKEN && !location.pathname.includes("login")) {
