@@ -2,7 +2,8 @@ if (!localStorage.getItem("token") && !window.location.href.includes("login")) {
   window.location.href = "login.html";
 }
 
-const API_BASE = window.location.origin;
+const API = "https://data-log.onrender.com";
+const API_BASE = API;
 const TOKEN = localStorage.getItem("token");
 
 if (!TOKEN && !location.pathname.includes("login")) {

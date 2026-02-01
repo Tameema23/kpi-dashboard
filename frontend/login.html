@@ -28,6 +28,8 @@
 </div>
 
 <script>
+const API_BASE = "https://data-log.onrender.com"
+
 let isSignup = false
 
 function toggleForm() {
@@ -42,32 +44,40 @@ async function login() {
   const username = document.getElementById("username").value
   const password = document.getElementById("password").value
 
-  const url = isSignup ? "http://127.0.0.1:8000/create-user" : "http://127.0.0.1:8000/login"
+  const url = isSignup 
+    ? `${API_BASE}/create-user` 
+    : `${API_BASE}/login`
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password })
-  })
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    })
 
-  const msg = document.getElementById("msg")
+    const msg = document.getElementById("msg")
 
-  if (!res.ok) {
-    msg.innerText = isSignup ? "Username already exists" : "Invalid credentials"
-    msg.style.color = "red"
-    return
+    if (!res.ok) {
+      msg.innerText = isSignup ? "Username already exists" : "Invalid credentials"
+      msg.style.color = "red"
+      return
+    }
+
+    if (isSignup) {
+      msg.innerText = "Account created! You can now log in."
+      msg.style.color = "green"
+      setTimeout(() => toggleForm(), 1200)
+      return
+    }
+
+    const data = await res.json()
+    localStorage.setItem("token", data.token)
+    window.location.href = "index.html"
+
+  } catch (err) {
+    document.getElementById("msg").innerText = "Server connection failed"
+    document.getElementById("msg").style.color = "red"
   }
-
-  if (isSignup) {
-    msg.innerText = "Account created! Logging in..."
-    msg.style.color = "green"
-    setTimeout(() => toggleForm(), 1000)
-    return
-  }
-
-  const data = await res.json()
-  localStorage.setItem("token", data.token)
-  window.location.href = "index.html"
 }
 </script>
 
