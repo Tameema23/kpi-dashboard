@@ -4,12 +4,18 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from jose import jwt
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
 
 from backend.database import SessionLocal, create_db, User, DailyLog
 
 SECRET_KEY = "supersecretkey"
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -110,3 +116,7 @@ def history(
 ):
     logs = db.query(DailyLog).filter(DailyLog.user_id == user.id).all()
     return [l.__dict__ for l in logs]
+
+@app.get("/")
+def serve_home():
+    return FileResponse("frontend/login.html")
