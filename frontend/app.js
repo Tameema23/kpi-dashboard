@@ -3,9 +3,6 @@ if (!localStorage.getItem("token") && !window.location.href.includes("login")) {
 }
 
 const API_BASE = window.location.origin;
-
-
-const API = window.location.origin;
 const TOKEN = localStorage.getItem("token");
 
 if (!TOKEN && !location.pathname.includes("login")) {
@@ -18,7 +15,7 @@ let chartInstance = null;
 
 async function loadWeekly() {
 
-  const res = await fetch(API + "/history", {
+  const res = await fetch(`${API_BASE}/history`, {
     headers: {
       "Authorization": "Bearer " + TOKEN
     }
@@ -154,7 +151,7 @@ async function save() {
     referral_sales: Number(referral_sales.value || 0)
   };
 
-  const res = await fetch(API + "/log-day", {
+  const res = await fetch(`${API_BASE}/log-day`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -172,13 +169,11 @@ async function save() {
   }
 }
 
-
-
 /* ================= HISTORY ================= */
 
 async function loadHistory(){
 
- const res = await fetch(API+"/history",{
+ const res = await fetch(`${API_BASE}/history`,{
    headers:{
      "Authorization":"Bearer "+TOKEN
    }
