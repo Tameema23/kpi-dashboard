@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+sqlalchemy
+passlib[argon2]
+python-multipart

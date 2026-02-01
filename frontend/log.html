@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="style.css">
+<title>Log Day</title>
+</head>
+<body>
+
+<div class="topbar">Daily KPI Entry</div>
+
+<div class="page">
+
+<div class="back" onclick="location.href='index.html'">← Back to Dashboard</div>
+
+<div class="card">
+
+<input id="date" type="date">
+
+<input id="appointments_start" placeholder="Appointments Start" type="number">
+<input id="appointments_finish" placeholder="Appointments Finish" type="number">
+<input id="total_presentations" placeholder="Total Presentations" type="number">
+<input id="total_sales" placeholder="Total Sales" type="number">
+<input id="total_alp" placeholder="Total ALP" type="number">
+<input id="total_ah" placeholder="Total AH" type="number">
+<input id="referrals_collected" placeholder="Referrals Collected" type="number">
+<input id="referral_presentations" placeholder="Referral Presentations" type="number">
+<input id="referral_sales" placeholder="Referral Sales" type="number">
+
+<button class="btn" onclick="save()">Save Day</button>
+
+<div id="saveSuccess" class="save-success">Saved successfully ✓</div>
+
+</div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

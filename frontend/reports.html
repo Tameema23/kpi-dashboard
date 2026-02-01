@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="style.css">
+<title>Weekly Reports</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="topbar">Weekly KPI Reports</div>
+
+<div class="page">
+
+<div class="back" onclick="location.href='index.html'">← Back to Dashboard</div>
+
+<div class="controls">
+
+  <div class="week-picker">
+    <label>Week</label>
+    <select id="weekSelect" onchange="loadWeekly()"></select>
+  </div>
+
+  <button class="btn export-btn" onclick="exportExcel()">Export Excel</button>
+
+</div>
+
+
+<div class="kpi-grid">
+<div class="kpi-card">Presentations<b id="wk_pres">0</b></div>
+<div class="kpi-card">Sales<b id="wk_sales">0</b></div>
+<div class="kpi-card">Show Ratio<b id="wk_show">0%</b></div>
+<div class="kpi-card">Closing %<b id="wk_close">0%</b></div>
+<div class="kpi-card">ALP / Sale<b id="wk_alp">$0</b></div>
+<div class="kpi-card">Refs / Pres<b id="wk_refs">0</b></div>
+</div>
+
+<div class="card chart-card">
+<canvas id="kpiChart"></canvas>
+</div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

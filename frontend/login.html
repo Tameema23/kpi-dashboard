@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>KPI Login</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="topbar">Production KPI System</div>
+
+<div class="page center">
+
+<div class="card auth-card">
+
+<h2 id="formTitle">Login</h2>
+
+<input id="username" placeholder="Username">
+<input id="password" type="password" placeholder="Password">
+
+<button class="btn" onclick="login()">Login</button>
+
+<p class="switch" onclick="toggleForm()">Create an account</p>
+
+<p id="msg"></p>
+
+</div>
+
+</div>
+
+<script>
+let isSignup = false
+
+function toggleForm() {
+  isSignup = !isSignup
+  document.getElementById("formTitle").innerText = isSignup ? "Create Account" : "Login"
+  document.querySelector(".btn").innerText = isSignup ? "Create Account" : "Login"
+  document.querySelector(".switch").innerText = isSignup ? "Back to login" : "Create an account"
+  document.getElementById("msg").innerText = ""
+}
+
+async function login() {
+  const username = document.getElementById("username").value
+  const password = document.getElementById("password").value
+
+  const url = isSignup ? "http://127.0.0.1:8000/create-user" : "http://127.0.0.1:8000/login"
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  })
+
+  const msg = document.getElementById("msg")
+
+  if (!res.ok) {
+    msg.innerText = isSignup ? "Username already exists" : "Invalid credentials"
+    msg.style.color = "red"
+    return
+  }
+
+  if (isSignup) {
+    msg.innerText = "Account created! Logging in..."
+    msg.style.color = "green"
+    setTimeout(() => toggleForm(), 1000)
+    return
+  }
+
+  const data = await res.json()
+  localStorage.setItem("token", data.token)
+  window.location.href = "index.html"
+}
+</script>
+
+</body>
+</html>
