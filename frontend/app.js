@@ -281,13 +281,14 @@ async function deleteSelected(){
   }
 }
 
-/* ================= HELPERS ================= */
+/* ================= EDIT AUTOFILL ================= */
 
 function editDay(data){
   localStorage.setItem("editEntry", JSON.stringify(data));
   location.href = "log.html";
 }
 
+/* ================= HELPERS ================= */
 
 function formatDate(d){
  return d.toLocaleDateString(undefined,{
@@ -305,6 +306,25 @@ window.onload=()=>{
     new Date().toLocaleString("en-US",{timeZone:"America/Edmonton"})
   );
   dateInput.value=calgary.toISOString().split("T")[0];
+ }
+
+ const editEntry = localStorage.getItem("editEntry");
+
+ if(editEntry){
+  const d = JSON.parse(editEntry);
+
+  document.getElementById("date").value = d.date;
+  appointments_start.value = d.appointments_start;
+  appointments_finish.value = d.appointments_finish;
+  total_presentations.value = d.total_presentations;
+  total_sales.value = d.total_sales;
+  total_alp.value = d.total_alp;
+  total_ah.value = d.total_ah;
+  referrals_collected.value = d.referrals_collected;
+  referral_presentations.value = d.referral_presentations;
+  referral_sales.value = d.referral_sales;
+
+  localStorage.removeItem("editEntry");
  }
 
  if(typeof weekSelect!=="undefined") loadWeekly();
