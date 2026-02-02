@@ -169,7 +169,14 @@ async function save() {
   if (res.ok) {
     document.getElementById("saveSuccess").style.display = "block";
   } else {
-    alert("Save failed");
+
+    const msg = await res.text();
+
+    if(msg.includes("already logged")){
+      alert("This day is already logged. You can edit it in History.");
+    }else{
+      alert("Save failed");
+    }
   }
 }
 

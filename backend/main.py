@@ -143,6 +143,17 @@ def log_day(
     db: Session = Depends(get_db)
 ):
 
+    existing = db.query(DailyLog).filter(
+        DailyLog.user_id == user.id,
+        DailyLog.date == data.date
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Day already logged"
+        )
+
     entry = DailyLog(
         user_id=user.id,
         **data.dict()
