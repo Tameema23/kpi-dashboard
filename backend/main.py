@@ -13,7 +13,7 @@ SECRET_KEY = "supersecretkey"
 
 app = FastAPI()
 
-# ---------------- SERVE FRONTEND SAFELY ---------------- #
+# ---------------- SERVE FRONTEND ---------------- #
 
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
@@ -21,7 +21,23 @@ app.mount("/static", StaticFiles(directory="frontend"), name="static")
 def serve_home():
     return FileResponse("frontend/login.html")
 
-# ------------------------------------------------------ #
+@app.get("/index.html")
+def dashboard():
+    return FileResponse("frontend/index.html")
+
+@app.get("/log.html")
+def log_page():
+    return FileResponse("frontend/log.html")
+
+@app.get("/reports.html")
+def reports_page():
+    return FileResponse("frontend/reports.html")
+
+@app.get("/history.html")
+def history_page():
+    return FileResponse("frontend/history.html")
+
+# ---------------- CORS ---------------- #
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +48,8 @@ app.add_middleware(
 )
 
 create_db()
+
+# ---------------- DB ---------------- #
 
 def get_db():
     db = SessionLocal()
@@ -46,12 +64,14 @@ class UserPayload(BaseModel):
     username: str
     password: str
 
+
 def create_token(user_id: int):
     return jwt.encode(
         {"user_id": user_id, "exp": datetime.utcnow() + timedelta(days=7)},
         SECRET_KEY,
         algorithm="HS256"
     )
+
 
 def get_current_user(
     authorization: str = Header(...),
@@ -60,12 +80,18 @@ def get_current_user(
     try:
         token = authorization.replace("Bearer ", "")
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-        user = db.query(User).filter(User.id == payload["user_id"]).first()
+
+        user = db.query(User).filter(
+            User.id == payload["user_id"]
+        ).first()
+
         if not user:
             raise HTTPException(401)
+
         return user
     except:
         raise HTTPException(401)
+
 
 @app.post("/create-user")
 def create_user(data: UserPayload, db: Session = Depends(get_db)):
@@ -76,9 +102,12 @@ def create_user(data: UserPayload, db: Session = Depends(get_db)):
         username=data.username,
         password=data.password
     )
+
     db.add(user)
     db.commit()
+
     return {"status": "created"}
+
 
 @app.post("/login")
 def login(data: UserPayload, db: Session = Depends(get_db)):
@@ -106,12 +135,14 @@ class LogPayload(BaseModel):
     referral_presentations: int
     referral_sales: int
 
+
 @app.post("/log-day")
 def log_day(
     data: LogPayload,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+
     entry = DailyLog(
         user_id=user.id,
         **data.dict()
@@ -119,14 +150,19 @@ def log_day(
 
     db.add(entry)
     db.commit()
+
     return {"status": "saved"}
+
 
 @app.get("/history")
 def history(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    logs = db.query(DailyLog).filter(DailyLog.user_id == user.id).all()
+
+    logs = db.query(DailyLog).filter(
+        DailyLog.user_id == user.id
+    ).all()
 
     return [
         {
@@ -145,37 +181,20 @@ def history(
         for l in logs
     ]
 
-@app.get("/index.html")
-def dashboard():
-    return FileResponse("frontend/index.html")
+# ---------------- DELETE (BULK) ---------------- #
 
-@app.get("/log.html")
-def log_page():
-    return FileResponse("frontend/log.html")
-
-@app.get("/reports.html")
-def reports_page():
-    return FileResponse("frontend/reports.html")
-
-@app.get("/history.html")
-def history_page():
-    return FileResponse("frontend/history.html")
-
-@app.delete("/delete-day/{date}")
-def delete_day(
-    date: str,
+@app.delete("/delete-days")
+def delete_days(
+    ids: list[int],
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    entry = db.query(DailyLog).filter(
+
+    db.query(DailyLog).filter(
         DailyLog.user_id == user.id,
-        DailyLog.date == date
-    ).first()
+        DailyLog.id.in_(ids)
+    ).delete(synchronize_session=False)
 
-    if not entry:
-        raise HTTPException(404, "Entry not found")
-
-    db.delete(entry)
     db.commit()
 
     return {"status": "deleted"}

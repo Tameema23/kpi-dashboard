@@ -20,7 +20,6 @@ function getCalgaryToday() {
   ).toISOString().split("T")[0]
 }
 
-
 /* ================= WEEKLY ================= */
 
 async function loadWeekly() {
@@ -149,7 +148,6 @@ async function save() {
 
   const payload = {
     date: document.getElementById("date").value,
-
     appointments_start: Number(appointments_start.value || 0),
     appointments_finish: Number(appointments_finish.value || 0),
     total_presentations: Number(total_presentations.value || 0),
@@ -173,43 +171,16 @@ async function save() {
   if (res.ok) {
     document.getElementById("saveSuccess").style.display = "block";
   } else {
-    const err = await res.text();
-    console.error(err);
-    alert("Save failed — check console");
+    alert("Save failed");
   }
 }
-/* ================= DELETE DAY ================= */
-
-async function deleteDay(){
-
-  const date = document.getElementById("date").value;
-
-  if(!confirm("Delete this day permanently?")) return;
-
-  const res = await fetch(`${API_BASE}/delete-day/${date}`,{
-    method:"DELETE",
-    headers:{
-      "Authorization":"Bearer " + TOKEN
-    }
-  });
-
-  if(res.ok){
-    localStorage.removeItem("editDate");
-    location.href="history.html";
-  }else{
-    alert("Delete failed");
-  }
-}
-
 
 /* ================= HISTORY ================= */
 
 async function loadHistory(){
 
  const res = await fetch(`${API_BASE}/history`,{
-   headers:{
-     "Authorization":"Bearer "+TOKEN
-   }
+   headers:{ "Authorization":"Bearer "+TOKEN }
  });
 
  const data = await res.json();
@@ -219,6 +190,9 @@ async function loadHistory(){
  data.forEach(d=>{
   historyBody.innerHTML+=`
    <tr>
+    <td>
+      <input type="checkbox" class="rowCheck" value="${d.id}">
+    </td>
     <td>${d.date}</td>
     <td>${d.appointments_start}</td>
     <td>${d.appointments_finish}</td>
@@ -229,9 +203,45 @@ async function loadHistory(){
     <td>${d.referrals_collected}</td>
     <td>${d.referral_presentations}</td>
     <td>${d.referral_sales}</td>
-    <td><button class="btn small" onclick="editDay('${d.date}')">Edit</button></td>
+    <td>
+      <button class="btn small" onclick="editDay('${d.date}')">
+        Edit
+      </button>
+    </td>
    </tr>`;
  });
+}
+
+/* ================= DELETE ================= */
+
+async function deleteSelected(){
+
+  const checked = [...document.querySelectorAll(".rowCheck:checked")]
+                    .map(c => Number(c.value));
+
+  if(checked.length === 0){
+    alert("Select at least one day to delete");
+    return;
+  }
+
+  if(!confirm("Are you sure you want to permanently delete selected days?")){
+    return;
+  }
+
+  const res = await fetch(`${API_BASE}/delete-days`,{
+    method:"DELETE",
+    headers:{
+      "Content-Type":"application/json",
+      "Authorization":"Bearer " + TOKEN
+    },
+    body: JSON.stringify(checked)
+  });
+
+  if(res.ok){
+    loadHistory();
+  }else{
+    alert("Delete failed");
+  }
 }
 
 /* ================= HELPERS ================= */
@@ -261,12 +271,6 @@ window.onload=()=>{
 
  if(typeof weekSelect!=="undefined") loadWeekly();
  if(typeof historyBody!=="undefined") loadHistory();
- const editDate = localStorage.getItem("editDate");
-
- if(editDate && document.getElementById("date")){
-  document.getElementById("date").value = editDate;
- }
-
 };
 
 /* ================= LOGOUT ================= */
@@ -278,40 +282,41 @@ function logout() {
 
 window.logout = logout;
 
+/* ================= EXPORT ================= */
+
 async function exportExcel() {
-  const token = localStorage.getItem("token")
 
   const res = await fetch("/history", {
-    headers: { Authorization: "Bearer " + token }
-  })
+    headers: { Authorization: "Bearer " + TOKEN }
+  });
 
   if (!res.ok) {
-    alert("Failed to fetch data")
-    return
+    alert("Failed to fetch data");
+    return;
   }
 
-  const data = await res.json()
+  const data = await res.json();
 
   if (data.length === 0) {
-    alert("No data to export yet")
-    return
+    alert("No data to export yet");
+    return;
   }
 
-  const headers = Object.keys(data[0]).filter(k => k !== "id" && k !== "user_id")
+  const headers = Object.keys(data[0]).filter(k => k !== "id" && k !== "user_id");
 
-  let csv = headers.join(",") + "\n"
+  let csv = headers.join(",") + "\n";
 
   data.forEach(row => {
-    csv += headers.map(h => row[h]).join(",") + "\n"
-  })
+    csv += headers.map(h => row[h]).join(",") + "\n";
+  });
 
-  const blob = new Blob([csv], { type: "text/csv" })
-  const url = window.URL.createObjectURL(blob)
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = window.URL.createObjectURL(blob);
 
-  const a = document.createElement("a")
-  a.href = url
-  a.download = "kpi_data.csv"
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "kpi_data.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }

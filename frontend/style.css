@@ -301,3 +301,19 @@ h2 {
 .delete-btn:hover{
   background:#dc2626;
 }
+
+.delete-btn{
+  background:#ef4444;
+  margin-bottom:12px;
+}
+
+.delete-btn:hover{
+  background:#dc2626;
+}
+
+/* Make checkboxes cleaner and clickable */
+
+.history-table input[type="checkbox"]{
+  transform:scale(1.2);
+  cursor:pointer;
+}
