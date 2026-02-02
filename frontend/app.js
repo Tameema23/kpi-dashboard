@@ -239,3 +239,42 @@ function logout() {
 }
 
 window.logout = logout;
+
+async function exportExcel() {
+  const token = localStorage.getItem("token")
+
+  const res = await fetch("/history", {
+    headers: { Authorization: "Bearer " + token }
+  })
+
+  if (!res.ok) {
+    alert("Failed to fetch data")
+    return
+  }
+
+  const data = await res.json()
+
+  if (data.length === 0) {
+    alert("No data to export yet")
+    return
+  }
+
+  const headers = Object.keys(data[0]).filter(k => k !== "id" && k !== "user_id")
+
+  let csv = headers.join(",") + "\n"
+
+  data.forEach(row => {
+    csv += headers.map(h => row[h]).join(",") + "\n"
+  })
+
+  const blob = new Blob([csv], { type: "text/csv" })
+  const url = window.URL.createObjectURL(blob)
+
+  const a = document.createElement("a")
+  a.href = url
+  a.download = "kpi_data.csv"
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
