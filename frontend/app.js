@@ -12,6 +12,15 @@ if (!TOKEN && !location.pathname.includes("login")) {
 
 let chartInstance = null;
 
+/* ================= TIME ================= */
+
+function getCalgaryToday() {
+  return new Date(
+    new Date().toLocaleString("en-US", { timeZone: "America/Edmonton" })
+  ).toISOString().split("T")[0]
+}
+
+
 /* ================= WEEKLY ================= */
 
 async function loadWeekly() {
