@@ -144,15 +144,16 @@ def log_day(
 ):
 
     existing = db.query(DailyLog).filter(
-        DailyLog.user_id == user.id,
-        DailyLog.date == data.date
+    DailyLog.user_id == user.id,
+    DailyLog.date == data.date
     ).first()
 
     if existing:
-        raise HTTPException(
-            status_code=400,
-            detail="Day already logged"
-        )
+        for key, value in data.dict().items():
+            setattr(existing, key, value)
+
+        db.commit()
+        return {"status": "updated"}
 
     entry = DailyLog(
         user_id=user.id,
