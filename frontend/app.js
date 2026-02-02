@@ -207,7 +207,7 @@ async function loadHistory(){
     <td>${d.referral_presentations}</td>
     <td>${d.referral_sales}</td>
     <td>
-      <button class="btn small" onclick="editDay('${d.date}')">Edit</button>
+      <button class="btn small" onclick='editDay(${JSON.stringify(d)})'>Edit</button>
     </td>
    </tr>`;
  });
@@ -283,10 +283,11 @@ async function deleteSelected(){
 
 /* ================= HELPERS ================= */
 
-function editDay(d){
- localStorage.setItem("editDate",d);
- location.href="log.html";
+function editDay(data){
+  localStorage.setItem("editEntry", JSON.stringify(data));
+  location.href = "log.html";
 }
+
 
 function formatDate(d){
  return d.toLocaleDateString(undefined,{
