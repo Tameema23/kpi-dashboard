@@ -178,6 +178,29 @@ async function save() {
     alert("Save failed — check console");
   }
 }
+/* ================= DELETE DAY ================= */
+
+async function deleteDay(){
+
+  const date = document.getElementById("date").value;
+
+  if(!confirm("Delete this day permanently?")) return;
+
+  const res = await fetch(`${API_BASE}/delete-day/${date}`,{
+    method:"DELETE",
+    headers:{
+      "Authorization":"Bearer " + TOKEN
+    }
+  });
+
+  if(res.ok){
+    localStorage.removeItem("editDate");
+    location.href="history.html";
+  }else{
+    alert("Delete failed");
+  }
+}
+
 
 /* ================= HISTORY ================= */
 
@@ -238,6 +261,12 @@ window.onload=()=>{
 
  if(typeof weekSelect!=="undefined") loadWeekly();
  if(typeof historyBody!=="undefined") loadHistory();
+ const editDate = localStorage.getItem("editDate");
+
+ if(editDate && document.getElementById("date")){
+  document.getElementById("date").value = editDate;
+ }
+
 };
 
 /* ================= LOGOUT ================= */
@@ -286,4 +315,3 @@ async function exportExcel() {
   a.click()
   document.body.removeChild(a)
 }
-

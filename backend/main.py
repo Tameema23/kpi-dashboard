@@ -160,3 +160,22 @@ def reports_page():
 @app.get("/history.html")
 def history_page():
     return FileResponse("frontend/history.html")
+
+@app.delete("/delete-day/{date}")
+def delete_day(
+    date: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    entry = db.query(DailyLog).filter(
+        DailyLog.user_id == user.id,
+        DailyLog.date == date
+    ).first()
+
+    if not entry:
+        raise HTTPException(404, "Entry not found")
+
+    db.delete(entry)
+    db.commit()
+
+    return {"status": "deleted"}

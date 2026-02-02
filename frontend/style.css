@@ -293,3 +293,11 @@ h2 {
 .logout:hover {
   opacity: 0.85;
 }
+
+.delete-btn{
+  background:#ef4444;
+}
+
+.delete-btn:hover{
+  background:#dc2626;
+}
