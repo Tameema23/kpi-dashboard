@@ -17,7 +17,7 @@ let chartInstance = null;
 function getCalgaryToday() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "America/Edmonton" })
-  ).toISOString().split("T")[0]
+  ).toISOString().split("T")[0];
 }
 
 /* ================= WEEKLY ================= */
@@ -25,9 +25,7 @@ function getCalgaryToday() {
 async function loadWeekly() {
 
   const res = await fetch(`${API_BASE}/history`, {
-    headers: {
-      "Authorization": "Bearer " + TOKEN
-    }
+    headers: { "Authorization": "Bearer " + TOKEN }
   });
 
   const data = await res.json();
@@ -193,7 +191,8 @@ async function loadHistory(){
   historyBody.innerHTML+=`
    <tr class="data-row">
     <td class="select-col">
-      <input type="checkbox" class="rowCheck hidden"
+      <input type="checkbox"
+             class="rowCheck hidden"
              value="${d.id}"
              onchange="toggleRowHighlight(this)">
     </td>
@@ -214,20 +213,54 @@ async function loadHistory(){
  });
 }
 
+/* ================= DELETE MODE ================= */
 
-/* ================= DELETE ================= */
+function toggleDeleteMode(){
+
+  deleteMode = !deleteMode;
+
+  document.querySelectorAll(".rowCheck").forEach(c=>{
+    c.classList.toggle("hidden", !deleteMode);
+    c.checked = false;
+  });
+
+  document.querySelectorAll(".data-row").forEach(r=>{
+    r.classList.remove("delete-selected");
+  });
+
+  document.querySelectorAll(".select-col").forEach(c=>{
+    c.style.display = deleteMode ? "table-cell" : "none";
+  });
+
+  document.getElementById("deleteSelectedBtn")
+          .classList.toggle("hidden", !deleteMode);
+
+  document.getElementById("deleteToggle").innerText =
+    deleteMode ? "Cancel" : "Delete";
+
+  const selectAll = document.getElementById("selectAll");
+  if(selectAll) selectAll.checked = false;
+}
+
+function toggleRowHighlight(box){
+  const row = box.closest("tr");
+  row.classList.toggle("delete-selected", box.checked);
+}
+
+function toggleSelectAll(source){
+  document.querySelectorAll(".rowCheck").forEach(box=>{
+    box.checked = source.checked;
+    toggleRowHighlight(box);
+  });
+}
 
 async function deleteSelected(){
 
-  const checked = [...document.querySelectorAll(".rowCheck:checked")]
-                    .map(c => Number(c.value));
+  const ids = [...document.querySelectorAll(".rowCheck:checked")]
+              .map(c => Number(c.value));
 
-  if(checked.length === 0){
+  if(ids.length === 0){
     alert("Select at least one day to delete");
-    return;
-  }
-
-  if(!confirm("Are you sure you want to permanently delete selected days?")){
     return;
   }
 
@@ -237,10 +270,11 @@ async function deleteSelected(){
       "Content-Type":"application/json",
       "Authorization":"Bearer " + TOKEN
     },
-    body: JSON.stringify(checked)
+    body: JSON.stringify(ids)
   });
 
   if(res.ok){
+    toggleDeleteMode();
     loadHistory();
   }else{
     alert("Delete failed");
@@ -323,89 +357,3 @@ async function exportExcel() {
   a.click();
   document.body.removeChild(a);
 }
-
-function toggleDeleteMode(){
-  deleteMode = !deleteMode;
-
-  document.querySelectorAll(".rowCheck").forEach(c=>{
-    c.classList.toggle("hidden", !deleteMode);
-  });
-
-  document.querySelectorAll(".select-col").forEach(c=>{
-    c.style.display = deleteMode ? "table-cell" : "none";
-  });
-}
-
-function openConfirm(){
-
-  const checked = document.querySelectorAll(".rowCheck:checked");
-
-  if(checked.length === 0){
-    alert("Select at least one day");
-    return;
-  }
-
-  document.getElementById("confirmOverlay").classList.remove("hidden");
-}
-
-function closeConfirm(){
-  document.getElementById("confirmOverlay").classList.add("hidden");
-}
-
-async function confirmDelete(){
-
-  const ids = [...document.querySelectorAll(".rowCheck:checked")]
-              .map(c => Number(c.value));
-
-  const res = await fetch(`${API_BASE}/delete-days`,{
-    method:"DELETE",
-    headers:{
-      "Content-Type":"application/json",
-      "Authorization":"Bearer " + TOKEN
-    },
-    body: JSON.stringify(ids)
-  });
-
-  if(res.ok){
-    closeConfirm();
-    toggleDeleteMode();
-    loadHistory();
-  }else{
-    alert("Delete failed");
-  }
-}
-
-function toggleDeleteMode(){
-
-  deleteMode = !deleteMode;
-
-  document.querySelectorAll(".rowCheck").forEach(c=>{
-    c.classList.toggle("hidden", !deleteMode);
-    c.checked = false;
-  });
-
-  document.querySelectorAll(".data-row").forEach(r=>{
-    r.classList.remove("delete-selected");
-  });
-
-  document.querySelectorAll(".select-col").forEach(c=>{
-    c.style.display = deleteMode ? "table-cell" : "none";
-  });
-
-  const selectAll = document.getElementById("selectAll");
-  if(selectAll) selectAll.checked = false;
-}
-
-function toggleRowHighlight(box){
-  const row = box.closest("tr");
-  row.classList.toggle("delete-selected", box.checked);
-}
-
-function toggleSelectAll(source){
-
-  document.querySelectorAll(".rowCheck").forEach(box=>{
-    box.checked = source.checked;
-    toggleRowHighlight(box);
-  });
-}
-

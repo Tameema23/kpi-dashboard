@@ -17,9 +17,17 @@
 <h2>Daily Records</h2>
 
 <div class="delete-controls">
-  <button class="btn small" onclick="toggleDeleteMode()">Delete Mode</button>
-  <button class="btn small delete-btn" onclick="openConfirm()">Delete Selected</button>
+  <button class="btn small" id="deleteToggle" onclick="toggleDeleteMode()">
+    Delete
+  </button>
+
+  <button class="btn small delete-btn hidden"
+          id="deleteSelectedBtn"
+          onclick="deleteSelected()">
+    Delete Selected
+  </button>
 </div>
+
 
 <table class="history-table">
 <thead>
@@ -47,24 +55,6 @@
 </div>
 </div>
 
-<!-- CONFIRM MODAL -->
-
-<div id="confirmOverlay" class="overlay hidden">
-
-  <div class="card auth-card confirm-card">
-
-    <h2>Confirm Delete</h2>
-
-    <p>Are you sure you want to permanently delete the selected days?</p>
-
-    <div class="confirm-actions">
-      <button class="btn delete-btn" onclick="confirmDelete()">Yes, Delete</button>
-      <button class="btn" onclick="closeConfirm()">No</button>
-    </div>
-
-  </div>
-
-</div>
 
 <script src="/static/app.js"></script>
 <script>loadHistory()</script>
