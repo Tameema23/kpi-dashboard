@@ -34,19 +34,16 @@
 <div class="kpi-card">Refs / Pres<b id="wk_refs">0</b></div>
 </div>
 
-
-<div class="chart-selector">
-  <button class="selector-btn active" onclick="setChart('sales', this)">Sales</button>
-  <button class="selector-btn" onclick="setChart('presentations', this)">Presentations</button>
-  <button class="selector-btn" onclick="setChart('closing', this)">Closing %</button>
-  <button class="selector-btn" onclick="setChart('show', this)">Show %</button>
-  <button class="selector-btn" onclick="setChart('alp', this)">ALP / Sale</button>
+<div class="card chart-card">
+  <h3>Weekly Sales Trend</h3>
+  <canvas id="kpiChart"></canvas>
 </div>
-
 
 <div class="card chart-card">
-<canvas id="kpiChart"></canvas>
+  <h3>Closing Ratio</h3>
+  <canvas id="closingPieChart"></canvas>
 </div>
+
 
 </div>
 

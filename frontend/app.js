@@ -10,10 +10,7 @@ if (!TOKEN && !location.pathname.includes("login")) {
   location.href = "login.html";
 }
 
-let currentChart = "sales";
-let cachedWeekData = [];
-let cachedLabels = [];
-
+let chartInstance = null;
 
 /* ================= TIME ================= */
 
@@ -94,10 +91,6 @@ async function loadWeekly() {
   const weekData = weeks[chosen].sort(
     (a,b)=>new Date(a.date)-new Date(b.date)
   );
-  
-  cachedWeekData = weekData;
-  cachedLabels = labels;
-
 
   let labels=[], salesTrend=[];
   let pres=0,sales=0,alp=0,refs=0,apptFinish=0;
@@ -120,7 +113,8 @@ async function loadWeekly() {
   wk_alp.innerText=sales?"$"+Math.round(alp/sales):"$0";
   wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
 
-  renderSelectedChart();
+  drawChart(labels,salesTrend);
+  drawClosingPieChart(sales, Math.max(pres - sales, 0));
 }
 
 /* ================= CHART ================= */
@@ -147,82 +141,26 @@ function drawChart(labels,data){
   });
 }
 
-function setChart(type, btn){
-  currentChart = type;
+function drawClosingPieChart(closed, notClosed) {
 
-  document.querySelectorAll(".selector-btn")
-    .forEach(b => b.classList.remove("active"));
+  const ctx = document.getElementById("closingPieChart");
+  if (!ctx) return;
 
-  if (btn) btn.classList.add("active");
+  if (ctx.chart) ctx.chart.destroy();
 
-  // Force redraw using cached weekly data
-  if (cachedWeekData.length) {
-    renderSelectedChart();
-  }
-}
-
-
-function renderSelectedChart(){
-
-  if(chartInstance) chartInstance.destroy();
-
-  let data = [];
-  let type = "line";
-  let label = "";
-
-  if(currentChart === "sales"){
-    data = cachedWeekData.map(d => d.total_sales);
-    label = "Sales";
-  }
-
-  if(currentChart === "presentations"){
-    data = cachedWeekData.map(d => d.total_presentations);
-    label = "Presentations";
-    type = "bar";
-  }
-
-  if(currentChart === "closing"){
-    data = cachedWeekData.map(d =>
-      d.total_presentations
-        ? (d.total_sales / d.total_presentations) * 100
-        : 0
-    );
-    label = "Closing %";
-  }
-
-  if(currentChart === "show"){
-    data = cachedWeekData.map(d =>
-      d.appointments_finish
-        ? (d.total_presentations / d.appointments_finish) * 100
-        : 0
-    );
-    label = "Show %";
-  }
-
-  if(currentChart === "alp"){
-    data = cachedWeekData.map(d =>
-      d.total_sales
-        ? d.total_alp / d.total_sales
-        : 0
-    );
-    label = "ALP / Sale";
-  }
-
-  chartInstance = new Chart(kpiChart,{
-    type,
-    data:{
-      labels: cachedLabels,
-      datasets:[{
-        label,
-        data,
-        borderWidth:3,
-        tension:.35,
-        backgroundColor:"#3b82f6"
+  ctx.chart = new Chart(ctx, {
+    type: "pie",
+    data: {
+      labels: ["Closed", "Not Closed"],
+      datasets: [{
+        data: [closed, notClosed],
+        backgroundColor: ["#22c55e", "#ef4444"]
       }]
     },
-    options:{
-      maintainAspectRatio:false,
-      scales:{ y:{ beginAtZero:true } }
+    options: {
+      plugins: {
+        legend: { position: "bottom" }
+      }
     }
   });
 }

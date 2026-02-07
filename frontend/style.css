@@ -381,28 +381,3 @@ h2 {
 .hidden{
  display:none;
 }
-
-.chart-selector{
-  display:flex;
-  gap:10px;
-  margin-bottom:16px;
-  flex-wrap:wrap;
-}
-
-.selector-btn{
-  padding:8px 14px;
-  border-radius:10px;
-  border:none;
-  background:#e5e7eb;
-  font-weight:600;
-  cursor:pointer;
-}
-
-.selector-btn.active{
-  background:#3b82f6;
-  color:white;
-}
-
-.chart-card{
-  height:320px;
-}
