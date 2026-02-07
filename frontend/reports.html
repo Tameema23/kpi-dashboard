@@ -15,10 +15,22 @@
 
 <div class="controls">
 
-  <div class="week-picker">
-    <label>Week</label>
-    <select id="weekSelect" onchange="loadWeekly()"></select>
-  </div>
+<div class="week-picker">
+  <label>Week</label>
+  <select id="weekSelect" onchange="loadWeekly()"></select>
+</div>
+
+<div class="week-picker">
+  <label>Graph</label>
+  <select id="graphSelect" onchange="selectGraph()">
+    <option value="all">All Graphs</option>
+    <option value="close">Closing Ratio</option>
+    <option value="alp">ALP / Sale</option>
+    <option value="show">Show Ratio</option>
+    <option value="pres">Presentations</option>
+  </select>
+</div>
+
 
   <button class="btn export-btn" onclick="exportExcel()">Export Excel</button>
 
@@ -36,27 +48,28 @@
 
 <div class="charts-grid">
 
-  <div class="card chart-card">
+  <div class="card chart-card" data-chart="close">
     <h3>Closing Ratio</h3>
     <canvas id="closeChart"></canvas>
   </div>
 
-  <div class="card chart-card">
+  <div class="card chart-card" data-chart="alp">
     <h3>ALP per Sale</h3>
     <canvas id="alpChart"></canvas>
   </div>
 
-  <div class="card chart-card">
+  <div class="card chart-card" data-chart="show">
     <h3>Show Ratio</h3>
     <canvas id="showChart"></canvas>
   </div>
 
-  <div class="card chart-card">
+  <div class="card chart-card" data-chart="pres">
     <h3>Presentations</h3>
     <canvas id="presChart"></canvas>
   </div>
 
 </div>
+
 
 
 </div>

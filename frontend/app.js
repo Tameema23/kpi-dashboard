@@ -44,7 +44,7 @@ async function loadWeekly() {
     );
     return;
   }
-  
+
   const weeks = {};
 
   data.forEach(d => {
@@ -374,6 +374,10 @@ function formatDate(d){
 }
 
 window.onload=()=>{
+  if (document.getElementById("graphSelect")) {
+    selectGraph();
+  }
+
 
  const dateInput=document.getElementById("date");
  if(dateInput){
@@ -452,4 +456,17 @@ async function exportExcel() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+function selectGraph() {
+  const selected = document.getElementById("graphSelect").value;
+  const cards = document.querySelectorAll(".chart-card");
+
+  cards.forEach(card => {
+    if (selected === "all" || card.dataset.chart === selected) {
+      card.style.display = "block";
+    } else {
+      card.style.display = "none";
+    }
+  });
 }
