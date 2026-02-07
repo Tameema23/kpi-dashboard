@@ -34,36 +34,19 @@
 <div class="kpi-card">Refs / Pres<b id="wk_refs">0</b></div>
 </div>
 
-<div class="charts-grid">
 
-  <div class="card chart-card">
-    <h3>Closing Ratio</h3>
-    <canvas id="closingPie"></canvas>
-  </div>
-
-  <div class="card chart-card">
-    <h3>ALP per Sale</h3>
-    <canvas id="alpLine"></canvas>
-  </div>
-
-  <div class="card chart-card">
-    <h3>Show Ratio</h3>
-    <canvas id="showLine"></canvas>
-  </div>
-
-  <div class="card chart-card">
-    <h3>Sales Trend</h3>
-    <canvas id="salesLine"></canvas>
-  </div>
-
-  <div class="card chart-card center-chart">
-    <h3>Presentations</h3>
-    <canvas id="presBar"></canvas>
-  </div>
-
+<div class="chart-selector">
+  <button class="selector-btn active" onclick="setChart('sales', this)">Sales</button>
+  <button class="selector-btn" onclick="setChart('presentations', this)">Presentations</button>
+  <button class="selector-btn" onclick="setChart('closing', this)">Closing %</button>
+  <button class="selector-btn" onclick="setChart('show', this)">Show %</button>
+  <button class="selector-btn" onclick="setChart('alp', this)">ALP / Sale</button>
 </div>
 
 
+<div class="card chart-card">
+<canvas id="kpiChart"></canvas>
+</div>
 
 </div>
 

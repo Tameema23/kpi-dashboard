@@ -10,7 +10,9 @@ if (!TOKEN && !location.pathname.includes("login")) {
   location.href = "login.html";
 }
 
-let charts = {};
+let currentChart = "sales";
+let cachedWeekData = [];
+let cachedLabels = [];
 
 
 /* ================= TIME ================= */
@@ -32,21 +34,9 @@ async function loadWeekly() {
   const data = await res.json();
 
   if (!data.length) {
-    const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-
-    const emptyWeek = labels.map(l => ({
-      date: l,
-      total_presentations: 0,
-      total_sales: 0,
-      total_alp: 0,
-      appointments_finish: 0
-    }));
-
-    renderCharts(labels, emptyWeek);
+    drawChart(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], [0,0,0,0,0,0,0]);
     return;
   }
-
-
 
   const weeks = {};
 
@@ -104,6 +94,10 @@ async function loadWeekly() {
   const weekData = weeks[chosen].sort(
     (a,b)=>new Date(a.date)-new Date(b.date)
   );
+  
+  cachedWeekData = weekData;
+  cachedLabels = labels;
+
 
   let labels=[], salesTrend=[];
   let pres=0,sales=0,alp=0,refs=0,apptFinish=0;
@@ -126,80 +120,109 @@ async function loadWeekly() {
   wk_alp.innerText=sales?"$"+Math.round(alp/sales):"$0";
   wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
 
-  renderCharts(labels, weekData);
+  renderSelectedChart();
 }
 
 /* ================= CHART ================= */
 
-function renderCharts(labels, weekData){
+function drawChart(labels,data){
 
-  Object.values(charts).forEach(c => c.destroy());
-  charts = {};
+  if(chartInstance) chartInstance.destroy();
 
-  const pres = weekData.map(d => d.total_presentations);
-  const sales = weekData.map(d => d.total_sales);
-
-  const showRatio = weekData.map(d =>
-    d.appointments_finish
-      ? (d.total_presentations / d.appointments_finish) * 100
-      : 0
-  );
-
-  const alpPerSale = weekData.map(d =>
-    d.total_sales ? d.total_alp / d.total_sales : 0
-  );
-
-  const totalPres = pres.reduce((a,b)=>a+b,0);
-  const totalSales = sales.reduce((a,b)=>a+b,0);
-
-  charts.closingPie = new Chart(closingPie,{
-    type:"pie",
+  chartInstance=new Chart(kpiChart,{
+    type:"line",
     data:{
-      labels:["Closed","Not Closed"],
+      labels,
       datasets:[{
-        data:[totalSales, Math.max(totalPres-totalSales,0)],
-        backgroundColor:["#22c55e","#e5e7eb"]
+        data,
+        borderWidth:3,
+        tension:.35,
+        pointRadius:5
       }]
-    }
-  });
-
-  charts.alpLine = new Chart(alpLine,{
-    type:"line",
-    data:{ labels, datasets:[{ data:alpPerSale, borderWidth:3, tension:.35 }] },
+    },
     options:{
-      maintainAspectRatio:false,
-      scales:{ y:{ beginAtZero:true }}
-    }
-
-  });
-
-  charts.showLine = new Chart(showLine,{
-    type:"line",
-    data:{ labels, datasets:[{ data:showRatio, borderWidth:3, tension:.35 }] },
-    options:{
-      maintainAspectRatio:false,
-      scales:{ y:{ beginAtZero:true }}
-    }
-  });
-
-  charts.salesLine = new Chart(salesLine,{
-    type:"line",
-    data:{ labels, datasets:[{ data:sales, borderWidth:3, tension:.35 }] },
-    options:{
-      maintainAspectRatio:false,
-      scales:{ y:{ beginAtZero:true }}
-    }
-  });
-
-  charts.presBar = new Chart(presBar,{
-    type:"bar",
-    data:{ labels, datasets:[{ data:pres }] },
-    options:{
-      maintainAspectRatio:false,
-      scales:{ y:{ beginAtZero:true }}
+      scales:{ y:{beginAtZero:true}},
+      plugins:{legend:{display:false}}
     }
   });
 }
+
+function setChart(type, btn){
+  currentChart = type;
+
+  document.querySelectorAll(".selector-btn")
+    .forEach(b => b.classList.remove("active"));
+
+  if(btn) btn.classList.add("active");
+
+  renderSelectedChart();
+}
+
+function renderSelectedChart(){
+
+  if(chartInstance) chartInstance.destroy();
+
+  let data = [];
+  let type = "line";
+  let label = "";
+
+  if(currentChart === "sales"){
+    data = cachedWeekData.map(d => d.total_sales);
+    label = "Sales";
+  }
+
+  if(currentChart === "presentations"){
+    data = cachedWeekData.map(d => d.total_presentations);
+    label = "Presentations";
+    type = "bar";
+  }
+
+  if(currentChart === "closing"){
+    data = cachedWeekData.map(d =>
+      d.total_presentations
+        ? (d.total_sales / d.total_presentations) * 100
+        : 0
+    );
+    label = "Closing %";
+  }
+
+  if(currentChart === "show"){
+    data = cachedWeekData.map(d =>
+      d.appointments_finish
+        ? (d.total_presentations / d.appointments_finish) * 100
+        : 0
+    );
+    label = "Show %";
+  }
+
+  if(currentChart === "alp"){
+    data = cachedWeekData.map(d =>
+      d.total_sales
+        ? d.total_alp / d.total_sales
+        : 0
+    );
+    label = "ALP / Sale";
+  }
+
+  chartInstance = new Chart(kpiChart,{
+    type,
+    data:{
+      labels: cachedLabels,
+      datasets:[{
+        label,
+        data,
+        borderWidth:3,
+        tension:.35,
+        backgroundColor:"#3b82f6"
+      }]
+    },
+    options:{
+      maintainAspectRatio:false,
+      scales:{ y:{ beginAtZero:true } }
+    }
+  });
+}
+
 
 /* ================= SAVE DAY ================= */
 

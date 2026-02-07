@@ -382,27 +382,27 @@ h2 {
  display:none;
 }
 
-.charts-grid{
-  display:grid;
-  grid-template-columns:repeat(2, minmax(0,1fr));
-  gap:22px;
-}
-
-.center-chart{
-  grid-column:1 / -1;
+.chart-selector{
   display:flex;
-  justify-content:center;
+  gap:10px;
+  margin-bottom:16px;
+  flex-wrap:wrap;
 }
 
-.center-chart canvas{
-  max-width:520px;
+.selector-btn{
+  padding:8px 14px;
+  border-radius:10px;
+  border:none;
+  background:#e5e7eb;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.selector-btn.active{
+  background:#3b82f6;
+  color:white;
 }
 
 .chart-card{
-  height:280px;
-}
-
-.chart-card canvas{
-  width:100% !important;
-  height:220px !important;
+  height:320px;
 }
