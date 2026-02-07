@@ -384,32 +384,23 @@ h2 {
 
 .charts-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
-  gap:24px;
+  grid-template-columns:repeat(2,1fr);
+  gap:22px;
+}
+
+.center-chart{
+  grid-column:1 / span 2;
+  max-width:520px;
+  margin:0 auto;
+}
+
+.chart-card{
+  padding:20px;
 }
 
 .chart-card h3{
-  margin-bottom:14px;
-  font-weight:600;
-  color:#334155;
+  margin-bottom:12px;
+  font-size:15px;
+  color:#475569;
   text-align:center;
-}
-
-.chart-card canvas {
-  width: 100% !important;
-  height: 320px !important;
-}
-
-
-/* Force charts to be compact and scroll-friendly */
-.chart-card {
-  height: 380px;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Prevent charts from stretching vertically */
-.chart-card canvas {
-  flex: 1;
-  max-height: 300px !important;
 }

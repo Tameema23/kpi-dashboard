@@ -10,10 +10,7 @@ if (!TOKEN && !location.pathname.includes("login")) {
   location.href = "login.html";
 }
 
-let closeChartInst = null;
-let alpChartInst = null;
-let showChartInst = null;
-let presChartInst = null;
+let charts = {};
 
 
 /* ================= TIME ================= */
@@ -35,15 +32,20 @@ async function loadWeekly() {
   const data = await res.json();
 
   if (!data.length) {
-    drawWeeklyCharts(
-      ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
-      [0,0,0,0,0,0,0], // presentations
-      [0,0,0,0,0,0,0], // sales
-      [0,0,0,0,0,0,0], // alp/sale
-      [0,0,0,0,0,0,0]  // show ratio
-    );
+    const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+    const emptyWeek = labels.map((_, i) => ({
+      date: labels[i],
+      total_presentations: 0,
+      total_sales: 0,
+      total_alp: 0,
+      appointments_finish: 0
+    }));
+
+    renderCharts(labels, emptyWeek);
     return;
   }
+
 
   const weeks = {};
 
@@ -102,20 +104,12 @@ async function loadWeekly() {
     (a,b)=>new Date(a.date)-new Date(b.date)
   );
 
-  let labels=[], presArr=[], salesArr=[], alpArr=[], showArr=[];
+  let labels=[], salesTrend=[];
   let pres=0,sales=0,alp=0,refs=0,apptFinish=0;
 
   weekData.forEach(d=>{
     labels.push(d.date);
-    presArr.push(d.total_presentations);
-    salesArr.push(d.total_sales);
-    alpArr.push(d.total_sales ? Math.round(d.total_alp / d.total_sales) : 0);
-    showArr.push(
-      d.appointments_finish
-        ? Math.round(d.total_presentations / d.appointments_finish * 100)
-        : 0
-    );
-
+    salesTrend.push(d.total_sales);
 
     pres+=d.total_presentations;
     sales+=d.total_sales;
@@ -131,80 +125,65 @@ async function loadWeekly() {
   wk_alp.innerText=sales?"$"+Math.round(alp/sales):"$0";
   wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
 
-  drawWeeklyCharts(labels, presArr, salesArr, alpArr, showArr);
+  renderCharts(labels, weekData);
 }
 
 /* ================= CHART ================= */
 
-function drawWeeklyCharts(labels, presArr, salesArr, alpArr, showArr) {
+function renderCharts(labels, weekData){
 
-  if (closeChartInst) closeChartInst.destroy();
-  if (alpChartInst) alpChartInst.destroy();
-  if (showChartInst) showChartInst.destroy();
-  if (presChartInst) presChartInst.destroy();
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
 
-  // Closing Ratio (Pie)
-  closeChartInst = new Chart(closeChart, {
-    type: "pie",
-    data: {
-      labels: ["Closed", "Not Closed"],
-      datasets: [{
-        data: [
-          salesArr.reduce((a,b)=>a+b,0),
-          presArr.reduce((a,b)=>a+b,0) - salesArr.reduce((a,b)=>a+b,0)
-        ],
-        backgroundColor: ["#22c55e", "#e5e7eb"]
+  const pres = weekData.map(d => d.total_presentations);
+  const sales = weekData.map(d => d.total_sales);
+
+  const showRatio = weekData.map(d =>
+    d.appointments_finish
+      ? (d.total_presentations / d.appointments_finish) * 100
+      : 0
+  );
+
+  const alpPerSale = weekData.map(d =>
+    d.total_sales ? d.total_alp / d.total_sales : 0
+  );
+
+  const totalPres = pres.reduce((a,b)=>a+b,0);
+  const totalSales = sales.reduce((a,b)=>a+b,0);
+
+  charts.closingPie = new Chart(closingPie,{
+    type:"pie",
+    data:{
+      labels:["Closed","Not Closed"],
+      datasets:[{
+        data:[totalSales, Math.max(totalPres-totalSales,0)],
+        backgroundColor:["#22c55e","#e5e7eb"]
       }]
     }
   });
 
-  // ALP / Sale (Line)
-  alpChartInst = new Chart(alpChart, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [{
-        data: alpArr,
-        borderWidth: 3,
-        tension: 0.35
-      }]
-    },
-    options: {
-      scales: { y: { beginAtZero: true } },
-      plugins: { legend: { display: false } }
-    }
+  charts.alpLine = new Chart(alpLine,{
+    type:"line",
+    data:{ labels, datasets:[{ data:alpPerSale, borderWidth:3, tension:.35 }] },
+    options:{ scales:{ y:{ beginAtZero:true }}}
   });
 
-  // Show Ratio (Line %)
-  showChartInst = new Chart(showChart, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [{
-        data: showArr,
-        borderWidth: 3,
-        tension: 0.35
-      }]
-    },
-    options: {
-      scales: { y: { beginAtZero: true, max: 100 } },
-      plugins: { legend: { display: false } }
-    }
+  charts.showLine = new Chart(showLine,{
+    type:"line",
+    data:{ labels, datasets:[{ data:showRatio, borderWidth:3, tension:.35 }] },
+    options:{ scales:{ y:{ beginAtZero:true, max:100 }}}
   });
 
-  // Presentations (Bar)
-  presChartInst = new Chart(presChart, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [{
-        data: presArr
-      }]
-    },
-    options: {
-      scales: { y: { beginAtZero: true } },
-      plugins: { legend: { display: false } }
-    }
+  charts.salesLine = new Chart(salesLine,{
+    type:"line",
+    data:{ labels, datasets:[{ data:sales, borderWidth:3, tension:.35 }] },
+    options:{ scales:{ y:{ beginAtZero:true }}}
+  });
+
+  charts.presBar = new Chart(presBar,{
+    type:"bar",
+    data:{ labels, datasets:[{ data:pres }] },
+    options:{ scales:{ y:{ beginAtZero:true }}}
   });
 }
 
@@ -374,10 +353,6 @@ function formatDate(d){
 }
 
 window.onload=()=>{
-  if (document.getElementById("graphSelect")) {
-    selectGraph();
-  }
-
 
  const dateInput=document.getElementById("date");
  if(dateInput){
@@ -456,17 +431,4 @@ async function exportExcel() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-}
-
-function selectGraph() {
-  const selected = document.getElementById("graphSelect").value;
-  const cards = document.querySelectorAll(".chart-card");
-
-  cards.forEach(card => {
-    if (selected === "all" || card.dataset.chart === selected) {
-      card.style.display = "block";
-    } else {
-      card.style.display = "none";
-    }
-  });
 }
