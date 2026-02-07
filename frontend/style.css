@@ -394,3 +394,8 @@ h2 {
   color:#334155;
   text-align:center;
 }
+
+.chart-card canvas {
+  width: 100% !important;
+  height: 320px !important;
+}
