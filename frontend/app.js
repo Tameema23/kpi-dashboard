@@ -10,7 +10,11 @@ if (!TOKEN && !location.pathname.includes("login")) {
   location.href = "login.html";
 }
 
-let charts = {};
+let closeChartInst = null;
+let alpChartInst = null;
+let showChartInst = null;
+let presChartInst = null;
+
 
 /* ================= TIME ================= */
 
@@ -30,8 +34,17 @@ async function loadWeekly() {
 
   const data = await res.json();
 
-  if (!data.length) return;
-
+  if (!data.length) {
+    drawWeeklyCharts(
+      ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],
+      [0,0,0,0,0,0,0], // presentations
+      [0,0,0,0,0,0,0], // sales
+      [0,0,0,0,0,0,0], // alp/sale
+      [0,0,0,0,0,0,0]  // show ratio
+    );
+    return;
+  }
+  
   const weeks = {};
 
   data.forEach(d => {
@@ -47,31 +60,47 @@ async function loadWeekly() {
     weekStart.setDate(weekStart.getDate() - day + 1);
     weekStart.setHours(0,0,0,0);
 
-    if(!weeks[weekStart]){
-      weeks[weekStart] = [];
-    }
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
 
-    weeks[weekStart].push(d);
+    if(date >= weekStart && date <= weekEnd){
+      const key = weekStart.toLocaleDateString("en-CA");
+      if(!weeks[key]) weeks[key]=[];
+      weeks[key].push(d);
+    }
   });
 
   const select = weekSelect;
+  const prev = select.value;
   select.innerHTML="";
 
-  Object.keys(weeks)
-    .sort((a,b)=>new Date(b)-new Date(a))
-    .forEach(start=>{
-      const d = new Date(start);
-      const end = new Date(d);
-      end.setDate(d.getDate()+6);
+  const sortedWeeks = Object.keys(weeks).sort(
+    (a,b)=>new Date(b+"T12:00:00")-new Date(a+"T12:00:00")
+  );
 
-      const opt=document.createElement("option");
-      opt.value=start;
-      opt.text=`${formatDate(d)} – ${formatDate(end)}`;
-      select.appendChild(opt);
-    });
+  sortedWeeks.forEach(start=>{
 
-  const chosen = select.value || Object.keys(weeks)[0];
-  const weekData = weeks[chosen];
+    const weekStart = new Date(
+      new Date(start+"T00:00:00").toLocaleString(
+        "en-US",{ timeZone:"America/Edmonton" }
+      )
+    );
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate()+6);
+
+    const opt=document.createElement("option");
+    opt.value=start;
+    opt.text=`${formatDate(weekStart)} – ${formatDate(weekEnd)}`;
+
+    if(start===prev) opt.selected=true;
+    select.appendChild(opt);
+  });
+
+  const chosen = select.value || sortedWeeks[0];
+  const weekData = weeks[chosen].sort(
+    (a,b)=>new Date(a.date)-new Date(b.date)
+  );
 
   let labels=[], presArr=[], salesArr=[], alpArr=[], showArr=[];
   let pres=0,sales=0,alp=0,refs=0,apptFinish=0;
@@ -86,6 +115,7 @@ async function loadWeekly() {
         ? Math.round(d.total_presentations / d.appointments_finish * 100)
         : 0
     );
+
 
     pres+=d.total_presentations;
     sales+=d.total_sales;
@@ -104,47 +134,79 @@ async function loadWeekly() {
   drawWeeklyCharts(labels, presArr, salesArr, alpArr, showArr);
 }
 
-
 /* ================= CHART ================= */
 
-function drawWeeklyCharts(labels, presData, salesData, alpData, showData){
+function drawWeeklyCharts(labels, presArr, salesArr, alpArr, showArr) {
 
-  Object.values(charts).forEach(c => c.destroy());
-  charts = {};
+  if (closeChartInst) closeChartInst.destroy();
+  if (alpChartInst) alpChartInst.destroy();
+  if (showChartInst) showChartInst.destroy();
+  if (presChartInst) presChartInst.destroy();
 
-  charts.close = new Chart(closeChart,{
-    type:"pie",
-    data:{
-      labels:["Closed","Not Closed"],
-      datasets:[{
-        data:[
-          salesData.reduce((a,b)=>a+b,0),
-          presData.reduce((a,b)=>a+b,0) - salesData.reduce((a,b)=>a+b,0)
+  // Closing Ratio (Pie)
+  closeChartInst = new Chart(closeChart, {
+    type: "pie",
+    data: {
+      labels: ["Closed", "Not Closed"],
+      datasets: [{
+        data: [
+          salesArr.reduce((a,b)=>a+b,0),
+          presArr.reduce((a,b)=>a+b,0) - salesArr.reduce((a,b)=>a+b,0)
         ],
-        backgroundColor:["#22c55e","#e5e7eb"]
+        backgroundColor: ["#22c55e", "#e5e7eb"]
       }]
     }
   });
 
-  charts.alp = new Chart(alpChart,{
-    type:"line",
-    data:{ labels, datasets:[{ data:alpData, borderWidth:3, tension:.35 }] },
-    options:{ plugins:{legend:{display:false}}}
+  // ALP / Sale (Line)
+  alpChartInst = new Chart(alpChart, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        data: alpArr,
+        borderWidth: 3,
+        tension: 0.35
+      }]
+    },
+    options: {
+      scales: { y: { beginAtZero: true } },
+      plugins: { legend: { display: false } }
+    }
   });
 
-  charts.show = new Chart(showChart,{
-    type:"line",
-    data:{ labels, datasets:[{ data:showData, borderWidth:3, tension:.35 }] },
-    options:{ scales:{ y:{beginAtZero:true,max:100}}, plugins:{legend:{display:false}}}
+  // Show Ratio (Line %)
+  showChartInst = new Chart(showChart, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        data: showArr,
+        borderWidth: 3,
+        tension: 0.35
+      }]
+    },
+    options: {
+      scales: { y: { beginAtZero: true, max: 100 } },
+      plugins: { legend: { display: false } }
+    }
   });
 
-  charts.pres = new Chart(presChart,{
-    type:"bar",
-    data:{ labels, datasets:[{ data:presData }] },
-    options:{ plugins:{legend:{display:false}}}
+  // Presentations (Bar)
+  presChartInst = new Chart(presChart, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        data: presArr
+      }]
+    },
+    options: {
+      scales: { y: { beginAtZero: true } },
+      plugins: { legend: { display: false } }
+    }
   });
 }
-
 
 /* ================= SAVE DAY ================= */
 
@@ -357,7 +419,7 @@ window.logout = logout;
 
 async function exportExcel() {
 
-  const res = await fetch(`${API_BASE}/history`,{
+  const res = await fetch("/history", {
     headers: { Authorization: "Bearer " + TOKEN }
   });
 
