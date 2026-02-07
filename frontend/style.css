@@ -399,3 +399,17 @@ h2 {
   width: 100% !important;
   height: 320px !important;
 }
+
+
+/* Force charts to be compact and scroll-friendly */
+.chart-card {
+  height: 380px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Prevent charts from stretching vertically */
+.chart-card canvas {
+  flex: 1;
+  max-height: 300px !important;
+}
