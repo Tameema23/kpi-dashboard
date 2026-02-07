@@ -30,10 +30,7 @@ async function loadWeekly() {
 
   const data = await res.json();
 
-  if (!data.length) {
-    drawChart(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], [0,0,0,0,0,0,0]);
-    return;
-  }
+  if (!data.length) return;
 
   const weeks = {};
 
@@ -50,54 +47,45 @@ async function loadWeekly() {
     weekStart.setDate(weekStart.getDate() - day + 1);
     weekStart.setHours(0,0,0,0);
 
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-
-    if(date >= weekStart && date <= weekEnd){
-      const key = weekStart.toLocaleDateString("en-CA");
-      if(!weeks[key]) weeks[key]=[];
-      weeks[key].push(d);
+    if(!weeks[weekStart]){
+      weeks[weekStart] = [];
     }
+
+    weeks[weekStart].push(d);
   });
 
   const select = weekSelect;
-  const prev = select.value;
   select.innerHTML="";
 
-  const sortedWeeks = Object.keys(weeks).sort(
-    (a,b)=>new Date(b+"T12:00:00")-new Date(a+"T12:00:00")
-  );
+  Object.keys(weeks)
+    .sort((a,b)=>new Date(b)-new Date(a))
+    .forEach(start=>{
+      const d = new Date(start);
+      const end = new Date(d);
+      end.setDate(d.getDate()+6);
 
-  sortedWeeks.forEach(start=>{
+      const opt=document.createElement("option");
+      opt.value=start;
+      opt.text=`${formatDate(d)} – ${formatDate(end)}`;
+      select.appendChild(opt);
+    });
 
-    const weekStart = new Date(
-      new Date(start+"T00:00:00").toLocaleString(
-        "en-US",{ timeZone:"America/Edmonton" }
-      )
-    );
+  const chosen = select.value || Object.keys(weeks)[0];
+  const weekData = weeks[chosen];
 
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate()+6);
-
-    const opt=document.createElement("option");
-    opt.value=start;
-    opt.text=`${formatDate(weekStart)} – ${formatDate(weekEnd)}`;
-
-    if(start===prev) opt.selected=true;
-    select.appendChild(opt);
-  });
-
-  const chosen = select.value || sortedWeeks[0];
-  const weekData = weeks[chosen].sort(
-    (a,b)=>new Date(a.date)-new Date(b.date)
-  );
-
-  let labels=[], salesTrend=[];
+  let labels=[], presArr=[], salesArr=[], alpArr=[], showArr=[];
   let pres=0,sales=0,alp=0,refs=0,apptFinish=0;
 
   weekData.forEach(d=>{
     labels.push(d.date);
-    salesTrend.push(d.total_sales);
+    presArr.push(d.total_presentations);
+    salesArr.push(d.total_sales);
+    alpArr.push(d.total_sales ? Math.round(d.total_alp / d.total_sales) : 0);
+    showArr.push(
+      d.appointments_finish
+        ? Math.round(d.total_presentations / d.appointments_finish * 100)
+        : 0
+    );
 
     pres+=d.total_presentations;
     sales+=d.total_sales;
@@ -113,32 +101,50 @@ async function loadWeekly() {
   wk_alp.innerText=sales?"$"+Math.round(alp/sales):"$0";
   wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
 
-  drawChart(labels,salesTrend);
+  drawWeeklyCharts(labels, presArr, salesArr, alpArr, showArr);
 }
+
 
 /* ================= CHART ================= */
 
-function drawChart(labels,data){
+function drawWeeklyCharts(labels, presData, salesData, alpData, showData){
 
-  if(chartInstance) chartInstance.destroy();
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
 
-  chartInstance=new Chart(kpiChart,{
-    type:"line",
+  charts.close = new Chart(closeChart,{
+    type:"pie",
     data:{
-      labels,
+      labels:["Closed","Not Closed"],
       datasets:[{
-        data,
-        borderWidth:3,
-        tension:.35,
-        pointRadius:5
+        data:[
+          salesData.reduce((a,b)=>a+b,0),
+          presData.reduce((a,b)=>a+b,0) - salesData.reduce((a,b)=>a+b,0)
+        ],
+        backgroundColor:["#22c55e","#e5e7eb"]
       }]
-    },
-    options:{
-      scales:{ y:{beginAtZero:true}},
-      plugins:{legend:{display:false}}
     }
   });
+
+  charts.alp = new Chart(alpChart,{
+    type:"line",
+    data:{ labels, datasets:[{ data:alpData, borderWidth:3, tension:.35 }] },
+    options:{ plugins:{legend:{display:false}}}
+  });
+
+  charts.show = new Chart(showChart,{
+    type:"line",
+    data:{ labels, datasets:[{ data:showData, borderWidth:3, tension:.35 }] },
+    options:{ scales:{ y:{beginAtZero:true,max:100}}, plugins:{legend:{display:false}}}
+  });
+
+  charts.pres = new Chart(presChart,{
+    type:"bar",
+    data:{ labels, datasets:[{ data:presData }] },
+    options:{ plugins:{legend:{display:false}}}
+  });
 }
+
 
 /* ================= SAVE DAY ================= */
 

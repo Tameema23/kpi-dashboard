@@ -381,3 +381,16 @@ h2 {
 .hidden{
  display:none;
 }
+
+.charts-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  gap:24px;
+}
+
+.chart-card h3{
+  margin-bottom:14px;
+  font-weight:600;
+  color:#334155;
+  text-align:center;
+}
