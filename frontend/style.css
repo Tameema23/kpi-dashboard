@@ -381,3 +381,8 @@ h2 {
 .hidden{
  display:none;
 }
+
+.chart-card canvas {
+  width: 100% !important;
+  height: 300px !important;
+}

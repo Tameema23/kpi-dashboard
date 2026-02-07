@@ -114,7 +114,12 @@ async function loadWeekly() {
   wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
 
   drawChart(labels,salesTrend);
-  drawClosingPieChart(sales, Math.max(pres - sales, 0));
+  const notClosed = Math.max(pres - sales, 0);
+
+  if (sales > 0 || notClosed > 0) {
+    drawClosingPieChart(sales, notClosed);
+  }
+
 }
 
 /* ================= CHART ================= */
