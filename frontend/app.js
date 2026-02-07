@@ -11,6 +11,8 @@ if (!TOKEN && !location.pathname.includes("login")) {
 }
 
 let chartInstance = null;
+const charts = {};
+
 
 /* ================= TIME ================= */
 
@@ -113,12 +115,7 @@ async function loadWeekly() {
   wk_alp.innerText=sales?"$"+Math.round(alp/sales):"$0";
   wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
 
-  drawChart(labels,salesTrend);
-  const notClosed = Math.max(pres - sales, 0);
-
-  if (sales > 0 || notClosed > 0) {
-    drawClosingPieChart(sales, notClosed);
-  }
+  buildAllCharts(weekData);
 
 }
 
@@ -146,25 +143,105 @@ function drawChart(labels,data){
   });
 }
 
-function drawClosingPieChart(closed, notClosed) {
+function buildAllCharts(weekData) {
 
-  const ctx = document.getElementById("closingPieChart");
-  if (!ctx) return;
+  const labels = weekData.map(d => d.date);
 
-  if (ctx.chart) ctx.chart.destroy();
+  const presentations = weekData.map(d => d.total_presentations);
+  const sales = weekData.map(d => d.total_sales);
 
-  ctx.chart = new Chart(ctx, {
+  const alpPerSale = weekData.map(d =>
+    d.total_sales ? Math.round(d.total_alp / d.total_sales) : 0
+  );
+
+  const showingRatio = weekData.map(d =>
+    d.appointments_start
+      ? Math.round((d.appointments_finish / d.appointments_start) * 100)
+      : 0
+  );
+
+  const totalPres = presentations.reduce((a,b)=>a+b,0);
+  const totalSales = sales.reduce((a,b)=>a+b,0);
+
+  drawClosingPie(totalSales, totalPres - totalSales);
+  drawAlpLine(labels, alpPerSale);
+  drawPresentationBar(labels, presentations);
+  drawShowingLine(labels, showingRatio);
+}
+
+/* ===== PIE: CLOSING RATIO ===== */
+
+function drawClosingPie(sales, noSales) {
+  if (charts.closing) charts.closing.destroy();
+
+  charts.closing = new Chart(closingChart, {
     type: "pie",
     data: {
-      labels: ["Closed", "Not Closed"],
+      labels: ["Sales", "No Sale"],
+      datasets: [{ data: [sales, noSales] }]
+    }
+  });
+}
+
+/* ===== LINE: ALP / SALE ===== */
+
+function drawAlpLine(labels, data) {
+  if (charts.alp) charts.alp.destroy();
+
+  charts.alp = new Chart(alpChart, {
+    type: "line",
+    data: {
+      labels,
       datasets: [{
-        data: [closed, notClosed],
-        backgroundColor: ["#22c55e", "#ef4444"]
+        label: "ALP / Sale ($)",
+        data,
+        tension: 0.35
       }]
     },
     options: {
-      plugins: {
-        legend: { position: "bottom" }
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
+
+/* ===== BAR: PRESENTATIONS ===== */
+
+function drawPresentationBar(labels, data) {
+  if (charts.pres) charts.pres.destroy();
+
+  charts.pres = new Chart(presentationChart, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Presentations",
+        data
+      }]
+    },
+    options: {
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+}
+
+/* ===== LINE: SHOWING RATIO ===== */
+
+function drawShowingLine(labels, data) {
+  if (charts.showing) charts.showing.destroy();
+
+  charts.showing = new Chart(showingChart, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Showing Ratio (%)",
+        data,
+        tension: 0.35
+      }]
+    },
+    options: {
+      scales: {
+        y: { beginAtZero: true, max: 100 }
       }
     }
   });
