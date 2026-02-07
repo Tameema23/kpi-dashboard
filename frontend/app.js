@@ -10,7 +10,7 @@ if (!TOKEN && !location.pathname.includes("login")) {
   location.href = "login.html";
 }
 
-let chartInstance = null;
+let charts = {};
 
 /* ================= TIME ================= */
 
@@ -357,7 +357,7 @@ window.logout = logout;
 
 async function exportExcel() {
 
-  const res = await fetch("/history", {
+  const res = await fetch(`${API_BASE}/history`,{
     headers: { Authorization: "Bearer " + TOKEN }
   });
 
