@@ -153,10 +153,14 @@ function setChart(type, btn){
   document.querySelectorAll(".selector-btn")
     .forEach(b => b.classList.remove("active"));
 
-  if(btn) btn.classList.add("active");
+  if (btn) btn.classList.add("active");
 
-  renderSelectedChart();
+  // Force redraw using cached weekly data
+  if (cachedWeekData.length) {
+    renderSelectedChart();
+  }
 }
+
 
 function renderSelectedChart(){
 
