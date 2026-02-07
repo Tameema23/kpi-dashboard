@@ -34,8 +34,8 @@ async function loadWeekly() {
   if (!data.length) {
     const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
-    const emptyWeek = labels.map((_, i) => ({
-      date: labels[i],
+    const emptyWeek = labels.map(l => ({
+      date: l,
       total_presentations: 0,
       total_sales: 0,
       total_alp: 0,
@@ -45,6 +45,7 @@ async function loadWeekly() {
     renderCharts(labels, emptyWeek);
     return;
   }
+
 
 
   const weeks = {};
@@ -165,25 +166,38 @@ function renderCharts(labels, weekData){
   charts.alpLine = new Chart(alpLine,{
     type:"line",
     data:{ labels, datasets:[{ data:alpPerSale, borderWidth:3, tension:.35 }] },
-    options:{ scales:{ y:{ beginAtZero:true }}}
+    options:{
+      maintainAspectRatio:false,
+      scales:{ y:{ beginAtZero:true }}
+    }
+
   });
 
   charts.showLine = new Chart(showLine,{
     type:"line",
     data:{ labels, datasets:[{ data:showRatio, borderWidth:3, tension:.35 }] },
-    options:{ scales:{ y:{ beginAtZero:true, max:100 }}}
+    options:{
+      maintainAspectRatio:false,
+      scales:{ y:{ beginAtZero:true }}
+    }
   });
 
   charts.salesLine = new Chart(salesLine,{
     type:"line",
     data:{ labels, datasets:[{ data:sales, borderWidth:3, tension:.35 }] },
-    options:{ scales:{ y:{ beginAtZero:true }}}
+    options:{
+      maintainAspectRatio:false,
+      scales:{ y:{ beginAtZero:true }}
+    }
   });
 
   charts.presBar = new Chart(presBar,{
     type:"bar",
     data:{ labels, datasets:[{ data:pres }] },
-    options:{ scales:{ y:{ beginAtZero:true }}}
+    options:{
+      maintainAspectRatio:false,
+      scales:{ y:{ beginAtZero:true }}
+    }
   });
 }
 
