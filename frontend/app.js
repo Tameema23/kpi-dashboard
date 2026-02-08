@@ -198,9 +198,6 @@ function drawChart({
         backgroundColor: colors.bg || "#3b82f6",
         borderColor: colors.border || "#3b82f6",
         borderWidth: 3,
-        barPercentage: type === "bar" ? 0.5 : undefined,
-        categoryPercentage: type === "bar" ? 0.6 : undefined,
-        borderRadius: type === "bar" ? 6 : 0,
         tension: 0.35,
         pointRadius: type === "line" ? 5 : 0
       }]
