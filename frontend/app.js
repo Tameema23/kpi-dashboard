@@ -10,6 +10,15 @@ if (!TOKEN && !location.pathname.includes("login")) {
   location.href = "login.html";
 }
 
+const CHART_COLORS = {
+  blue: "#2563eb",
+  green: "#16a34a",
+  orange: "#f59e0b",
+  red: "#dc2626",
+  purple: "#7c3aed",
+  gray: "#64748b"
+};
+
 
 
 /* ================= TIME ================= */
@@ -133,87 +142,7 @@ async function loadWeekly() {
     ? (refs / pres).toFixed(2)
     : "0";
 
-  /* ================= WEEKLY CHARTS ================= */
-
-  drawChart({
-    canvasId: "salesChart",
-    type: "line",
-    labels,
-    data: salesTrend,
-    title: "Daily Sales Trend"
-  });
-
-  drawChart({
-    canvasId: "presentationsChart",
-    type: "bar",
-    labels,
-    data: presentations,
-    title: "Presentations per Day"
-  });
-
-  drawChart({
-    canvasId: "showRatioChart",
-    type: "line",
-    labels,
-    data: showRates,
-    title: "Show Ratio (%)"
-  });
-
-  drawChart({
-    canvasId: "closingPieChart",
-    type: "pie",
-    labels: ["Closed Sales", "Not Closed"],
-    data: [sales, Math.max(pres - sales, 0)],
-    title: "Weekly Closing Ratio"
-  });
-
-  drawChart({
-    canvasId: "showRatioPieChart",
-    type: "pie",
-    labels: ["Shows", "No Shows"],
-    data: [
-      pres,
-      Math.max(apptStart - pres, 0)
-    ],
-    title: "Weekly Show Ratio"
-  });
-
-  drawChart({
-    canvasId: "alpYTDChart",
-    type: "line",
-    labels: ytdLabels,
-    data: ytdAlpPerSale,
-    title: "Year-to-Date ALP per Sale"
-  });
-
-  drawChart({
-    canvasId: "weeklySalesClosingChart",
-    type: "line",
-    labels,
-    datasets: [
-      {
-        label: "Sales",
-        data: salesTrend,
-        yAxisID: "ySales"
-      },
-      {
-        label: "Closing Ratio %",
-        data: labels.map(() =>
-          pres ? (sales / pres) * 100 : 0
-        ),
-        yAxisID: "yPercent"
-      }
-    ],
-    title: "Weekly Sales & Closing Ratio",
-    scales: {
-      ySales: { beginAtZero:true, position:"left" },
-      yPercent: { beginAtZero:true, max:100, position:"right" }
-    }
-  });
-
-
-
-
+  
   /* ================= YEAR-TO-DATE AGGREGATION (NEW) ================= */
 
   const currentYear = new Date().getFullYear();
@@ -259,6 +188,101 @@ async function loadWeekly() {
     ytdAlpPerSale.push(wSales ? wAlp / wSales : 0);
   });
 
+  /* ================= WEEKLY CHARTS ================= */
+
+  drawChart({
+    canvasId: "salesChart",
+    type: "line",
+    labels,
+    data: salesTrend,
+    title: "Daily Sales Trend",
+    colors: {
+      border: CHART_COLORS.blue
+    }
+  });
+
+  drawChart({
+    canvasId: "presentationsChart",
+    type: "bar",
+    labels,
+    data: presentations,
+    title: "Presentations per Day",
+    colors: {
+      bg: CHART_COLORS.green,
+    }
+  });
+
+  drawChart({
+    canvasId: "showRatioChart",
+    type: "line",
+    labels,
+    data: showRates,
+    title: "Show Ratio (%)",
+    colors: {
+
+      border: CHART_COLORS.orange
+    }
+  });
+
+  drawChart({
+    canvasId: "closingPieChart",
+    type: "pie",
+    labels: ["Closed Sales", "Not Closed"],
+    data: [sales, Math.max(pres - sales, 0)],
+    title: "Weekly Closing Ratio",
+    colors: {
+      bg: [CHART_COLORS.green, CHART_COLORS.red]
+    }
+  });
+
+  drawChart({
+    canvasId: "showRatioPieChart",
+    type: "pie",
+    labels: ["Shows", "No Shows"],
+    data: [
+      pres,
+      Math.max(apptStart - pres, 0)
+    ],
+    title: "Weekly Show Ratio",
+    colors: {
+      bg: [CHART_COLORS.green, CHART_COLORS.gray]
+    }
+  });
+
+  drawChart({
+    canvasId: "alpYTDChart",
+    type: "line",
+    labels: ytdLabels,
+    data: ytdAlpPerSale,
+    title: "Year-to-Date ALP per Sale"
+  });
+
+  drawChart({
+    canvasId: "weeklySalesClosingChart",
+    type: "line",
+    labels,
+    datasets: [
+      {
+        label: "Sales",
+        data: salesTrend,
+        yAxisID: "ySales"
+      },
+      {
+        label: "Closing Ratio %",
+        data: labels.map(() =>
+          pres ? (sales / pres) * 100 : 0
+        ),
+        yAxisID: "yPercent"
+      }
+    ],
+    title: "Weekly Sales & Closing Ratio",
+    scales: {
+      ySales: { beginAtZero:true, position:"left" },
+      yPercent: { beginAtZero:true, max:100, position:"right" }
+    }
+  });
+
+
   /* ================= YTD CHART (MATCHES PHOTOS) ================= */
 
   drawChart({
@@ -293,6 +317,7 @@ function drawChart({
   type = "line",
   labels,
   data,
+  datasets,
   label = "",
   title = "",
   colors = {}
@@ -310,7 +335,7 @@ function drawChart({
     type,
     data: {
       labels,
-      datasets: [{
+      datasets: datasets || [{
         label,
         data,
         backgroundColor: colors.bg || "#3b82f6",
@@ -324,23 +349,32 @@ function drawChart({
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: !!label },
+        legend: { display: true },
         title: {
           display: !!title,
           text: title,
-          font: { 
-            size: 16,
-            weight: "600"
-          },
-          padding: {
-            top: 10,
-            bottom: 20
+          font: { size: 16, weight: "600" },
+          padding: { top: 10, bottom: 20 }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              if (type !== "pie") return context.formattedValue;
+
+              const total = context.dataset.data.reduce((a,b)=>a+b,0);
+              const value = context.raw;
+              const percent = total
+                ? ((value / total) * 100).toFixed(1)
+                : 0;
+
+              return `${context.label}: ${value} (${percent}%)`;
+            }
           }
         }
       },
-      scales: type !== "pie"
+      scales: scales || (type !== "pie"
         ? { y: { beginAtZero: true } }
-        : {}
+        : {})
     }
   });
 }
