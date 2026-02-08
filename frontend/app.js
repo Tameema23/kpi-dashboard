@@ -10,7 +10,7 @@ if (!TOKEN && !location.pathname.includes("login")) {
   location.href = "login.html";
 }
 
-let chartInstance = null;
+
 
 /* ================= TIME ================= */
 
@@ -113,32 +113,95 @@ async function loadWeekly() {
   wk_alp.innerText=sales?"$"+Math.round(alp/sales):"$0";
   wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
 
-  drawChart(labels,salesTrend);
+  drawChart({
+    canvasId: "salesChart",
+    type: "line",
+    labels,
+    data: salesTrend,
+    label: "Sales"
+  });
+
+  drawChart({
+    canvasId: "presentationsChart",
+    type: "bar",
+    labels,
+    data: weekData.map(d => d.total_presentations),
+    label: "Presentations",
+    colors: { bg: "#22c55e" }
+  });
+
+  drawChart({
+    canvasId: "showRatioChart",
+    type: "line",
+    labels,
+    data: weekData.map(d =>
+      d.appointments_finish
+        ? (d.total_presentations / d.appointments_finish * 100)
+        : 0
+    ),
+    label: "Show Ratio %",
+    colors: { border: "#f59e0b" }
+  });
+
+  drawChart({
+    canvasId: "closingPieChart",
+    type: "pie",
+    labels: ["Closed", "Not Closed"],
+    data: [
+      sales,
+      Math.max(pres - sales, 0)
+    ],
+    colors: { bg: ["#22c55e", "#ef4444"] }
+  });
+
 }
 
 /* ================= CHART ================= */
 
-function drawChart(labels,data){
+function drawChart({
+  canvasId,
+  type = "line",
+  labels,
+  data,
+  label = "",
+  colors = {}
+}) {
 
-  if(chartInstance) chartInstance.destroy();
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
 
-  chartInstance=new Chart(kpiChart,{
-    type:"line",
-    data:{
+  // destroy only THIS canvas's chart
+  if (canvas._chart) {
+    canvas._chart.destroy();
+  }
+
+  canvas._chart = new Chart(canvas, {
+    type,
+    data: {
       labels,
-      datasets:[{
+      datasets: [{
+        label,
         data,
-        borderWidth:3,
-        tension:.35,
-        pointRadius:5
+        backgroundColor: colors.bg || "#3b82f6",
+        borderColor: colors.border || "#3b82f6",
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: type === "line" ? 5 : 0
       }]
     },
-    options:{
-      scales:{ y:{beginAtZero:true}},
-      plugins:{legend:{display:false}}
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: !!label }
+      },
+      scales: type !== "pie"
+        ? { y: { beginAtZero: true } }
+        : {}
     }
   });
 }
+
 
 /* ================= SAVE DAY ================= */
 
