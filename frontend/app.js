@@ -61,10 +61,9 @@ async function loadWeekly() {
   const weeklyShowRatio = [];
   const weeklyClosingRatio = [];
   const weeklyAlpPerSale = [];
-  const weeklyAlpPerSale = [];
   const weeklyApptStart = [];
-
   const weeklyRefs = [];
+
 
   Object.keys(weeks).sort().forEach(week => {
 
