@@ -118,53 +118,41 @@ async function loadWeekly() {
     type: "line",
     labels,
     data: salesTrend,
-    title: "Daily Sales Trend",
-    label: "Sales",
-    colors: {
-      border: "#2563eb",
-      bg: "rgba(37,99,235,0.15)"
-    }
+    label: "Sales"
   });
-
 
   drawChart({
     canvasId: "presentationsChart",
     type: "bar",
     labels,
-    data: presentations,
-    title: "Presentations per Day",
+    data: weekData.map(d => d.total_presentations),
     label: "Presentations",
-    colors: {
-      bg: "#4f46e5"
-    }
+    colors: { bg: "#22c55e" }
   });
-
 
   drawChart({
     canvasId: "showRatioChart",
     type: "line",
     labels,
-    data: showRates,
-    title: "Show Ratio (%)",
-    label: "Show Ratio",
-    colors: {
-      border: "#0d9488",
-      bg: "rgba(13,148,136,0.15)"
-    }
+    data: weekData.map(d =>
+      d.appointments_finish
+        ? (d.total_presentations / d.appointments_finish * 100)
+        : 0
+    ),
+    label: "Show Ratio %",
+    colors: { border: "#f59e0b" }
   });
-
 
   drawChart({
     canvasId: "closingPieChart",
     type: "pie",
-    labels: ["Closed Sales", "Not Closed"],
-    data: [sales, Math.max(pres - sales, 0)],
-    title: "Closing Ratio",
-    colors: {
-      bg: ["#16a34a", "#dc2626"]
-    }
+    labels: ["Closed", "Not Closed"],
+    data: [
+      sales,
+      Math.max(pres - sales, 0)
+    ],
+    colors: { bg: ["#22c55e", "#ef4444"] }
   });
-
 
 }
 
@@ -210,7 +198,7 @@ function drawChart({
         title: {
           display: !!title,
           text: title,
-          font: {
+          font: { 
             size: 16,
             weight: "600"
           },
