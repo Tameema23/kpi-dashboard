@@ -118,41 +118,53 @@ async function loadWeekly() {
     type: "line",
     labels,
     data: salesTrend,
-    label: "Sales"
+    title: "Daily Sales Trend",
+    label: "Sales",
+    colors: {
+      border: "#2563eb",
+      bg: "rgba(37,99,235,0.15)"
+    }
   });
+
 
   drawChart({
     canvasId: "presentationsChart",
     type: "bar",
     labels,
-    data: weekData.map(d => d.total_presentations),
+    data: presentations,
+    title: "Presentations per Day",
     label: "Presentations",
-    colors: { bg: "#22c55e" }
+    colors: {
+      bg: "#4f46e5"
+    }
   });
+
 
   drawChart({
     canvasId: "showRatioChart",
     type: "line",
     labels,
-    data: weekData.map(d =>
-      d.appointments_finish
-        ? (d.total_presentations / d.appointments_finish * 100)
-        : 0
-    ),
-    label: "Show Ratio %",
-    colors: { border: "#f59e0b" }
+    data: showRates,
+    title: "Show Ratio (%)",
+    label: "Show Ratio",
+    colors: {
+      border: "#0d9488",
+      bg: "rgba(13,148,136,0.15)"
+    }
   });
+
 
   drawChart({
     canvasId: "closingPieChart",
     type: "pie",
-    labels: ["Closed", "Not Closed"],
-    data: [
-      sales,
-      Math.max(pres - sales, 0)
-    ],
-    colors: { bg: ["#22c55e", "#ef4444"] }
+    labels: ["Closed Sales", "Not Closed"],
+    data: [sales, Math.max(pres - sales, 0)],
+    title: "Closing Ratio",
+    colors: {
+      bg: ["#16a34a", "#dc2626"]
+    }
   });
+
 
 }
 
@@ -164,6 +176,7 @@ function drawChart({
   labels,
   data,
   label = "",
+  title = "",
   colors = {}
 }) {
 
@@ -185,6 +198,9 @@ function drawChart({
         backgroundColor: colors.bg || "#3b82f6",
         borderColor: colors.border || "#3b82f6",
         borderWidth: 3,
+        barPercentage: type === "bar" ? 0.5 : undefined,
+        categoryPercentage: type === "bar" ? 0.6 : undefined,
+        borderRadius: type === "bar" ? 6 : 0,
         tension: 0.35,
         pointRadius: type === "line" ? 5 : 0
       }]
@@ -193,7 +209,19 @@ function drawChart({
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: !!label }
+        legend: { display: !!label },
+        title: {
+          display: !!title,
+          text: title,
+          font: {
+            size: 16,
+            weight: "600"
+          },
+          padding: {
+            top: 10,
+            bottom: 20
+          }
+        }
       },
       scales: type !== "pie"
         ? { y: { beginAtZero: true } }
