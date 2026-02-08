@@ -23,14 +23,6 @@ const CHART_COLORS = {
 
 /* ================= TIME ================= */
 
-function getCalgaryToday() {
-  return new Date(
-    new Date().toLocaleString("en-US", { timeZone: "America/Edmonton" })
-  ).toISOString().split("T")[0];
-}
-
-/* ================= WEEKLY ================= */
-
 async function loadWeekly() {
 
   const res = await fetch(`${API_BASE}/history`, {
@@ -40,7 +32,7 @@ async function loadWeekly() {
   const data = await res.json();
   if (!data.length) return;
 
-  /* ================= WEEKLY GROUPING (ORIGINAL) ================= */
+  /* ================= GROUP DATA BY WEEK ================= */
 
   const weeks = {};
 
@@ -61,251 +53,157 @@ async function loadWeekly() {
     weeks[key].push(d);
   });
 
-  /* ================= WEEK SELECTOR (ORIGINAL) ================= */
+  /* ================= BUILD WEEKLY TREND ARRAYS ================= */
 
-  const select = weekSelect;
-  const prev = select.value;
-  select.innerHTML = "";
+  const weekLabels = [];
+  const weeklySales = [];
+  const weeklyPresentations = [];
+  const weeklyShowRatio = [];
+  const weeklyClosingRatio = [];
+  const weeklyAlpPerSale = [];
+  const weeklyAlpPerSale = [];
+  const weeklyApptStart = [];
 
-  const sortedWeeks = Object.keys(weeks).sort(
-    (a,b)=>new Date(b+"T12:00:00") - new Date(a+"T12:00:00")
-  );
+  const weeklyRefs = [];
 
-  sortedWeeks.forEach(start => {
+  Object.keys(weeks).sort().forEach(week => {
 
-    const ws = new Date(
-      new Date(start+"T00:00:00")
-        .toLocaleString("en-US",{ timeZone:"America/Edmonton" })
-    );
+    let pres = 0;
+    let sales = 0;
+    let alp = 0;
+    let apptStart = 0;
+    let refs = 0;
 
-    const we = new Date(ws);
-    we.setDate(ws.getDate()+6);
-
-    const opt = document.createElement("option");
-    opt.value = start;
-    opt.text = `${formatDate(ws)} – ${formatDate(we)}`;
-    if(start === prev) opt.selected = true;
-    select.appendChild(opt);
-  });
-
-  const chosen = select.value || sortedWeeks[0];
-  const weekData = weeks[chosen].sort(
-    (a,b)=>new Date(a.date)-new Date(b.date)
-  );
-
-  /* ================= WEEKLY METRICS (FIXED SHOW RATIO) ================= */
-
-  let labels = [];
-  let salesTrend = [];
-  let presentations = [];
-  let showRates = [];
-
-  let pres = 0;
-  let sales = 0;
-  let alp = 0;
-  let refs = 0;
-  let apptStart = 0;
-
-  weekData.forEach(d => {
-
-    labels.push(d.date);
-    salesTrend.push(d.total_sales);
-    presentations.push(d.total_presentations);
-
-    showRates.push(
-      d.appointments_start
-        ? (d.total_presentations / d.appointments_start) * 100
-        : 0
-    );
-
-    pres += d.total_presentations;
-    sales += d.total_sales;
-    alp += d.total_alp;
-    refs += d.referrals_collected;
-    apptStart += d.appointments_start;
-  });
-
-  /* ================= WEEKLY KPI CARDS ================= */
-
-  wk_pres.innerText = pres;
-  wk_sales.innerText = sales;
-  wk_show.innerText = apptStart
-    ? Math.round(pres / apptStart * 100) + "%"
-    : "0%";
-  wk_close.innerText = pres
-    ? Math.round(sales / pres * 100) + "%"
-    : "0%";
-  wk_alp.innerText = sales
-    ? "$" + Math.round(alp / sales)
-    : "$0";
-  wk_refs.innerText = pres
-    ? (refs / pres).toFixed(2)
-    : "0";
-
-  
-  /* ================= YEAR-TO-DATE AGGREGATION (NEW) ================= */
-
-  const currentYear = new Date().getFullYear();
-  const ytdLogs = data.filter(d =>
-    new Date(d.date).getFullYear() === currentYear
-  );
-
-  const ytdWeeks = {};
-
-  ytdLogs.forEach(d => {
-
-    const date = new Date(d.date + "T00:00:00");
-    const weekStart = new Date(date);
-    const day = weekStart.getDay() === 0 ? 7 : weekStart.getDay();
-    weekStart.setDate(weekStart.getDate() - day + 1);
-    weekStart.setHours(0,0,0,0);
-
-    const key = weekStart.toISOString().split("T")[0];
-    if (!ytdWeeks[key]) ytdWeeks[key] = [];
-    ytdWeeks[key].push(d);
-  });
-
-  const ytdLabels = [];
-  const ytdSales = [];
-  const ytdClosingRatio = [];
-  const ytdAlpPerSale = [];
-
-  Object.keys(ytdWeeks).sort().forEach(week => {
-
-    let wSales = 0;
-    let wPres = 0;
-    let wAlp = 0;
-
-    ytdWeeks[week].forEach(d => {
-      wSales += d.total_sales;
-      wPres += d.total_presentations;
-      wAlp += d.total_alp;
+    weeks[week].forEach(d => {
+      pres += d.total_presentations;
+      sales += d.total_sales;
+      alp += d.total_alp;
+      apptStart += d.appointments_start;
+      refs += d.referrals_collected;
     });
 
-    ytdLabels.push(week);
-    ytdSales.push(wSales);
-    ytdClosingRatio.push(wPres ? (wSales / wPres) * 100 : 0);
-    ytdAlpPerSale.push(wSales ? wAlp / wSales : 0);
+    weekLabels.push(week);
+    weeklySales.push(sales);
+    weeklyPresentations.push(pres);
+    weeklyShowRatio.push(
+      apptStart ? (pres / apptStart) * 100 : 0
+    );
+    weeklyClosingRatio.push(
+      pres ? (sales / pres) * 100 : 0
+    );
+    weeklyAlpPerSale.push(
+      sales ? alp / sales : 0
+    );
+    weeklyRefs.push(refs);
+    weeklyApptStart.push(apptStart);
   });
 
-  /* ================= WEEKLY CHARTS ================= */
+  /* ================= KPI CARDS (LATEST WEEK) ================= */
+
+  const lastIndex = weekLabels.length - 1;
+
+  wk_pres.innerText = weeklyPresentations[lastIndex] || 0;
+  wk_sales.innerText = weeklySales[lastIndex] || 0;
+  wk_show.innerText = weeklyShowRatio[lastIndex]
+    ? Math.round(weeklyShowRatio[lastIndex]) + "%"
+    : "0%";
+  wk_close.innerText = weeklyClosingRatio[lastIndex]
+    ? Math.round(weeklyClosingRatio[lastIndex]) + "%"
+    : "0%";
+  wk_alp.innerText = weeklyAlpPerSale[lastIndex]
+    ? "$" + Math.round(weeklyAlpPerSale[lastIndex])
+    : "$0";
+  wk_refs.innerText = weeklyPresentations[lastIndex]
+    ? (weeklyRefs[lastIndex] / weeklyPresentations[lastIndex]).toFixed(2)
+    : "0";
+
+
+  /* ================= WEEKLY TREND CHARTS ================= */
 
   drawChart({
     canvasId: "salesChart",
     type: "line",
-    labels,
-    data: salesTrend,
-    title: "Daily Sales Trend",
-    colors: {
-      border: CHART_COLORS.blue
-    }
+    labels: weekLabels,
+    data: weeklySales,
+    title: "Weekly Sales Trend",
+    colors: { border: CHART_COLORS.blue }
   });
 
   drawChart({
     canvasId: "presentationsChart",
     type: "bar",
-    labels,
-    data: presentations,
-    title: "Presentations per Day",
-    colors: {
-      bg: CHART_COLORS.green,
-    }
+    labels: weekLabels,
+    data: weeklyPresentations,
+    title: "Weekly Presentations",
+    colors: { bg: CHART_COLORS.green }
   });
 
   drawChart({
     canvasId: "showRatioChart",
     type: "line",
-    labels,
-    data: showRates,
-    title: "Show Ratio (%)",
-    colors: {
-
-      border: CHART_COLORS.orange
-    }
+    labels: weekLabels,
+    data: weeklyShowRatio,
+    title: "Weekly Show Ratio (%)",
+    colors: { border: CHART_COLORS.orange }
   });
 
   drawChart({
-    canvasId: "closingPieChart",
-    type: "pie",
-    labels: ["Closed Sales", "Not Closed"],
-    data: [sales, Math.max(pres - sales, 0)],
-    title: "Weekly Closing Ratio",
-    colors: {
-      bg: [CHART_COLORS.green, CHART_COLORS.red]
-    }
-  });
-
-  drawChart({
-    canvasId: "showRatioPieChart",
-    type: "pie",
-    labels: ["Shows", "No Shows"],
-    data: [
-      pres,
-      Math.max(apptStart - pres, 0)
+    canvasId: "weeklySalesClosingChart",
+    type: "line",
+    labels: weekLabels,
+    datasets: [
+      {
+        label: "Sales",
+        data: weeklySales,
+        yAxisID: "ySales",
+        borderColor: CHART_COLORS.blue
+      },
+      {
+        label: "Closing Ratio %",
+        data: weeklyClosingRatio,
+        yAxisID: "yPercent",
+        borderColor: CHART_COLORS.green
+      }
     ],
-    title: "Weekly Show Ratio",
-    colors: {
-      bg: [CHART_COLORS.green, CHART_COLORS.gray]
+    title: "Weekly Sales & Closing Ratio",
+    scales: {
+      ySales: { beginAtZero: true, position: "left" },
+      yPercent: { beginAtZero: true, max: 100, position: "right" }
     }
   });
 
   drawChart({
     canvasId: "alpYTDChart",
     type: "line",
-    labels: ytdLabels,
-    data: ytdAlpPerSale,
-    title: "Year-to-Date ALP per Sale"
+    labels: weekLabels,
+    data: weeklyAlpPerSale,
+    title: "Weekly ALP per Sale",
+    colors: { border: CHART_COLORS.purple }
+  });
+
+  /* ================= WEEKLY PIE CHARTS ================= */
+
+  const lastPres = weeklyPresentations[lastIndex] || 0;
+  const lastSales = weeklySales[lastIndex] || 0;
+  const lastApptStart = weeklyApptStart[lastIndex] || 0;
+
+
+  drawChart({
+    canvasId: "closingPieChart",
+    type: "pie",
+    labels: ["Closed Sales", "Not Closed"],
+    data: [lastSales, Math.max(lastPres - lastSales, 0)],
+    title: "Latest Week Closing Ratio",
+    colors: { bg: [CHART_COLORS.green, CHART_COLORS.red] }
   });
 
   drawChart({
-    canvasId: "weeklySalesClosingChart",
-    type: "line",
-    labels,
-    datasets: [
-      {
-        label: "Sales",
-        data: salesTrend,
-        yAxisID: "ySales"
-      },
-      {
-        label: "Closing Ratio %",
-        data: labels.map(() =>
-          pres ? (sales / pres) * 100 : 0
-        ),
-        yAxisID: "yPercent"
-      }
-    ],
-    title: "Weekly Sales & Closing Ratio",
-    scales: {
-      ySales: { beginAtZero:true, position:"left" },
-      yPercent: { beginAtZero:true, max:100, position:"right" }
-    }
-  });
-
-
-  /* ================= YTD CHART (MATCHES PHOTOS) ================= */
-
-  drawChart({
-    canvasId: "salesClosingYTD",
-    type: "line",
-    labels: ytdLabels,
-    datasets: [
-      {
-        label: "Sales",
-        data: ytdSales,
-        yAxisID: "ySales"
-      },
-      {
-        label: "Closing Ratio %",
-        data: ytdClosingRatio,
-        yAxisID: "yPercent"
-      }
-    ],
-    title: "Year-to-Date Sales & Closing Ratio",
-    scales: {
-      ySales: { beginAtZero: true, position: "left" },
-      yPercent: { beginAtZero: true, max: 100, position: "right" }
-    }
+    canvasId: "showRatioPieChart",
+    type: "pie",
+    labels: ["Shows", "No Shows"],
+    data: [lastPres, Math.max(lastApptStart - lastPres, 0)],
+    title: "Latest Week Show Ratio",
+    colors: { bg: [CHART_COLORS.green, CHART_COLORS.gray] }
   });
 }
 
@@ -594,7 +492,6 @@ window.onload=()=>{
   localStorage.removeItem("editEntry");
  }
 
- if(typeof weekSelect!=="undefined") loadWeekly();
  if(typeof historyBody!=="undefined") loadHistory();
 };
 
