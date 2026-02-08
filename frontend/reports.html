@@ -1,58 +1,79 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<link rel="stylesheet" href="/static/style.css">
-<title>Weekly Reports</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8" />
+  <title>Weekly Reports</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body>
 
-<div class="topbar">Weekly KPI Reports</div>
+  <!-- ================= NAV ================= -->
+  <header class="nav">
+    <h1>Reports</h1>
+    <button class="btn small" onclick="logout()">Logout</button>
+  </header>
 
-<div class="page">
+  <!-- ================= PAGE ================= -->
+  <main class="page">
 
-<div class="back" onclick="location.href='index.html'">← Back to Dashboard</div>
+    <!-- ===== WEEK SELECT ===== -->
+    <section class="card">
+      <label for="weekSelect"><strong>Select Week</strong></label>
+      <select id="weekSelect" onchange="loadWeekly()"></select>
+    </section>
 
-<div class="controls">
+    <!-- ===== KPI CARDS ===== -->
+    <section class="kpi-grid">
+      <div class="card kpi"><h4>Presentations</h4><span id="wk_pres">0</span></div>
+      <div class="card kpi"><h4>Sales</h4><span id="wk_sales">0</span></div>
+      <div class="card kpi"><h4>Show Ratio</h4><span id="wk_show">0%</span></div>
+      <div class="card kpi"><h4>Closing Ratio</h4><span id="wk_close">0%</span></div>
+      <div class="card kpi"><h4>ALP / Sale</h4><span id="wk_alp">$0</span></div>
+      <div class="card kpi"><h4>Referrals / Pres</h4><span id="wk_refs">0</span></div>
+    </section>
 
-  <div class="week-picker">
-    <label>Week</label>
-    <select id="weekSelect" onchange="loadWeekly()"></select>
-  </div>
+    <!-- ================= WEEKLY ================= -->
+    <h2 class="section-title">Weekly Performance</h2>
 
-  <button class="btn export-btn" onclick="exportExcel()">Export Excel</button>
+    <section class="chart-grid">
+      <div class="card chart-card">
+        <canvas id="salesChart"></canvas>
+      </div>
 
-</div>
+      <div class="card chart-card">
+        <canvas id="presentationsChart"></canvas>
+      </div>
 
+      <div class="card chart-card">
+        <canvas id="showRatioChart"></canvas>
+      </div>
 
-<div class="kpi-grid">
-<div class="kpi-card">Presentations<b id="wk_pres">0</b></div>
-<div class="kpi-card">Sales<b id="wk_sales">0</b></div>
-<div class="kpi-card">Show Ratio<b id="wk_show">0%</b></div>
-<div class="kpi-card">Closing %<b id="wk_close">0%</b></div>
-<div class="kpi-card">ALP / Sale<b id="wk_alp">$0</b></div>
-<div class="kpi-card">Refs / Pres<b id="wk_refs">0</b></div>
-</div>
+      <div class="card chart-card">
+        <canvas id="closingPieChart"></canvas>
+      </div>
 
-<div class="card chart-card">
-  <canvas id="salesChart"></canvas>
-</div>
+      <div class="card chart-card">
+        <canvas id="showRatioPieChart"></canvas>
+      </div>
+    </section>
 
-<div class="card chart-card">
-  <canvas id="presentationsChart"></canvas>
-</div>
+    <!-- ================= YEAR TO DATE ================= -->
+    <h2 class="section-title">Year-to-Date</h2>
 
-<div class="card chart-card">
-  <canvas id="showRatioChart"></canvas>
-</div>
+    <section class="chart-grid">
+      <div class="card chart-card">
+        <canvas id="salesClosingYTD"></canvas>
+      </div>
 
-<div class="card chart-card">
-  <canvas id="closingPieChart"></canvas>
-</div>
+      <div class="card chart-card">
+        <canvas id="alpYTDChart"></canvas>
+      </div>
+    </section>
 
+  </main>
 
-</div>
-
-<script src="/static/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

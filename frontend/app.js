@@ -25,24 +25,21 @@ function getCalgaryToday() {
 async function loadWeekly() {
 
   const res = await fetch(`${API_BASE}/history`, {
-    headers: { "Authorization": "Bearer " + TOKEN }
+    headers: { Authorization: "Bearer " + TOKEN }
   });
 
   const data = await res.json();
+  if (!data.length) return;
 
-  if (!data.length) {
-    drawChart(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], [0,0,0,0,0,0,0]);
-    return;
-  }
+  /* ================= WEEKLY GROUPING (ORIGINAL) ================= */
 
   const weeks = {};
 
   data.forEach(d => {
 
     const date = new Date(
-      new Date(d.date + "T00:00:00").toLocaleString(
-        "en-US",{ timeZone:"America/Edmonton" }
-      )
+      new Date(d.date + "T00:00:00")
+        .toLocaleString("en-US", { timeZone: "America/Edmonton" })
     );
 
     const weekStart = new Date(date);
@@ -50,40 +47,35 @@ async function loadWeekly() {
     weekStart.setDate(weekStart.getDate() - day + 1);
     weekStart.setHours(0,0,0,0);
 
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-
-    if(date >= weekStart && date <= weekEnd){
-      const key = weekStart.toLocaleDateString("en-CA");
-      if(!weeks[key]) weeks[key]=[];
-      weeks[key].push(d);
-    }
+    const key = weekStart.toLocaleDateString("en-CA");
+    if (!weeks[key]) weeks[key] = [];
+    weeks[key].push(d);
   });
+
+  /* ================= WEEK SELECTOR (ORIGINAL) ================= */
 
   const select = weekSelect;
   const prev = select.value;
-  select.innerHTML="";
+  select.innerHTML = "";
 
   const sortedWeeks = Object.keys(weeks).sort(
-    (a,b)=>new Date(b+"T12:00:00")-new Date(a+"T12:00:00")
+    (a,b)=>new Date(b+"T12:00:00") - new Date(a+"T12:00:00")
   );
 
-  sortedWeeks.forEach(start=>{
+  sortedWeeks.forEach(start => {
 
-    const weekStart = new Date(
-      new Date(start+"T00:00:00").toLocaleString(
-        "en-US",{ timeZone:"America/Edmonton" }
-      )
+    const ws = new Date(
+      new Date(start+"T00:00:00")
+        .toLocaleString("en-US",{ timeZone:"America/Edmonton" })
     );
 
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate()+6);
+    const we = new Date(ws);
+    we.setDate(ws.getDate()+6);
 
-    const opt=document.createElement("option");
-    opt.value=start;
-    opt.text=`${formatDate(weekStart)} – ${formatDate(weekEnd)}`;
-
-    if(start===prev) opt.selected=true;
+    const opt = document.createElement("option");
+    opt.value = start;
+    opt.text = `${formatDate(ws)} – ${formatDate(we)}`;
+    if(start === prev) opt.selected = true;
     select.appendChild(opt);
   });
 
@@ -92,70 +84,207 @@ async function loadWeekly() {
     (a,b)=>new Date(a.date)-new Date(b.date)
   );
 
-  let labels=[], salesTrend=[];
-  let pres=0,sales=0,alp=0,refs=0,apptFinish=0;
+  /* ================= WEEKLY METRICS (FIXED SHOW RATIO) ================= */
 
-  weekData.forEach(d=>{
+  let labels = [];
+  let salesTrend = [];
+  let presentations = [];
+  let showRates = [];
+
+  let pres = 0;
+  let sales = 0;
+  let alp = 0;
+  let refs = 0;
+  let apptStart = 0;
+
+  weekData.forEach(d => {
+
     labels.push(d.date);
     salesTrend.push(d.total_sales);
+    presentations.push(d.total_presentations);
 
-    pres+=d.total_presentations;
-    sales+=d.total_sales;
-    alp+=d.total_alp;
-    refs+=d.referrals_collected;
-    apptFinish+=d.appointments_finish;
+    showRates.push(
+      d.appointments_start
+        ? (d.total_presentations / d.appointments_start) * 100
+        : 0
+    );
+
+    pres += d.total_presentations;
+    sales += d.total_sales;
+    alp += d.total_alp;
+    refs += d.referrals_collected;
+    apptStart += d.appointments_start;
   });
 
-  wk_pres.innerText=pres;
-  wk_sales.innerText=sales;
-  wk_show.innerText=apptFinish?Math.round(pres/apptFinish*100)+"%":"0%";
-  wk_close.innerText=pres?Math.round(sales/pres*100)+"%":"0%";
-  wk_alp.innerText=sales?"$"+Math.round(alp/sales):"$0";
-  wk_refs.innerText=pres?(refs/pres).toFixed(2):"0";
+  /* ================= WEEKLY KPI CARDS ================= */
+
+  wk_pres.innerText = pres;
+  wk_sales.innerText = sales;
+  wk_show.innerText = apptStart
+    ? Math.round(pres / apptStart * 100) + "%"
+    : "0%";
+  wk_close.innerText = pres
+    ? Math.round(sales / pres * 100) + "%"
+    : "0%";
+  wk_alp.innerText = sales
+    ? "$" + Math.round(alp / sales)
+    : "$0";
+  wk_refs.innerText = pres
+    ? (refs / pres).toFixed(2)
+    : "0";
+
+  /* ================= WEEKLY CHARTS ================= */
 
   drawChart({
     canvasId: "salesChart",
     type: "line",
     labels,
     data: salesTrend,
-    label: "Sales"
+    title: "Daily Sales Trend"
   });
 
   drawChart({
     canvasId: "presentationsChart",
     type: "bar",
     labels,
-    data: weekData.map(d => d.total_presentations),
-    label: "Presentations",
-    colors: { bg: "#22c55e" }
+    data: presentations,
+    title: "Presentations per Day"
   });
 
   drawChart({
     canvasId: "showRatioChart",
     type: "line",
     labels,
-    data: weekData.map(d =>
-      d.appointments_finish
-        ? (d.total_presentations / d.appointments_finish * 100)
-        : 0
-    ),
-    label: "Show Ratio %",
-    colors: { border: "#f59e0b" }
+    data: showRates,
+    title: "Show Ratio (%)"
   });
 
   drawChart({
     canvasId: "closingPieChart",
     type: "pie",
-    labels: ["Closed", "Not Closed"],
-    data: [
-      sales,
-      Math.max(pres - sales, 0)
-    ],
-    title: "Closing Ratio",
-    colors: { bg: ["#22c55e", "#ef4444"] }
+    labels: ["Closed Sales", "Not Closed"],
+    data: [sales, Math.max(pres - sales, 0)],
+    title: "Weekly Closing Ratio"
   });
 
+  drawChart({
+    canvasId: "showRatioPieChart",
+    type: "pie",
+    labels: ["Shows", "No Shows"],
+    data: [
+      pres,
+      Math.max(apptStart - pres, 0)
+    ],
+    title: "Weekly Show Ratio"
+  });
+
+  drawChart({
+    canvasId: "alpYTDChart",
+    type: "line",
+    labels: ytdLabels,
+    data: ytdAlpPerSale,
+    title: "Year-to-Date ALP per Sale"
+  });
+
+  drawChart({
+    canvasId: "weeklySalesClosingChart",
+    type: "line",
+    labels,
+    datasets: [
+      {
+        label: "Sales",
+        data: salesTrend,
+        yAxisID: "ySales"
+      },
+      {
+        label: "Closing Ratio %",
+        data: labels.map(() =>
+          pres ? (sales / pres) * 100 : 0
+        ),
+        yAxisID: "yPercent"
+      }
+    ],
+    title: "Weekly Sales & Closing Ratio",
+    scales: {
+      ySales: { beginAtZero:true, position:"left" },
+      yPercent: { beginAtZero:true, max:100, position:"right" }
+    }
+  });
+
+
+
+
+  /* ================= YEAR-TO-DATE AGGREGATION (NEW) ================= */
+
+  const currentYear = new Date().getFullYear();
+  const ytdLogs = data.filter(d =>
+    new Date(d.date).getFullYear() === currentYear
+  );
+
+  const ytdWeeks = {};
+
+  ytdLogs.forEach(d => {
+
+    const date = new Date(d.date + "T00:00:00");
+    const weekStart = new Date(date);
+    const day = weekStart.getDay() === 0 ? 7 : weekStart.getDay();
+    weekStart.setDate(weekStart.getDate() - day + 1);
+    weekStart.setHours(0,0,0,0);
+
+    const key = weekStart.toISOString().split("T")[0];
+    if (!ytdWeeks[key]) ytdWeeks[key] = [];
+    ytdWeeks[key].push(d);
+  });
+
+  const ytdLabels = [];
+  const ytdSales = [];
+  const ytdClosingRatio = [];
+  const ytdAlpPerSale = [];
+
+  Object.keys(ytdWeeks).sort().forEach(week => {
+
+    let wSales = 0;
+    let wPres = 0;
+    let wAlp = 0;
+
+    ytdWeeks[week].forEach(d => {
+      wSales += d.total_sales;
+      wPres += d.total_presentations;
+      wAlp += d.total_alp;
+    });
+
+    ytdLabels.push(week);
+    ytdSales.push(wSales);
+    ytdClosingRatio.push(wPres ? (wSales / wPres) * 100 : 0);
+    ytdAlpPerSale.push(wSales ? wAlp / wSales : 0);
+  });
+
+  /* ================= YTD CHART (MATCHES PHOTOS) ================= */
+
+  drawChart({
+    canvasId: "salesClosingYTD",
+    type: "line",
+    labels: ytdLabels,
+    datasets: [
+      {
+        label: "Sales",
+        data: ytdSales,
+        yAxisID: "ySales"
+      },
+      {
+        label: "Closing Ratio %",
+        data: ytdClosingRatio,
+        yAxisID: "yPercent"
+      }
+    ],
+    title: "Year-to-Date Sales & Closing Ratio",
+    scales: {
+      ySales: { beginAtZero: true, position: "left" },
+      yPercent: { beginAtZero: true, max: 100, position: "right" }
+    }
+  });
 }
+
 
 /* ================= CHART ================= */
 
