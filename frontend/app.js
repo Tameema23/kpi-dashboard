@@ -315,66 +315,86 @@ async function loadWeekly() {
 function drawChart({
   canvasId,
   type = "line",
-  labels,
-  data,
-  datasets,
+  labels = [],
+  data = [],
+  datasets = null,
   label = "",
   title = "",
-  colors = {}
+  colors = {},
+  scales = null
 }) {
 
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
 
-  // destroy only THIS canvas's chart
+  // Destroy existing chart on this canvas only
   if (canvas._chart) {
     canvas._chart.destroy();
   }
+
+  // Build datasets safely
+  const finalDatasets = datasets || [{
+    label,
+    data,
+    backgroundColor: colors.bg || "#2563eb",
+    borderColor: colors.border || colors.bg || "#2563eb",
+    borderWidth: type === "bar" ? 1 : 3,
+    tension: type === "line" ? 0.35 : 0,
+    pointRadius: type === "line" ? 5 : 0,
+
+    // Bar-chart polish
+    barPercentage: type === "bar" ? 0.5 : undefined,
+    categoryPercentage: type === "bar" ? 0.6 : undefined,
+    borderRadius: type === "bar" ? 6 : 0
+  }];
 
   canvas._chart = new Chart(canvas, {
     type,
     data: {
       labels,
-      datasets: datasets || [{
-        label,
-        data,
-        backgroundColor: colors.bg || "#3b82f6",
-        borderColor: colors.border || "#3b82f6",
-        borderWidth: 3,
-        tension: 0.35,
-        pointRadius: type === "line" ? 5 : 0
-      }]
+      datasets: finalDatasets
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+
       plugins: {
         legend: { display: true },
+
         title: {
           display: !!title,
           text: title,
           font: { size: 16, weight: "600" },
           padding: { top: 10, bottom: 20 }
         },
+
         tooltip: {
           callbacks: {
             label: function(context) {
-              if (type !== "pie") return context.formattedValue;
 
-              const total = context.dataset.data.reduce((a,b)=>a+b,0);
-              const value = context.raw;
-              const percent = total
-                ? ((value / total) * 100).toFixed(1)
-                : 0;
+              // Pie chart percentage tooltip
+              if (type === "pie") {
+                const values = context.dataset.data;
+                const total = values.reduce((a, b) => a + b, 0);
+                const value = context.raw;
+                const percent = total
+                  ? ((value / total) * 100).toFixed(1)
+                  : 0;
+                return `${context.label}: ${value} (${percent}%)`;
+              }
 
-              return `${context.label}: ${value} (${percent}%)`;
+              // Line / bar tooltip
+              return `${context.dataset.label}: ${context.formattedValue}`;
             }
           }
         }
       },
-      scales: scales || (type !== "pie"
-        ? { y: { beginAtZero: true } }
-        : {})
+
+      scales: scales || (
+        type !== "pie"
+          ? { y: { beginAtZero: true } }
+          : {}
+      )
     }
   });
 }
