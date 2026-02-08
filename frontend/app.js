@@ -151,6 +151,7 @@ async function loadWeekly() {
       sales,
       Math.max(pres - sales, 0)
     ],
+    title: "Closing Ratio",
     colors: { bg: ["#22c55e", "#ef4444"] }
   });
 
