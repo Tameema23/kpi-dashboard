@@ -474,10 +474,11 @@ window.onload=()=>{
 
  const dateInput=document.getElementById("date");
  if(dateInput){
-  const calgary=new Date(
-    new Date().toLocaleString("en-US",{timeZone:"America/Edmonton"})
-  );
-  dateInput.value=calgary.toISOString().split("T")[0];
+  const calgaryStr = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/Edmonton"
+  });
+  dateInput.value = calgaryStr;
+
  }
 
  const editEntry = localStorage.getItem("editEntry");
