@@ -63,6 +63,8 @@ async function loadWeekly() {
   const weeklyAlpPerSale = [];
   const weeklyApptStart = [];
   const weeklyRefs = [];
+  let ytdTotalAlp = 0;
+
 
 
   Object.keys(weeks).sort().forEach(week => {
@@ -72,7 +74,6 @@ async function loadWeekly() {
     let alp = 0;
     let apptStart = 0;
     let refs = 0;
-    let ytdTotalAlp = 0;
 
 
     weeks[week].forEach(d => {
