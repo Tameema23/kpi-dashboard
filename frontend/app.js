@@ -64,6 +64,12 @@ async function loadWeekly() {
   const weeklyApptStart = [];
   const weeklyRefs = [];
   let ytdTotalAlp = 0;
+  let ytdPres = 0;
+  let ytdSales = 0;
+  let ytdAlp = 0;
+  let ytdApptStart = 0;
+  let ytdRefs = 0;
+
 
 
 
@@ -84,6 +90,12 @@ async function loadWeekly() {
       refs += d.referrals_collected;
     });
     ytdTotalAlp += alp;
+    ytdPres += pres;
+    ytdSales += sales;
+    ytdAlp += alp;
+    ytdApptStart += apptStart;
+    ytdRefs += refs;
+
 
 
     weekLabels.push(week);
@@ -102,25 +114,34 @@ async function loadWeekly() {
     weeklyApptStart.push(apptStart);
   });
 
+  const ytdShowRatio = ytdApptStart
+    ? (ytdPres / ytdApptStart) * 100
+    : 0;
+
+  const ytdClosingRatio = ytdPres
+    ? (ytdSales / ytdPres) * 100
+    : 0;
+
+  const ytdAlpPerSale = ytdSales
+    ? ytdAlp / ytdSales
+    : 0;
+
+  const ytdRefsPerPres = ytdPres
+    ? ytdRefs / ytdPres
+    : 0;
+
+
   /* ================= KPI CARDS (LATEST WEEK) ================= */
 
   const lastIndex = weekLabels.length - 1;
 
-  wk_pres.innerText = weeklyPresentations[lastIndex] || 0;
-  wk_sales.innerText = weeklySales[lastIndex] || 0;
-  wk_show.innerText = weeklyShowRatio[lastIndex]
-    ? Math.round(weeklyShowRatio[lastIndex]) + "%"
-    : "0%";
-  wk_close.innerText = weeklyClosingRatio[lastIndex]
-    ? Math.round(weeklyClosingRatio[lastIndex]) + "%"
-    : "0%";
-  wk_alp.innerText = weeklyAlpPerSale[lastIndex]
-    ? "$" + Math.round(weeklyAlpPerSale[lastIndex])
-    : "$0";
-  wk_refs.innerText = weeklyPresentations[lastIndex]
-    ? (weeklyRefs[lastIndex] / weeklyPresentations[lastIndex]).toFixed(2)
-    : "0";
-  
+  wk_pres.innerText = ytdPres;
+  wk_sales.innerText = ytdSales;
+  wk_show.innerText = Math.round(ytdShowRatio) + "%";
+  wk_close.innerText = Math.round(ytdClosingRatio) + "%";
+  wk_alp.innerText = "$" + Math.round(ytdAlpPerSale);
+  wk_refs.innerText = ytdRefsPerPres.toFixed(2);
+  wk_ytd_alp.innerText = "$" + ytdAlp.toLocaleString();  
   wk_ytd_alp.innerText = "$" + ytdTotalAlp.toLocaleString();
 
 
@@ -199,17 +220,24 @@ async function loadWeekly() {
     canvasId: "closingPieChart",
     type: "pie",
     labels: ["Closed Sales", "Not Closed"],
-    data: [lastSales, Math.max(lastPres - lastSales, 0)],
-    title: "Latest Week Closing Ratio",
+    data: [
+      ytdSales,
+      Math.max(ytdPres - ytdSales, 0)
+    ],
+    title: "Year-to-Date Closing Ratio",
     colors: { bg: [CHART_COLORS.green, CHART_COLORS.red] }
   });
+
 
   drawChart({
     canvasId: "showRatioPieChart",
     type: "pie",
     labels: ["Shows", "No Shows"],
-    data: [lastPres, Math.max(lastApptStart - lastPres, 0)],
-    title: "Latest Week Show Ratio",
+    data: [
+      ytdPres,
+      Math.max(ytdApptStart - ytdPres, 0)
+    ],
+    title: "Year-to-Date Show Ratio",
     colors: { bg: [CHART_COLORS.green, CHART_COLORS.gray] }
   });
 }
