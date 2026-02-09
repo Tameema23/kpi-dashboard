@@ -72,6 +72,8 @@ async function loadWeekly() {
     let alp = 0;
     let apptStart = 0;
     let refs = 0;
+    let ytdTotalAlp = 0;
+
 
     weeks[week].forEach(d => {
       pres += d.total_presentations;
@@ -80,6 +82,8 @@ async function loadWeekly() {
       apptStart += d.appointments_start;
       refs += d.referrals_collected;
     });
+    ytdTotalAlp += alp;
+
 
     weekLabels.push(week);
     weeklySales.push(sales);
@@ -115,6 +119,9 @@ async function loadWeekly() {
   wk_refs.innerText = weeklyPresentations[lastIndex]
     ? (weeklyRefs[lastIndex] / weeklyPresentations[lastIndex]).toFixed(2)
     : "0";
+  
+  wk_ytd_alp.innerText = "$" + ytdTotalAlp.toLocaleString();
+
 
 
   /* ================= WEEKLY TREND CHARTS ================= */
@@ -147,7 +154,7 @@ async function loadWeekly() {
   });
 
   drawChart({
-    canvasId: "weeklySalesClosingChart",
+    canvasId: "salesClosingYTD",
     type: "line",
     labels: weekLabels,
     datasets: [
