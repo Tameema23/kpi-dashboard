@@ -77,8 +77,8 @@
     <!-- ================= LEAD RATIOS ================= -->
     <h2 class="section-title">Lead Ratios</h2>
 
-    <section class="chart-grid" style="grid-template-columns: 1fr;">
-      <div class="card chart-card">
+    <section class="chart-grid">
+      <div class="card chart-card" style="grid-column: 1 / -1;">
         <div class="lead-ratio-controls">
           <button class="btn small lead-ratio-toggle active" data-period="ytd">YTD</button>
           <button class="btn small lead-ratio-toggle" data-period="q1">Q1</button>
@@ -86,7 +86,9 @@
           <button class="btn small lead-ratio-toggle" data-period="q3">Q3</button>
           <button class="btn small lead-ratio-toggle" data-period="q4">Q4</button>
         </div>
-        <canvas id="leadRatioChart"></canvas>
+        <div style="position:relative; height:320px;">
+          <canvas id="leadRatioChart"></canvas>
+        </div>
       </div>
     </section>
 
