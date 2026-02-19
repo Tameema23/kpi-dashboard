@@ -397,3 +397,34 @@ h2 {
   border-bottom: 1px solid #e5e7eb;
   padding-bottom: 8px;
 }
+
+/* Lead Ratio Chart Toggle */
+
+.lead-ratio-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.lead-ratio-toggle {
+  background: #e2e8f0;
+  color: #475569;
+  border: none;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.lead-ratio-toggle:hover {
+  background: #cbd5e1;
+  color: #1e293b;
+}
+
+.lead-ratio-toggle.active {
+  background: #3b82f6;
+  color: white;
+}

@@ -39,6 +39,8 @@ class DailyLog(Base):
     referrals_collected = Column(Integer)
     referral_presentations = Column(Integer)
     referral_sales = Column(Integer)
+    assigned_leads = Column(Integer, default=0)
+    bad_leads = Column(Integer, default=0)
 
     user = relationship("User", back_populates="logs")
 

@@ -63,12 +63,17 @@ async function loadWeekly() {
   const weeklyAlpPerSale = [];
   const weeklyApptStart = [];
   const weeklyRefs = [];
+  const weeklyConversionRatio = [];
+  const weeklyBadLeadRatio = [];
+  const weeklyAssignedLeads = [];
   let ytdTotalAlp = 0;
   let ytdPres = 0;
   let ytdSales = 0;
   let ytdAlp = 0;
   let ytdApptStart = 0;
   let ytdRefs = 0;
+  let ytdAssignedLeads = 0;
+  let ytdBadLeads = 0;
 
 
 
@@ -80,6 +85,8 @@ async function loadWeekly() {
     let alp = 0;
     let apptStart = 0;
     let refs = 0;
+    let assignedLeads = 0;
+    let badLeads = 0;
 
 
     weeks[week].forEach(d => {
@@ -88,6 +95,8 @@ async function loadWeekly() {
       alp += d.total_alp;
       apptStart += d.appointments_start;
       refs += d.referrals_collected;
+      assignedLeads += (d.assigned_leads || 0);
+      badLeads += (d.bad_leads || 0);
     });
     ytdTotalAlp += alp;
     ytdPres += pres;
@@ -95,6 +104,8 @@ async function loadWeekly() {
     ytdAlp += alp;
     ytdApptStart += apptStart;
     ytdRefs += refs;
+    ytdAssignedLeads += assignedLeads;
+    ytdBadLeads += badLeads;
 
 
 
@@ -112,6 +123,14 @@ async function loadWeekly() {
     );
     weeklyRefs.push(refs);
     weeklyApptStart.push(apptStart);
+
+    weeklyConversionRatio.push(
+      assignedLeads ? (pres / assignedLeads) * 100 : 0
+    );
+    weeklyBadLeadRatio.push(
+      assignedLeads ? (badLeads / assignedLeads) * 100 : 0
+    );
+    weeklyAssignedLeads.push(assignedLeads);
   });
 
   const ytdShowRatio = ytdApptStart
@@ -143,6 +162,14 @@ async function loadWeekly() {
   wk_refs.innerText = ytdRefsPerPres.toFixed(2);
   wk_ytd_alp.innerText = "$" + ytdAlp.toLocaleString();  
   wk_ytd_alp.innerText = "$" + ytdTotalAlp.toLocaleString();
+
+  const ytdConvRatio = ytdAssignedLeads ? (ytdPres / ytdAssignedLeads) * 100 : 0;
+  const ytdBadLeadRatio = ytdAssignedLeads ? (ytdBadLeads / ytdAssignedLeads) * 100 : 0;
+
+  if (document.getElementById("wk_conv"))
+    document.getElementById("wk_conv").innerText = Math.round(ytdConvRatio) + "%";
+  if (document.getElementById("wk_bad_lead"))
+    document.getElementById("wk_bad_lead").innerText = Math.round(ytdBadLeadRatio) + "%";
 
 
 
@@ -209,6 +236,27 @@ async function loadWeekly() {
     colors: { border: CHART_COLORS.purple }
   });
 
+  /* ================= LEAD RATIO CHART WITH TOGGLE ================= */
+
+  // Store data globally for toggle access
+  window._leadRatioData = {
+    weekLabels,
+    weeklyConversionRatio,
+    weeklyBadLeadRatio
+  };
+
+  drawLeadRatioChart("ytd");
+
+  // Set up toggle buttons
+  const toggleBtns = document.querySelectorAll(".lead-ratio-toggle");
+  toggleBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      toggleBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      drawLeadRatioChart(btn.dataset.period);
+    });
+  });
+
   /* ================= WEEKLY PIE CHARTS ================= */
 
   const lastPres = weeklyPresentations[lastIndex] || 0;
@@ -239,6 +287,64 @@ async function loadWeekly() {
     ],
     title: "Year-to-Date Show Ratio",
     colors: { bg: [CHART_COLORS.green, CHART_COLORS.gray] }
+  });
+}
+
+
+/* ================= LEAD RATIO CHART ================= */
+
+function drawLeadRatioChart(period) {
+  const { weekLabels, weeklyConversionRatio, weeklyBadLeadRatio } =
+    window._leadRatioData || { weekLabels: [], weeklyConversionRatio: [], weeklyBadLeadRatio: [] };
+
+  let labels = weekLabels;
+  let conversion = weeklyConversionRatio;
+  let badLead = weeklyBadLeadRatio;
+
+  if (period === "q1" || period === "q2" || period === "q3" || period === "q4") {
+    const qMonths = { q1: [0,1,2], q2: [3,4,5], q3: [6,7,8], q4: [9,10,11] };
+    const months = qMonths[period];
+    const filtered = weekLabels.reduce((acc, lbl, i) => {
+      const m = new Date(lbl + "T00:00:00").getMonth();
+      if (months.includes(m)) acc.push(i);
+      return acc;
+    }, []);
+    labels = filtered.map(i => weekLabels[i]);
+    conversion = filtered.map(i => weeklyConversionRatio[i]);
+    badLead = filtered.map(i => weeklyBadLeadRatio[i]);
+  }
+
+  drawChart({
+    canvasId: "leadRatioChart",
+    type: "line",
+    labels,
+    datasets: [
+      {
+        label: "Conversion Ratio %",
+        data: conversion,
+        borderColor: CHART_COLORS.blue,
+        backgroundColor: "transparent",
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: 5,
+        yAxisID: "yRatio"
+      },
+      {
+        label: "Bad Lead Ratio %",
+        data: badLead,
+        borderColor: CHART_COLORS.red,
+        backgroundColor: "transparent",
+        borderWidth: 3,
+        tension: 0.35,
+        pointRadius: 5,
+        yAxisID: "yRatio"
+      }
+    ],
+    title: "Conversion Ratio & Bad Lead Ratio (%)",
+    scales: {
+      yRatio: { beginAtZero: true, max: 100, position: "left",
+        title: { display: true, text: "%" } }
+    }
   });
 }
 
@@ -347,7 +453,9 @@ async function save() {
     total_ah: Number(total_ah.value || 0),
     referrals_collected: Number(referrals_collected.value || 0),
     referral_presentations: Number(referral_presentations.value || 0),
-    referral_sales: Number(referral_sales.value || 0)
+    referral_sales: Number(referral_sales.value || 0),
+    assigned_leads: Number(assigned_leads.value || 0),
+    bad_leads: Number(bad_leads.value || 0)
   };
 
   const res = await fetch(`${API_BASE}/log-day`, {
@@ -406,6 +514,8 @@ async function loadHistory(){
     <td>${d.referrals_collected}</td>
     <td>${d.referral_presentations}</td>
     <td>${d.referral_sales}</td>
+    <td>${d.assigned_leads ?? 0}</td>
+    <td>${d.bad_leads ?? 0}</td>
     <td>
       <button class="btn small" onclick='editDay(${JSON.stringify(d)})'>Edit</button>
     </td>
@@ -524,6 +634,11 @@ window.onload=()=>{
   referrals_collected.value = d.referrals_collected;
   referral_presentations.value = d.referral_presentations;
   referral_sales.value = d.referral_sales;
+
+  if (document.getElementById("assigned_leads"))
+    document.getElementById("assigned_leads").value = d.assigned_leads ?? 0;
+  if (document.getElementById("bad_leads"))
+    document.getElementById("bad_leads").value = d.bad_leads ?? 0;
 
   localStorage.removeItem("editEntry");
  }

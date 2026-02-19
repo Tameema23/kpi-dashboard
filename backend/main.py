@@ -134,6 +134,8 @@ class LogPayload(BaseModel):
     referrals_collected: int
     referral_presentations: int
     referral_sales: int
+    assigned_leads: int = 0
+    bad_leads: int = 0
 
 
 @app.post("/log-day")
@@ -188,7 +190,9 @@ def history(
             "total_ah": l.total_ah,
             "referrals_collected": l.referrals_collected,
             "referral_presentations": l.referral_presentations,
-            "referral_sales": l.referral_sales
+            "referral_sales": l.referral_sales,
+            "assigned_leads": l.assigned_leads or 0,
+            "bad_leads": l.bad_leads or 0
         }
         for l in logs
     ]
