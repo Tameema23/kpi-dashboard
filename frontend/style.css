@@ -428,3 +428,73 @@ h2 {
   background: #3b82f6;
   color: white;
 }
+/* ================= REPORTS PAGE LAYOUT ================= */
+
+.reports-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 24px;
+}
+
+/* 3-column KPI grid — always 3 per row, no orphans */
+.kpi-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 10px;
+}
+
+.kpi-grid-3 .kpi-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px;
+}
+
+.kpi-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.kpi-grid-3 .kpi-card b {
+  font-size: 28px;
+  color: #2563eb;
+  margin-top: 4px;
+}
+
+/* 2-column chart grid */
+.chart-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  margin-bottom: 22px;
+}
+
+/* Full-width chart row */
+.chart-grid-1 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 22px;
+  margin-bottom: 22px;
+}
+
+/* Consistent canvas height for 2-col charts */
+.chart-grid-2 .chart-card canvas {
+  width: 100%;
+  height: 300px;
+}
+
+/* Section title spacing */
+.section-title {
+  margin-top: 36px;
+  margin-bottom: 18px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 10px;
+}
