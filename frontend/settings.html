@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Settings</title>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      KPI Dashboard
+    </span>
+    <nav class="topbar-nav">
+      <a href="/index.html">Home</a>
+      <a href="/log.html">Log Day</a>
+      <a href="/reports.html">Reports</a>
+      <a href="/history.html">History</a>
+      <a href="/settings.html" class="active">Settings</a>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-user">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span id="username-text"></span>
+    </span>
+    <button class="logout" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<div class="page">
+  <a class="back" onclick="location.href='/index.html'">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+    Back to Dashboard
+  </a>
+
+  <div style="max-width: 520px;">
+
+    <!-- Account Info Card -->
+    <div class="card" style="margin-bottom: 22px;">
+      <div class="settings-card-header">
+        <div class="settings-icon icon-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-size:17px;">Account</h2>
+          <p style="margin:0; font-size:13px; color:#64748b;">Your account information</p>
+        </div>
+      </div>
+      <div class="settings-field">
+        <span class="settings-label">Username</span>
+        <span class="settings-value" id="display-username">—</span>
+      </div>
+    </div>
+
+    <!-- Change Password Card -->
+    <div class="card">
+      <div class="settings-card-header">
+        <div class="settings-icon icon-amber">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-size:17px;">Change Password</h2>
+          <p style="margin:0; font-size:13px; color:#64748b;">Update your account password</p>
+        </div>
+      </div>
+
+      <div class="form-field" style="margin-top: 20px;">
+        <label>Current Password</label>
+        <input id="current_password" type="password" placeholder="Enter current password">
+      </div>
+      <div class="form-field">
+        <label>New Password</label>
+        <input id="new_password" type="password" placeholder="Enter new password">
+      </div>
+      <div class="form-field">
+        <label>Confirm New Password</label>
+        <input id="confirm_password" type="password" placeholder="Confirm new password">
+      </div>
+
+      <div style="display:flex; align-items:center; gap:14px; margin-top:8px;">
+        <button class="btn" onclick="changePassword()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+          Save Password
+        </button>
+        <span id="pw-msg" style="font-size:13px; font-weight:600;"></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Mobile Bottom Nav -->
+<nav class="bottom-nav">
+  <div class="bottom-nav-items">
+    <a href="/index.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Home
+    </a>
+    <a href="/log.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Log
+    </a>
+    <a href="/reports.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Reports
+    </a>
+    <a href="/history.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      History
+    </a>
+  </div>
+</nav>
+
+<script src="/static/app.js"></script>
+<script>
+  const u = localStorage.getItem("username");
+  if (u) {
+    document.getElementById("username-text").innerText = u;
+    document.getElementById("display-username").innerText = u;
+  }
+
+  async function changePassword() {
+    const current = document.getElementById("current_password").value;
+    const newPw   = document.getElementById("new_password").value;
+    const confirm = document.getElementById("confirm_password").value;
+    const msg     = document.getElementById("pw-msg");
+
+    if (!current || !newPw || !confirm) {
+      msg.innerText = "Please fill in all fields.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+
+    if (newPw !== confirm) {
+      msg.innerText = "New passwords do not match.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+
+    if (newPw.length < 4) {
+      msg.innerText = "Password must be at least 4 characters.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+
+    const TOKEN = localStorage.getItem("token");
+
+    try {
+      const res = await fetch("/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + TOKEN
+        },
+        body: JSON.stringify({
+          current_password: current,
+          new_password: newPw
+        })
+      });
+
+      if (res.ok) {
+        showToast("Password updated successfully!");
+        document.getElementById("current_password").value = "";
+        document.getElementById("new_password").value = "";
+        document.getElementById("confirm_password").value = "";
+        msg.innerText = "";
+      } else {
+        const data = await res.json();
+        msg.innerText = data.detail || "Incorrect current password.";
+        msg.style.color = "#dc2626";
+      }
+    } catch {
+      msg.innerText = "Server error. Please try again.";
+      msg.style.color = "#dc2626";
+    }
+  }
+</script>
+</body>
+</html>

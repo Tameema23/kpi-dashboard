@@ -37,6 +37,10 @@ def reports_page():
 def history_page():
     return FileResponse("frontend/history.html")
 
+@app.get("/settings.html")
+def settings_page():
+    return FileResponse("frontend/settings.html")
+
 # ---------------- CORS ---------------- #
 
 app.add_middleware(
@@ -196,6 +200,26 @@ def history(
         }
         for l in logs
     ]
+
+# ---------------- CHANGE PASSWORD ---------------- #
+
+class ChangePasswordPayload(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.post("/change-password")
+def change_password(
+    data: ChangePasswordPayload,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if user.password != data.current_password:
+        raise HTTPException(400, "Current password is incorrect")
+    if len(data.new_password) < 4:
+        raise HTTPException(400, "New password must be at least 4 characters")
+    user.password = data.new_password
+    db.commit()
+    return {"status": "password updated"}
 
 # ---------------- DELETE (BULK) ---------------- #
 

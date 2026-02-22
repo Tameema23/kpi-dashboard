@@ -408,6 +408,30 @@ function drawChart({
     canvas._chart.destroy();
   }
 
+  // Empty state — show message if no data
+  const hasData = datasets
+    ? datasets.some(ds => ds.data && ds.data.length > 0)
+    : data && data.length > 0;
+
+  const wrapper = canvas.parentElement;
+  const existingEmpty = wrapper.querySelector('.empty-state');
+  if (existingEmpty) existingEmpty.remove();
+
+  if (!hasData) {
+    canvas.style.display = 'none';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <p>No data available yet</p>`;
+    wrapper.appendChild(empty);
+    return;
+  } else {
+    canvas.style.display = '';
+  }
+
   // Build datasets safely
   const finalDatasets = datasets || [{
     label,
