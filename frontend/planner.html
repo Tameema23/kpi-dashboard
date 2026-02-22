@@ -26,6 +26,7 @@
     <!-- Assistant nav -->
     <nav class="topbar-nav" id="assistant-nav" style="display:none;">
       <a href="/planner.html" class="active">Planner</a>
+      <a href="/settings.html">Settings</a>
     </nav>
   </div>
   <div class="topbar-right">
@@ -151,7 +152,7 @@
   if (role === "assistant") {
     document.getElementById("assistant-nav").style.display = "flex";
     // Hide non-planner tabs in bottom nav for assistants
-    document.querySelectorAll("#adminBottomNav .bottom-nav-item:not([href='/planner.html'])").forEach(function(el) {
+    document.querySelectorAll("#adminBottomNav .bottom-nav-item:not([href='/planner.html']):not([href='/settings.html'])").forEach(function(el) {
       el.style.display = "none";
     });
   } else {
