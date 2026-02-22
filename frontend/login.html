@@ -1,88 +1,114 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KPI Login</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-<div class="topbar">Production KPI System</div>
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      KPI Dashboard
+    </span>
+  </div>
+</div>
 
 <div class="page center">
+  <div class="card auth-card">
 
-<div class="card auth-card">
+    <div class="auth-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span>KPI Dashboard</span>
+    </div>
 
-<h2 id="formTitle">Login</h2>
+    <h2 id="formTitle">Welcome Back</h2>
+    <p class="auth-subtitle" id="formSubtitle">Sign in to your account</p>
 
-<input id="username" placeholder="Username">
-<input id="password" type="password" placeholder="Password">
+    <div class="auth-input-group">
+      <label>Username</label>
+      <input id="username" placeholder="Enter your username" autocomplete="username">
+    </div>
 
-<button class="btn" onclick="submitAuth()">Login</button>
+    <div class="auth-input-group">
+      <label>Password</label>
+      <input id="password" type="password" placeholder="Enter your password" autocomplete="current-password">
+    </div>
 
-<p class="switch" onclick="toggleForm()">Create an account</p>
+    <label class="remember-row" id="rememberRow">
+      <input type="checkbox" id="rememberMe" checked>
+      <span>Keep me signed in</span>
+    </label>
 
-<p id="msg"></p>
+    <button class="btn auth-btn" onclick="submitAuth()">Sign In</button>
 
-</div>
+    <p class="switch" onclick="toggleForm()" id="switchBtn">Don't have an account? Create one</p>
+    <p id="msg"></p>
+
+  </div>
 </div>
 
 <script>
-let isSignup = false
+let isSignup = false;
 
 function toggleForm() {
-  isSignup = !isSignup
-  document.getElementById("formTitle").innerText =
-    isSignup ? "Create Account" : "Login"
-
-  document.querySelector(".btn").innerText =
-    isSignup ? "Create Account" : "Login"
-
-  document.querySelector(".switch").innerText =
-    isSignup ? "Back to login" : "Create an account"
-
-  document.getElementById("msg").innerText = ""
+  isSignup = !isSignup;
+  document.getElementById("formTitle").innerText = isSignup ? "Create Account" : "Welcome Back";
+  document.getElementById("formSubtitle").innerText = isSignup ? "Set up your account" : "Sign in to your account";
+  document.querySelector(".auth-btn").innerText = isSignup ? "Create Account" : "Sign In";
+  document.getElementById("switchBtn").innerText = isSignup ? "Already have an account? Sign in" : "Don't have an account? Create one";
+  document.getElementById("rememberRow").style.display = isSignup ? "none" : "flex";
+  document.getElementById("msg").innerText = "";
 }
 
 async function submitAuth() {
-  const username = document.getElementById("username").value
-  const password = document.getElementById("password").value
-  const msg = document.getElementById("msg")
+  const username = document.getElementById("username").value.trim();
+  const password = document.getElementById("password").value;
+  const msg = document.getElementById("msg");
 
-  const url = isSignup ? "/create-user" : "/login"
+  if (!username || !password) {
+    msg.innerText = "Please fill in all fields.";
+    msg.style.color = "#dc2626";
+    return;
+  }
+
+  const url = isSignup ? "/create-user" : "/login";
 
   try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password })
-    })
+    });
 
     if (!res.ok) {
-      msg.innerText = isSignup
-        ? "Username already exists"
-        : "Invalid credentials"
-      msg.style.color = "red"
-      return
+      msg.innerText = isSignup ? "Username already exists." : "Invalid username or password.";
+      msg.style.color = "#dc2626";
+      return;
     }
 
     if (isSignup) {
-      msg.innerText = "Account created! You can now log in."
-      msg.style.color = "green"
-      setTimeout(toggleForm, 1200)
-      return
+      msg.innerText = "Account created. You can now sign in.";
+      msg.style.color = "#16a34a";
+      setTimeout(toggleForm, 1400);
+      return;
     }
 
-    const data = await res.json()
-    localStorage.setItem("token", data.token)
-    window.location.href = "/index.html"
-
+    const data = await res.json();
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("username", username);
+    window.location.href = "/index.html";
 
   } catch {
-    msg.innerText = "Server error"
-    msg.style.color = "red"
+    msg.innerText = "Server error. Please try again.";
+    msg.style.color = "#dc2626";
   }
 }
-</script>
 
+document.addEventListener("keydown", e => { if (e.key === "Enter") submitAuth(); });
+</script>
 </body>
 </html>

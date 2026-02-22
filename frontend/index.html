@@ -1,48 +1,102 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<link rel="stylesheet" href="/static/style.css">
-<title>KPI Dashboard</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>KPI Dashboard</title>
 </head>
 <body>
 
 <div class="topbar">
-  Production KPI Dashboard
-  <button class="logout" onclick="logout()">Logout</button>
+  <div class="topbar-left">
+    <span class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      KPI Dashboard
+    </span>
+    <nav class="topbar-nav">
+      <a href="/index.html" class="active">Home</a>
+      <a href="/log.html">Log Day</a>
+      <a href="/reports.html">Reports</a>
+      <a href="/history.html">History</a>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-user" id="topbar-username">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span id="username-text"></span>
+    </span>
+    <button class="logout" onclick="logout()">Sign Out</button>
+  </div>
 </div>
-
-
 
 <div class="page">
 
-<div class="grid">
-
-  <div class="card">
-    <h2>Log Daily Data</h2>
-    <p>Enter production metrics for each day.</p>
-    <button class="btn" onclick="location.href='log.html'">Log a Day</button>
+  <div class="welcome-banner">
+    <h1 id="welcome-msg">Welcome back</h1>
+    <p>Here's your production KPI overview. What would you like to do today?</p>
   </div>
 
-  <div class="card">
-    <h2>Weekly Reports</h2>
-    <p>View KPI percentages and graphs.</p>
-    <button class="btn" onclick="location.href='reports.html'">View Reports</button>
+  <div class="grid">
+
+    <div class="dashboard-card" onclick="location.href='log.html'">
+      <div class="dashboard-card-icon icon-blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      </div>
+      <h2>Log Daily Data</h2>
+      <p>Enter your production metrics for today.</p>
+      <button class="btn" style="margin-top:8px; width:fit-content;">Log a Day</button>
+    </div>
+
+    <div class="dashboard-card" onclick="location.href='reports.html'">
+      <div class="dashboard-card-icon icon-green">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </div>
+      <h2>Weekly Reports</h2>
+      <p>View your KPI percentages and performance charts.</p>
+      <button class="btn" style="margin-top:8px; width:fit-content;">View Reports</button>
+    </div>
+
+    <div class="dashboard-card" onclick="location.href='history.html'">
+      <div class="dashboard-card-icon icon-purple">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+      <h2>History</h2>
+      <p>Edit and review all your previous entries.</p>
+      <button class="btn" style="margin-top:8px; width:fit-content;">Open History</button>
+    </div>
+
   </div>
-
-  <div class="card">
-    <h2>History</h2>
-    <p>Edit and review previous entries.</p>
-    <button class="btn" onclick="location.href='history.html'">Open History</button>
-  </div>
-
-  
-
-
 </div>
 
-</div>
+<nav class="bottom-nav">
+  <div class="bottom-nav-items">
+    <a href="/index.html" class="bottom-nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Home
+    </a>
+    <a href="/log.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Log
+    </a>
+    <a href="/reports.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Reports
+    </a>
+    <a href="/history.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      History
+    </a>
+  </div>
+</nav>
 
 <script src="/static/app.js"></script>
-
+<script>
+  const u = localStorage.getItem("username");
+  if (u) {
+    document.getElementById("welcome-msg").innerText = "Welcome back, " + u;
+    document.getElementById("username-text").innerText = u;
+  }
+</script>
 </body>
 </html>

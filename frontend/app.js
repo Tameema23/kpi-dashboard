@@ -154,22 +154,59 @@ async function loadWeekly() {
 
   const lastIndex = weekLabels.length - 1;
 
-  wk_pres.innerText = ytdPres;
-  wk_sales.innerText = ytdSales;
-  wk_show.innerText = Math.round(ytdShowRatio) + "%";
-  wk_close.innerText = Math.round(ytdClosingRatio) + "%";
-  wk_alp.innerText = "$" + Math.round(ytdAlpPerSale);
-  wk_refs.innerText = ytdRefsPerPres.toFixed(2);
-  wk_ytd_alp.innerText = "$" + ytdAlp.toLocaleString();  
-  wk_ytd_alp.innerText = "$" + ytdTotalAlp.toLocaleString();
-
   const ytdConvRatio = ytdAssignedLeads ? (ytdPres / ytdAssignedLeads) * 100 : 0;
   const ytdBadLeadRatio = ytdAssignedLeads ? (ytdBadLeads / ytdAssignedLeads) * 100 : 0;
 
-  if (document.getElementById("wk_conv"))
-    document.getElementById("wk_conv").innerText = Math.round(ytdConvRatio) + "%";
-  if (document.getElementById("wk_bad_lead"))
-    document.getElementById("wk_bad_lead").innerText = Math.round(ytdBadLeadRatio) + "%";
+  // Reveal real KPI grid, hide skeletons
+  const skelGrid = document.getElementById("kpi-skeleton-grid");
+  const realGrid = document.getElementById("kpi-real-grid");
+  const chartsSkel = document.getElementById("charts-skeleton");
+  const chartsReal = document.getElementById("charts-real");
+  if (skelGrid) skelGrid.classList.add("hidden");
+  if (realGrid) realGrid.classList.remove("hidden");
+  if (chartsSkel) chartsSkel.classList.add("hidden");
+  if (chartsReal) chartsReal.classList.remove("hidden");
+
+  // Count-up animation helper
+  function countUp(id, target, prefix = "", suffix = "", decimals = 0) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const duration = 900;
+    const start = performance.now();
+    function step(now) {
+      const progress = Math.min((now - start) / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const val = ease * target;
+      el.innerText = prefix + (decimals > 0 ? val.toFixed(decimals) : Math.round(val).toLocaleString()) + suffix;
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  countUp("wk_pres", ytdPres);
+  countUp("wk_sales", ytdSales);
+  countUp("wk_ytd_alp", ytdTotalAlp, "$", "", 0);
+  countUp("wk_show", ytdShowRatio, "", "%");
+  countUp("wk_close", ytdClosingRatio, "", "%");
+  countUp("wk_alp", ytdAlpPerSale, "$", "", 0);
+  countUp("wk_conv", ytdConvRatio, "", "%");
+  countUp("wk_bad_lead", ytdBadLeadRatio, "", "%");
+  countUp("wk_refs", ytdRefsPerPres, "", "", 2);
+
+  // Color-code ratios
+  setTimeout(() => {
+    const closeEl = document.getElementById("wk_close");
+    if (closeEl) closeEl.className = ytdClosingRatio >= 75 ? "good" : ytdClosingRatio >= 50 ? "warn" : "bad";
+
+    const showEl = document.getElementById("wk_show");
+    if (showEl) showEl.className = ytdShowRatio >= 75 ? "good" : ytdShowRatio >= 50 ? "warn" : "bad";
+
+    const convEl = document.getElementById("wk_conv");
+    if (convEl) convEl.className = ytdConvRatio >= 60 ? "good" : ytdConvRatio >= 35 ? "warn" : "bad";
+
+    const badEl = document.getElementById("wk_bad_lead");
+    if (badEl) badEl.className = ytdBadLeadRatio <= 30 ? "good" : ytdBadLeadRatio <= 55 ? "warn" : "bad";
+  }, 950);
 
 
 
@@ -468,16 +505,12 @@ async function save() {
   });
 
   if (res.ok) {
-    document.getElementById("saveSuccess").style.display = "block";
+    const result = await res.json();
+    const el = document.getElementById("saveSuccess");
+    if (el) { el.style.display = "flex"; setTimeout(() => el.style.display = "none", 3000); }
+    showToast(result.status === "updated" ? "Day updated successfully!" : "Day saved successfully!");
   } else {
-
-    const msg = await res.text();
-
-    if(msg.includes("already logged")){
-      alert("This day is already logged. You can edit it in History.");
-    }else{
-      alert("Save failed");
-    }
+    showToast("Save failed. Please try again.", "error");
   }
 }
 
@@ -584,10 +617,11 @@ async function deleteSelected(){
   });
 
   if(res.ok){
+    showToast("Selected days deleted.");
     toggleDeleteMode();
     loadHistory();
-  }else{
-    alert("Delete failed");
+  } else {
+    showToast("Delete failed. Please try again.", "error");
   }
 }
 
@@ -692,4 +726,25 @@ async function exportExcel() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+/* ================= TOAST NOTIFICATIONS ================= */
+
+function showToast(message, type = "success") {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    document.body.appendChild(container);
+  }
+  const icons = {
+    success: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>',
+    error:   '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    info:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+  };
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerHTML = (icons[type] || icons.info) + " " + message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3200);
 }
