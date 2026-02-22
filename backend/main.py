@@ -3,11 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from typing import Optional
 from jose import jwt
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from backend.database import SessionLocal, create_db, User, DailyLog
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment
 
 SECRET_KEY = "supersecretkey"
 
@@ -41,6 +42,10 @@ def history_page():
 def settings_page():
     return FileResponse("frontend/settings.html")
 
+@app.get("/planner.html")
+def planner_page():
+    return FileResponse("frontend/planner.html")
+
 # ---------------- CORS ---------------- #
 
 app.add_middleware(
@@ -69,9 +74,13 @@ class UserPayload(BaseModel):
     password: str
 
 
-def create_token(user_id: int):
+def create_token(user_id: int, role: str):
     return jwt.encode(
-        {"user_id": user_id, "exp": datetime.utcnow() + timedelta(days=7)},
+        {
+            "user_id": user_id,
+            "role": role,
+            "exp": datetime.utcnow() + timedelta(days=7)
+        },
         SECRET_KEY,
         algorithm="HS256"
     )
@@ -84,14 +93,9 @@ def get_current_user(
     try:
         token = authorization.replace("Bearer ", "")
         payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-
-        user = db.query(User).filter(
-            User.id == payload["user_id"]
-        ).first()
-
+        user = db.query(User).filter(User.id == payload["user_id"]).first()
         if not user:
             raise HTTPException(401)
-
         return user
     except:
         raise HTTPException(401)
@@ -102,14 +106,9 @@ def create_user(data: UserPayload, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(400, "User exists")
 
-    user = User(
-        username=data.username,
-        password=data.password
-    )
-
+    user = User(username=data.username, password=data.password, role="admin")
     db.add(user)
     db.commit()
-
     return {"status": "created"}
 
 
@@ -123,7 +122,68 @@ def login(data: UserPayload, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(401)
 
-    return {"token": create_token(user.id)}
+    return {
+        "token": create_token(user.id, user.role or "admin"),
+        "role": user.role or "admin",
+        "username": user.username
+    }
+
+# ---------------- ASSISTANT MANAGEMENT (admin only) ---------------- #
+
+class AssistantPayload(BaseModel):
+    username: str
+    password: str
+
+@app.post("/create-assistant")
+def create_assistant(
+    data: AssistantPayload,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if (user.role or "admin") != "admin":
+        raise HTTPException(403, "Admin only")
+
+    if db.query(User).filter(User.username == data.username).first():
+        raise HTTPException(400, "Username already exists")
+
+    assistant = User(username=data.username, password=data.password, role="assistant")
+    db.add(assistant)
+    db.commit()
+    return {"status": "created"}
+
+
+@app.get("/assistants")
+def list_assistants(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if (user.role or "admin") != "admin":
+        raise HTTPException(403, "Admin only")
+
+    assistants = db.query(User).filter(User.role == "assistant").all()
+    return [{"id": a.id, "username": a.username} for a in assistants]
+
+
+@app.delete("/assistants/{assistant_id}")
+def delete_assistant(
+    assistant_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if (user.role or "admin") != "admin":
+        raise HTTPException(403, "Admin only")
+
+    assistant = db.query(User).filter(
+        User.id == assistant_id,
+        User.role == "assistant"
+    ).first()
+
+    if not assistant:
+        raise HTTPException(404, "Assistant not found")
+
+    db.delete(assistant)
+    db.commit()
+    return {"status": "deleted"}
 
 # ---------------- LOGGING ---------------- #
 
@@ -148,27 +208,20 @@ def log_day(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-
     existing = db.query(DailyLog).filter(
-    DailyLog.user_id == user.id,
-    DailyLog.date == data.date
+        DailyLog.user_id == user.id,
+        DailyLog.date == data.date
     ).first()
 
     if existing:
         for key, value in data.dict().items():
             setattr(existing, key, value)
-
         db.commit()
         return {"status": "updated"}
 
-    entry = DailyLog(
-        user_id=user.id,
-        **data.dict()
-    )
-
+    entry = DailyLog(user_id=user.id, **data.dict())
     db.add(entry)
     db.commit()
-
     return {"status": "saved"}
 
 
@@ -177,11 +230,7 @@ def history(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-
-    logs = db.query(DailyLog).filter(
-        DailyLog.user_id == user.id
-    ).all()
-
+    logs = db.query(DailyLog).filter(DailyLog.user_id == user.id).all()
     return [
         {
             "id": l.id,
@@ -229,12 +278,95 @@ def delete_days(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-
     db.query(DailyLog).filter(
         DailyLog.user_id == user.id,
         DailyLog.id.in_(ids)
     ).delete(synchronize_session=False)
-
     db.commit()
-
     return {"status": "deleted"}
+
+# ---------------- APPOINTMENTS (PLANNER) ---------------- #
+
+class AppointmentPayload(BaseModel):
+    lead_name: str
+    comments: Optional[str] = ""
+    scheduled_for: str  # ISO string e.g. "2026-02-24T14:00"
+
+class AppointmentUpdatePayload(BaseModel):
+    lead_name: str
+    comments: Optional[str] = ""
+    scheduled_for: str
+
+@app.post("/appointments")
+def create_appointment(
+    data: AppointmentPayload,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+    appt = Appointment(
+        created_by=user.id,
+        lead_name=data.lead_name,
+        comments=data.comments or "",
+        scheduled_for=data.scheduled_for,
+        booked_at=now
+    )
+    db.add(appt)
+    db.commit()
+    db.refresh(appt)
+    return _appt_dict(appt, db)
+
+
+@app.get("/appointments")
+def get_appointments(
+    week_start: Optional[str] = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # All users share the same appointment pool
+    appts = db.query(Appointment).all()
+    return [_appt_dict(a, db) for a in appts]
+
+
+@app.put("/appointments/{appt_id}")
+def update_appointment(
+    appt_id: int,
+    data: AppointmentUpdatePayload,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    appt = db.query(Appointment).filter(Appointment.id == appt_id).first()
+    if not appt:
+        raise HTTPException(404, "Appointment not found")
+
+    appt.lead_name = data.lead_name
+    appt.comments = data.comments or ""
+    appt.scheduled_for = data.scheduled_for
+    db.commit()
+    return _appt_dict(appt, db)
+
+
+@app.delete("/appointments/{appt_id}")
+def delete_appointment(
+    appt_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    appt = db.query(Appointment).filter(Appointment.id == appt_id).first()
+    if not appt:
+        raise HTTPException(404, "Appointment not found")
+    db.delete(appt)
+    db.commit()
+    return {"status": "deleted"}
+
+
+def _appt_dict(appt, db):
+    creator = db.query(User).filter(User.id == appt.created_by).first()
+    return {
+        "id": appt.id,
+        "lead_name": appt.lead_name,
+        "comments": appt.comments,
+        "scheduled_for": appt.scheduled_for,
+        "booked_at": appt.booked_at,
+        "created_by": creator.username if creator else "unknown"
+    }

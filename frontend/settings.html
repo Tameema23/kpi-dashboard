@@ -90,6 +90,42 @@
       </div>
     </div>
 
+    <!-- Assistant Accounts Card (admin only) -->
+    <div class="card" id="assistantCard" style="margin-top: 22px; display:none;">
+      <div class="settings-card-header">
+        <div class="settings-icon icon-purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-size:17px;">Assistant Accounts</h2>
+          <p style="margin:0; font-size:13px; color:#64748b;">Create accounts for your assistants — planner access only</p>
+        </div>
+      </div>
+
+      <!-- Existing assistants list -->
+      <div id="assistantList" style="margin-bottom:20px;"></div>
+
+      <!-- Create new assistant -->
+      <div style="border-top:2px solid #f1f5f9; padding-top:18px;">
+        <p style="margin:0 0 14px 0; font-size:13px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.05em;">Add New Assistant</p>
+        <div class="form-field">
+          <label>Username</label>
+          <input id="new_assistant_username" placeholder="e.g. sarah_assistant" type="text">
+        </div>
+        <div class="form-field">
+          <label>Password</label>
+          <input id="new_assistant_password" placeholder="Set a password" type="password">
+        </div>
+        <div style="display:flex; align-items:center; gap:14px; margin-top:4px;">
+          <button class="btn" onclick="createAssistant()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Create Assistant
+          </button>
+          <span id="assistant-msg" style="font-size:13px; font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -176,6 +212,103 @@
     } catch {
       msg.innerText = "Server error. Please try again.";
       msg.style.color = "#dc2626";
+    }
+  }
+
+  // Show assistant card only for admins
+  if (localStorage.getItem("role") === "admin" || !localStorage.getItem("role")) {
+    document.getElementById("assistantCard").style.display = "block";
+    loadAssistants();
+  }
+
+  async function loadAssistants() {
+    const TOKEN = localStorage.getItem("token");
+    try {
+      const res = await fetch("/assistants", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (!res.ok) return;
+      const list = await res.json();
+      const container = document.getElementById("assistantList");
+      if (list.length === 0) {
+        container.innerHTML = '<p style="font-size:13px;color:#94a3b8;margin:0;">No assistants yet.</p>';
+        return;
+      }
+      container.innerHTML = list.map(a => `
+        <div class="settings-field">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:32px;height:32px;border-radius:50%;background:#eff6ff;display:flex;align-items:center;justify-content:center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#0f172a;">${a.username}</div>
+              <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Assistant</div>
+            </div>
+          </div>
+          <button class="btn small" style="background:#fee2e2;color:#dc2626;" onclick="removeAssistant(${a.id}, '${a.username}')">Remove</button>
+        </div>
+      `).join("");
+    } catch(e) {
+      console.error(e);
+    }
+  }
+
+  async function createAssistant() {
+    const username = document.getElementById("new_assistant_username").value.trim();
+    const password = document.getElementById("new_assistant_password").value;
+    const msg = document.getElementById("assistant-msg");
+
+    if (!username || !password) {
+      msg.innerText = "Please fill in both fields.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+    if (password.length < 4) {
+      msg.innerText = "Password must be at least 4 characters.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+
+    const TOKEN = localStorage.getItem("token");
+    try {
+      const res = await fetch("/create-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify({ username, password })
+      });
+      if (res.ok) {
+        showToast("Assistant account created!");
+        document.getElementById("new_assistant_username").value = "";
+        document.getElementById("new_assistant_password").value = "";
+        msg.innerText = "";
+        loadAssistants();
+      } else {
+        const data = await res.json();
+        msg.innerText = data.detail || "Failed to create assistant.";
+        msg.style.color = "#dc2626";
+      }
+    } catch {
+      msg.innerText = "Server error.";
+      msg.style.color = "#dc2626";
+    }
+  }
+
+  async function removeAssistant(id, name) {
+    if (!confirm(`Remove assistant "${name}"?`)) return;
+    const TOKEN = localStorage.getItem("token");
+    try {
+      const res = await fetch(`/assistants/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res.ok) {
+        showToast(`${name} removed.`);
+        loadAssistants();
+      } else {
+        showToast("Failed to remove.", "error");
+      }
+    } catch {
+      showToast("Server error.", "error");
     }
   }
 </script>

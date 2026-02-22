@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Weekly Planner</title>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      KPI Dashboard
+    </span>
+    <nav class="topbar-nav" id="admin-nav">
+      <a href="/index.html">Home</a>
+      <a href="/log.html">Log Day</a>
+      <a href="/reports.html">Reports</a>
+      <a href="/history.html">History</a>
+      <a href="/planner.html" class="active">Planner</a>
+      <a href="/settings.html">Settings</a>
+    </nav>
+    <nav class="topbar-nav hidden" id="assistant-nav">
+      <a href="/planner.html" class="active">Planner</a>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-user">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span id="username-text"></span>
+    </span>
+    <button class="logout" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<div class="page" style="padding-bottom: 40px;">
+
+  <!-- Week nav header -->
+  <div class="planner-header">
+    <div class="planner-week-nav">
+      <button class="planner-nav-btn" onclick="changeWeek(-1)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="planner-week-label" id="weekLabel">Week</div>
+      <button class="planner-nav-btn" onclick="changeWeek(1)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+    <button class="btn small" onclick="goToToday()">Today</button>
+    <button class="btn" onclick="openAddModal(null, null)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New Appointment
+    </button>
+  </div>
+
+  <!-- Planner grid -->
+  <div class="planner-wrap">
+    <div class="planner-grid" id="plannerGrid">
+      <!-- Built by JS -->
+    </div>
+  </div>
+
+</div>
+
+<!-- ===================== ADD / EDIT MODAL ===================== -->
+<div class="modal-backdrop hidden" id="modalBackdrop" onclick="closeModal(event)">
+  <div class="modal-card" onclick="event.stopPropagation()">
+
+    <div class="modal-header">
+      <h3 id="modalTitle">New Appointment</h3>
+      <button class="modal-close" onclick="closeModal()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="form-field">
+        <label>Lead Name <span style="color:#dc2626">*</span></label>
+        <input id="m_lead_name" placeholder="Enter lead name" type="text">
+      </div>
+
+      <div class="form-field">
+        <label>Appointment Date &amp; Time</label>
+        <div class="datetime-row">
+          <input id="m_date" type="date">
+          <input id="m_time" type="time" step="900">
+        </div>
+      </div>
+
+      <!-- Mini calendar -->
+      <div class="mini-cal-wrap" id="miniCalWrap">
+        <div class="mini-cal-header">
+          <button type="button" onclick="calPrevMonth()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span id="calMonthLabel"></span>
+          <button type="button" onclick="calNextMonth()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        <div class="mini-cal-grid" id="miniCalGrid"></div>
+      </div>
+
+      <div class="form-field">
+        <label>Comments / Notes</label>
+        <textarea id="m_comments" rows="3" placeholder="Any notes about this lead..."></textarea>
+      </div>
+
+      <div class="modal-booked-at hidden" id="modalBookedAt">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Booked at: <span id="modalBookedAtVal"></span>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()" style="background:#f1f5f9;color:#475569;">Cancel</button>
+      <button class="btn" id="modalSaveBtn" onclick="saveAppointment()">Save Appointment</button>
+      <button class="btn" id="modalDeleteBtn" style="background:#ef4444; display:none;" onclick="deleteAppointment()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TOOLTIP ===================== -->
+<div class="appt-tooltip hidden" id="apptTooltip"></div>
+
+<!-- Mobile Bottom Nav -->
+<nav class="bottom-nav" id="adminBottomNav">
+  <div class="bottom-nav-items">
+    <a href="/index.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home
+    </a>
+    <a href="/log.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Log
+    </a>
+    <a href="/reports.html" class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Reports
+    </a>
+    <a href="/planner.html" class="bottom-nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Planner
+    </a>
+  </div>
+</nav>
+
+<script src="/static/app.js"></script>
+<script>
+// ============================================================
+// PLANNER STATE
+// ============================================================
+
+const TOKEN   = localStorage.getItem("token");
+const ROLE    = localStorage.getItem("role") || "admin";
+const API     = "https://data-log.onrender.com";
+
+let currentWeekStart = getWeekStart(new Date()); // always a Wednesday
+let appointments     = [];
+let editingId        = null;
+let calYear, calMonth;
+
+// Show correct nav based on role
+document.getElementById("username-text").innerText = localStorage.getItem("username") || "";
+if (ROLE === "assistant") {
+  document.getElementById("admin-nav").classList.add("hidden");
+  document.getElementById("assistant-nav").classList.remove("hidden");
+  document.getElementById("adminBottomNav").style.display = "none";
+}
+
+// ============================================================
+// WEEK HELPERS  (Wed–Tue)
+// ============================================================
+
+function getWeekStart(date) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0=Sun,1=Mon,...,3=Wed
+  // Offset to previous Wednesday
+  const diff = (day >= 3) ? day - 3 : day + 4;
+  d.setDate(d.getDate() - diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getWeekDays(start) {
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+function fmtDate(d) {
+  return d.toLocaleDateString("en-CA"); // YYYY-MM-DD
+}
+
+function fmtDisplay(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+function fmtTime(timeStr) {
+  if (!timeStr) return "";
+  const [h, m] = timeStr.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2,"0")} ${ampm}`;
+}
+
+function fmtDateTime(isoStr) {
+  if (!isoStr) return "";
+  const [datePart, timePart] = isoStr.split("T");
+  return fmtDisplay(datePart) + " at " + fmtTime(timePart);
+}
+
+function changeWeek(dir) {
+  currentWeekStart = new Date(currentWeekStart);
+  currentWeekStart.setDate(currentWeekStart.getDate() + dir * 7);
+  renderPlanner();
+}
+
+function goToToday() {
+  currentWeekStart = getWeekStart(new Date());
+  renderPlanner();
+}
+
+// ============================================================
+// LOAD APPOINTMENTS
+// ============================================================
+
+async function loadAppointments() {
+  try {
+    const res = await fetch(`${API}/appointments`, {
+      headers: { Authorization: "Bearer " + TOKEN }
+    });
+    if (res.ok) {
+      appointments = await res.json();
+    }
+  } catch(e) {
+    console.error("Failed to load appointments", e);
+  }
+  renderPlanner();
+}
+
+// ============================================================
+// RENDER GRID
+// ============================================================
+
+const HOURS = [];
+for (let h = 7; h <= 21; h++) HOURS.push(h); // 7am–9pm
+
+function renderPlanner() {
+  const days  = getWeekDays(currentWeekStart);
+  const endDay = days[6];
+
+  // Week label
+  const startLabel = days[0].toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const endLabel   = endDay.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  document.getElementById("weekLabel").innerText = `${startLabel} – ${endLabel}`;
+
+  const grid = document.getElementById("plannerGrid");
+  grid.innerHTML = "";
+
+  // ---- Column headers (time gutter + 7 days) ----
+  const headerRow = document.createElement("div");
+  headerRow.className = "pg-header-row";
+
+  // Time gutter header
+  const gutterHead = document.createElement("div");
+  gutterHead.className = "pg-gutter-head";
+  headerRow.appendChild(gutterHead);
+
+  const today = fmtDate(new Date());
+  days.forEach(day => {
+    const cell = document.createElement("div");
+    cell.className = "pg-day-head" + (fmtDate(day) === today ? " pg-day-today" : "");
+    cell.innerHTML = `
+      <span class="pg-dow">${day.toLocaleDateString("en-US",{weekday:"short"})}</span>
+      <span class="pg-dom">${day.getDate()}</span>
+    `;
+    headerRow.appendChild(cell);
+  });
+  grid.appendChild(headerRow);
+
+  // ---- Hour rows ----
+  HOURS.forEach(hour => {
+    const row = document.createElement("div");
+    row.className = "pg-row";
+
+    // Time gutter
+    const gutter = document.createElement("div");
+    gutter.className = "pg-gutter";
+    gutter.innerText = fmtTime(`${String(hour).padStart(2,"0")}:00`);
+    row.appendChild(gutter);
+
+    // Day cells
+    days.forEach(day => {
+      const cell = document.createElement("div");
+      cell.className = "pg-cell";
+      if (fmtDate(day) === today) cell.classList.add("pg-cell-today");
+
+      // Click empty cell to add
+      cell.addEventListener("click", () => {
+        const dateStr = fmtDate(day);
+        const timeStr = `${String(hour).padStart(2,"0")}:00`;
+        openAddModal(dateStr, timeStr);
+      });
+
+      // Find appointments for this cell (same day, same hour)
+      const cellAppts = appointments.filter(a => {
+        if (!a.scheduled_for) return false;
+        const [d, t] = a.scheduled_for.split("T");
+        const apptHour = parseInt(t?.split(":")[0] || "0");
+        return d === fmtDate(day) && apptHour === hour;
+      });
+
+      cellAppts.forEach(appt => {
+        const block = document.createElement("div");
+        block.className = "pg-appt-block";
+        const [, t] = appt.scheduled_for.split("T");
+        block.innerHTML = `
+          <span class="pg-appt-time">${fmtTime(t)}</span>
+          <span class="pg-appt-name">${appt.lead_name}</span>
+        `;
+
+        // Tooltip on hover
+        block.addEventListener("mouseenter", (e) => showTooltip(e, appt));
+        block.addEventListener("mouseleave", hideTooltip);
+        block.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openEditModal(appt);
+        });
+
+        cell.appendChild(block);
+      });
+
+      row.appendChild(cell);
+    });
+
+    grid.appendChild(row);
+  });
+}
+
+// ============================================================
+// TOOLTIP
+// ============================================================
+
+function showTooltip(e, appt) {
+  const tip = document.getElementById("apptTooltip");
+  tip.innerHTML = `
+    <div class="tip-name">${appt.lead_name}</div>
+    <div class="tip-row">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      ${fmtDateTime(appt.scheduled_for)}
+    </div>
+    ${appt.comments ? `<div class="tip-row tip-comments">${appt.comments}</div>` : ""}
+    <div class="tip-row tip-meta">Booked ${fmtDateTime(appt.booked_at)} by ${appt.created_by}</div>
+  `;
+  tip.classList.remove("hidden");
+  positionTooltip(e);
+}
+
+function positionTooltip(e) {
+  const tip = document.getElementById("apptTooltip");
+  const x = e.clientX + 12;
+  const y = e.clientY - 10;
+  const tipW = 260;
+  const winW = window.innerWidth;
+  tip.style.left = (x + tipW > winW ? x - tipW - 24 : x) + "px";
+  tip.style.top  = y + "px";
+}
+
+function hideTooltip() {
+  document.getElementById("apptTooltip").classList.add("hidden");
+}
+
+document.addEventListener("mousemove", (e) => {
+  const tip = document.getElementById("apptTooltip");
+  if (!tip.classList.contains("hidden")) positionTooltip(e);
+});
+
+// ============================================================
+// MODAL  —  ADD
+// ============================================================
+
+function openAddModal(dateStr, timeStr) {
+  editingId = null;
+  document.getElementById("modalTitle").innerText = "New Appointment";
+  document.getElementById("m_lead_name").value = "";
+  document.getElementById("m_comments").value = "";
+  document.getElementById("m_date").value = dateStr || fmtDate(new Date());
+  document.getElementById("m_time").value = timeStr || "09:00";
+  document.getElementById("modalBookedAt").classList.add("hidden");
+  document.getElementById("modalDeleteBtn").style.display = "none";
+  document.getElementById("modalSaveBtn").innerText = "Save Appointment";
+
+  // Sync calendar to the date
+  const d = dateStr ? new Date(dateStr + "T00:00:00") : new Date();
+  calYear  = d.getFullYear();
+  calMonth = d.getMonth();
+  renderMiniCal();
+
+  document.getElementById("modalBackdrop").classList.remove("hidden");
+  document.getElementById("m_lead_name").focus();
+}
+
+// ============================================================
+// MODAL  —  EDIT
+// ============================================================
+
+function openEditModal(appt) {
+  editingId = appt.id;
+  document.getElementById("modalTitle").innerText = "Edit Appointment";
+  document.getElementById("m_lead_name").value = appt.lead_name;
+  document.getElementById("m_comments").value = appt.comments || "";
+
+  const [datePart, timePart] = (appt.scheduled_for || "T").split("T");
+  document.getElementById("m_date").value = datePart || "";
+  document.getElementById("m_time").value = timePart || "09:00";
+
+  document.getElementById("modalBookedAt").classList.remove("hidden");
+  document.getElementById("modalBookedAtVal").innerText = fmtDateTime(appt.booked_at) + " by " + appt.created_by;
+  document.getElementById("modalDeleteBtn").style.display = "inline-flex";
+  document.getElementById("modalSaveBtn").innerText = "Update";
+
+  const d = datePart ? new Date(datePart + "T00:00:00") : new Date();
+  calYear  = d.getFullYear();
+  calMonth = d.getMonth();
+  renderMiniCal();
+
+  document.getElementById("modalBackdrop").classList.remove("hidden");
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById("modalBackdrop")) return;
+  document.getElementById("modalBackdrop").classList.add("hidden");
+  hideTooltip();
+}
+
+// ============================================================
+// SAVE / DELETE
+// ============================================================
+
+async function saveAppointment() {
+  const lead_name = document.getElementById("m_lead_name").value.trim();
+  if (!lead_name) {
+    document.getElementById("m_lead_name").focus();
+    document.getElementById("m_lead_name").style.borderColor = "#dc2626";
+    setTimeout(() => document.getElementById("m_lead_name").style.borderColor = "", 1500);
+    return;
+  }
+
+  const date     = document.getElementById("m_date").value;
+  const time     = document.getElementById("m_time").value;
+  const comments = document.getElementById("m_comments").value.trim();
+
+  if (!date || !time) {
+    showToast("Please select a date and time.", "error");
+    return;
+  }
+
+  const payload = {
+    lead_name,
+    comments,
+    scheduled_for: `${date}T${time}`
+  };
+
+  try {
+    let res;
+    if (editingId) {
+      res = await fetch(`${API}/appointments/${editingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      res = await fetch(`${API}/appointments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    if (res.ok) {
+      showToast(editingId ? "Appointment updated!" : "Appointment booked!");
+      document.getElementById("modalBackdrop").classList.add("hidden");
+      await loadAppointments();
+    } else {
+      showToast("Failed to save. Please try again.", "error");
+    }
+  } catch {
+    showToast("Server error.", "error");
+  }
+}
+
+async function deleteAppointment() {
+  if (!editingId) return;
+  if (!confirm("Delete this appointment?")) return;
+
+  try {
+    const res = await fetch(`${API}/appointments/${editingId}`, {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + TOKEN }
+    });
+    if (res.ok) {
+      showToast("Appointment deleted.");
+      document.getElementById("modalBackdrop").classList.add("hidden");
+      await loadAppointments();
+    } else {
+      showToast("Delete failed.", "error");
+    }
+  } catch {
+    showToast("Server error.", "error");
+  }
+}
+
+// ============================================================
+// MINI CALENDAR
+// ============================================================
+
+const CAL_DAYS = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+function renderMiniCal() {
+  document.getElementById("calMonthLabel").innerText =
+    new Date(calYear, calMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const grid = document.getElementById("miniCalGrid");
+  grid.innerHTML = "";
+
+  // Day-of-week headers
+  CAL_DAYS.forEach(d => {
+    const h = document.createElement("div");
+    h.className = "mc-dow";
+    h.innerText = d;
+    grid.appendChild(h);
+  });
+
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const selectedDate = document.getElementById("m_date").value;
+  const todayStr = fmtDate(new Date());
+
+  // Blank cells before first day
+  for (let i = 0; i < firstDay; i++) {
+    const blank = document.createElement("div");
+    blank.className = "mc-blank";
+    grid.appendChild(blank);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = document.createElement("div");
+    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    d.className = "mc-day";
+    if (dateStr === todayStr) d.classList.add("mc-today");
+    if (dateStr === selectedDate) d.classList.add("mc-selected");
+    d.innerText = day;
+    d.addEventListener("click", () => {
+      document.getElementById("m_date").value = dateStr;
+      renderMiniCal();
+    });
+    grid.appendChild(d);
+  }
+}
+
+function calPrevMonth() {
+  calMonth--;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  renderMiniCal();
+}
+
+function calNextMonth() {
+  calMonth++;
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderMiniCal();
+}
+
+// Date input change syncs calendar
+document.getElementById("m_date").addEventListener("change", function() {
+  if (this.value) {
+    const d = new Date(this.value + "T00:00:00");
+    calYear  = d.getFullYear();
+    calMonth = d.getMonth();
+    renderMiniCal();
+  }
+});
+
+// ============================================================
+// INIT
+// ============================================================
+
+loadAppointments();
+</script>
+</body>
+</html>

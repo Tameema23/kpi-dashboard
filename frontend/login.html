@@ -100,7 +100,12 @@ async function submitAuth() {
     const data = await res.json();
     localStorage.setItem("token", data.token);
     localStorage.setItem("username", username);
-    window.location.href = "/index.html";
+    localStorage.setItem("role", data.role || "admin");
+    if ((data.role || "admin") === "assistant") {
+      window.location.href = "/planner.html";
+    } else {
+      window.location.href = "/index.html";
+    }
 
   } catch {
     msg.innerText = "Server error. Please try again.";
