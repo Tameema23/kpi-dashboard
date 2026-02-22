@@ -860,6 +860,48 @@ h2 { margin-top: 0; }
   .chart-grid-2 { grid-template-columns: 1fr; }
   .topbar { padding: 0 16px; }
   .topbar-user { display: none; }
+
+  /* Planner mobile */
+  .planner-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .planner-week-nav {
+    flex: 1;
+    min-width: 0;
+  }
+  .planner-week-label {
+    min-width: 0;
+    font-size: 13px;
+  }
+  #newApptBtn {
+    width: 100%;
+    justify-content: center;
+    order: 3;
+  }
+  #todayBtn {
+    order: 2;
+  }
+  .planner-wrap {
+    border-radius: 10px;
+  }
+  .modal-card {
+    margin: 0;
+    border-radius: 16px 16px 0 0;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 92vh;
+  }
+  .modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .datetime-row {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 /* =============================================
@@ -1105,6 +1147,17 @@ h2 { margin-top: 0; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.pg-appt-booked {
+  display: block;
+  font-size: 10px;
+  opacity: 0.75;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
 }
 
 /* =============================================
