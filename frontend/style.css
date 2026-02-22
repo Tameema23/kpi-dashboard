@@ -919,6 +919,16 @@ h2 { margin-top: 0; }
   padding-right: 42px !important;
 }
 
+/* Hide browser's built-in password reveal button */
+.pw-field-wrap input::-ms-reveal,
+.pw-field-wrap input::-ms-clear {
+  display: none;
+}
+.pw-field-wrap input::-webkit-credentials-auto-fill-button,
+.pw-field-wrap input::-webkit-textfield-decoration-container {
+  display: none !important;
+}
+
 .pw-toggle-btn {
   position: absolute;
   right: 10px;
