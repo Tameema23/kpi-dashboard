@@ -905,6 +905,39 @@ h2 { margin-top: 0; }
 }
 
 /* =============================================
+   PASSWORD TOGGLE
+   ============================================= */
+
+.pw-field-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pw-field-wrap input {
+  flex: 1;
+  padding-right: 42px !important;
+}
+
+.pw-toggle-btn {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.pw-toggle-btn:hover { color: #2563eb; }
+
+/* =============================================
    UTILITIES
    ============================================= */
 
