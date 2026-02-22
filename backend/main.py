@@ -2,7 +2,8 @@ from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 from jose import jwt
 from fastapi.staticfiles import StaticFiles
@@ -303,7 +304,7 @@ def create_appointment(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+    now = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     appt = Appointment(
         created_by=user.id,
         lead_name=data.lead_name,
