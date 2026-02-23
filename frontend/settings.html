@@ -19,7 +19,7 @@
       <a href="/log.html" class="admin-only">Log Day</a>
       <a href="/reports.html" class="admin-only">Reports</a>
       <a href="/history.html" class="admin-only">History</a>
-      <a href="/planner.html" class="assistant-only" style="display:none;">Planner</a>
+      <a href="/planner.html">Planner</a>
       <a href="/settings.html" class="active">Settings</a>
     </nav>
   </div>
@@ -69,26 +69,30 @@
         </div>
       </div>
 
+      <!-- Dummy fields to prevent browser autofill -->
+      <input type="text" style="display:none" aria-hidden="true">
+      <input type="password" style="display:none" aria-hidden="true">
+
       <div class="form-field" style="margin-top: 20px;">
         <label>Current Password</label>
         <div class="pw-field-wrap">
-      <input id="current_password" type="password" placeholder="Enter current password" autocomplete="current-password">
-      <button type="button" class="pw-toggle-btn" onclick="togglePw('current_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-    </div>
+          <input id="current_password" type="password" placeholder="Enter current password" autocomplete="new-password">
+          <button type="button" class="pw-toggle-btn" onclick="togglePw('current_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
       </div>
       <div class="form-field">
         <label>New Password</label>
         <div class="pw-field-wrap">
-      <input id="new_password" type="password" placeholder="Enter new password" autocomplete="new-password">
-      <button type="button" class="pw-toggle-btn" onclick="togglePw('new_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-    </div>
+          <input id="new_password" type="password" placeholder="Enter new password" autocomplete="new-password">
+          <button type="button" class="pw-toggle-btn" onclick="togglePw('new_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
       </div>
       <div class="form-field">
         <label>Confirm New Password</label>
         <div class="pw-field-wrap">
-      <input id="confirm_password" type="password" placeholder="Confirm new password" autocomplete="new-password">
-      <button type="button" class="pw-toggle-btn" onclick="togglePw('confirm_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-    </div>
+          <input id="confirm_password" type="password" placeholder="Confirm new password" autocomplete="new-password">
+          <button type="button" class="pw-toggle-btn" onclick="togglePw('confirm_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
       </div>
 
       <div style="display:flex; align-items:center; gap:14px; margin-top:8px;">
@@ -120,14 +124,14 @@
         <p style="margin:0 0 14px 0; font-size:13px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.05em;">Add New Assistant</p>
         <div class="form-field">
           <label>Username</label>
-          <input id="new_assistant_username" placeholder="e.g. sarah_assistant" type="text">
+          <input id="new_assistant_username" placeholder="e.g. sarah_assistant" type="text" autocomplete="off">
         </div>
         <div class="form-field">
           <label>Password</label>
           <div class="pw-field-wrap">
-      <input id="new_assistant_password" placeholder="Set a password" type="password" autocomplete="new-password">
-      <button type="button" class="pw-toggle-btn" onclick="togglePw('new_assistant_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-    </div>
+            <input id="new_assistant_password" placeholder="Set a password" type="password" autocomplete="new-password">
+            <button type="button" class="pw-toggle-btn" onclick="togglePw('new_assistant_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          </div>
         </div>
         <div style="display:flex; align-items:center; gap:14px; margin-top:4px;">
           <button class="btn" onclick="createAssistant()">
@@ -145,19 +149,19 @@
 <!-- Mobile Bottom Nav -->
 <nav class="bottom-nav">
   <div class="bottom-nav-items">
-    <a href="/index.html" class="bottom-nav-item">
+    <a href="/index.html" class="bottom-nav-item admin-only">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
       Home
     </a>
-    <a href="/log.html" class="bottom-nav-item">
+    <a href="/log.html" class="bottom-nav-item admin-only">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
       Log
     </a>
-    <a href="/reports.html" class="bottom-nav-item">
+    <a href="/reports.html" class="bottom-nav-item admin-only">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Reports
     </a>
-    <a href="/history.html" class="bottom-nav-item">
+    <a href="/history.html" class="bottom-nav-item admin-only">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       History
     </a>
@@ -180,15 +184,11 @@
     document.getElementById("display-username").innerText = u;
   }
 
-  // Role-based nav: hide admin-only links for assistants
+  // Role-based nav
   if (localStorage.getItem("role") === "assistant") {
+    // Hide all admin-only nav items (topbar + bottom nav)
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
-    document.querySelectorAll(".assistant-only").forEach(function(el) { el.style.display = ""; });
-    // Hide non-settings bottom nav items for assistants
-    document.querySelectorAll(".bottom-nav-item:not([href='/settings.html']):not([href='/planner.html'])").forEach(function(el) {
-      el.style.display = "none";
-    });
-    // Hide "Back to Dashboard" for assistants — they have no dashboard
+    // Hide Back to Dashboard
     var backBtn = document.getElementById("backToDashboard");
     if (backBtn) backBtn.style.display = "none";
   }
@@ -204,13 +204,11 @@
       msg.style.color = "#dc2626";
       return;
     }
-
     if (newPw !== confirm) {
       msg.innerText = "New passwords do not match.";
       msg.style.color = "#dc2626";
       return;
     }
-
     if (newPw.length < 4) {
       msg.innerText = "Password must be at least 4 characters.";
       msg.style.color = "#dc2626";
@@ -218,7 +216,6 @@
     }
 
     const TOKEN = localStorage.getItem("token");
-
     try {
       const res = await fetch("/change-password", {
         method: "POST",
@@ -231,7 +228,6 @@
           new_password: newPw
         })
       });
-
       if (res.ok) {
         showToast("Password updated successfully!");
         document.getElementById("current_password").value = "";
@@ -345,17 +341,16 @@
       showToast("Server error.", "error");
     }
   }
-</script>
-<script>
 
-function togglePw(inputId, btn) {
-  var inp = document.getElementById(inputId);
-  var showing = inp.type === 'text';
-  inp.type = showing ? 'password' : 'text';
-  btn.innerHTML = showing ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-  btn.title = showing ? 'Show password' : 'Hide password';
-}
-
+  function togglePw(inputId, btn) {
+    var inp = document.getElementById(inputId);
+    var showing = inp.type === 'text';
+    inp.type = showing ? 'password' : 'text';
+    btn.innerHTML = showing
+      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    btn.title = showing ? 'Show password' : 'Hide password';
+  }
 </script>
 </body>
 </html>

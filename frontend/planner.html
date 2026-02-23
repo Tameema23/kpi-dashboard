@@ -300,8 +300,11 @@
           };
         })(day, hour));
 
-        // Appointments in this cell
-        appointments.forEach(function (appt) {
+        // Appointments in this cell — sorted by time
+        var sortedAppts = appointments.slice().sort(function(a, b) {
+          return (a.scheduled_for || "").localeCompare(b.scheduled_for || "");
+        });
+        sortedAppts.forEach(function (appt) {
           if (!appt.scheduled_for) return;
           var parts    = appt.scheduled_for.split("T");
           var apptDate = parts[0];
