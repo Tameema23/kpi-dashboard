@@ -19,7 +19,8 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True)
     password = Column(String)
-    role = Column(String, default="admin")  # "admin" or "assistant"
+    role = Column(String, default="admin")
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     logs = relationship("DailyLog", back_populates="user")
     appointments_created = relationship("Appointment", foreign_keys="Appointment.created_by", back_populates="created_by_user")
@@ -52,17 +53,14 @@ class Appointment(Base):
 
     id = Column(Integer, primary_key=True)
     created_by = Column(Integer, ForeignKey("users.id"))
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     lead_name = Column(String, nullable=False)
     comments = Column(String, default="")
-
-    # When the appointment is scheduled for (ISO string "2026-02-24T14:00")
     scheduled_for = Column(String, nullable=False)
-
-    # When it was booked (set at creation time)
     booked_at = Column(String, nullable=False)
 
-    created_by_user = relationship("User", back_populates="appointments_created")
+    created_by_user = relationship("User", foreign_keys=[created_by], back_populates="appointments_created")
 
 
 def create_db():
