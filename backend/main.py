@@ -68,6 +68,18 @@ def get_db():
     finally:
         db.close()
 
+# ---------------- AUTH HELPERS ---------------- #
+
+def get_owner_id(user: User) -> int:
+    """
+    Returns the admin owner ID for scoping data.
+    - If user is admin: returns their own id
+    - If user is assistant: returns their owner_id (the admin who created them)
+    """
+    if user.role == "assistant":
+        return user.owner_id
+    return user.id
+
 # ---------------- AUTH ---------------- #
 
 class UserPayload(BaseModel):
@@ -107,7 +119,7 @@ def create_user(data: UserPayload, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(400, "User exists")
 
-    user = User(username=data.username, password=data.password, role="admin")
+    user = User(username=data.username, password=data.password, role="admin", owner_id=None)
     db.add(user)
     db.commit()
     return {"status": "created"}
@@ -147,7 +159,13 @@ def create_assistant(
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(400, "Username already exists")
 
-    assistant = User(username=data.username, password=data.password, role="assistant")
+    # owner_id links this assistant to the admin who created them
+    assistant = User(
+        username=data.username,
+        password=data.password,
+        role="assistant",
+        owner_id=user.id
+    )
     db.add(assistant)
     db.commit()
     return {"status": "created"}
@@ -161,7 +179,11 @@ def list_assistants(
     if (user.role or "admin") != "admin":
         raise HTTPException(403, "Admin only")
 
-    assistants = db.query(User).filter(User.role == "assistant").all()
+    # Only return assistants owned by THIS admin
+    assistants = db.query(User).filter(
+        User.role == "assistant",
+        User.owner_id == user.id
+    ).all()
     return [{"id": a.id, "username": a.username} for a in assistants]
 
 
@@ -174,9 +196,11 @@ def delete_assistant(
     if (user.role or "admin") != "admin":
         raise HTTPException(403, "Admin only")
 
+    # Only allow deleting assistants owned by THIS admin
     assistant = db.query(User).filter(
         User.id == assistant_id,
-        User.role == "assistant"
+        User.role == "assistant",
+        User.owner_id == user.id
     ).first()
 
     if not assistant:
@@ -291,7 +315,7 @@ def delete_days(
 class AppointmentPayload(BaseModel):
     lead_name: str
     comments: Optional[str] = ""
-    scheduled_for: str  # ISO string e.g. "2026-02-24T14:00"
+    scheduled_for: str
 
 class AppointmentUpdatePayload(BaseModel):
     lead_name: str
@@ -305,8 +329,10 @@ def create_appointment(
     db: Session = Depends(get_db)
 ):
     now = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    owner = get_owner_id(user)
     appt = Appointment(
         created_by=user.id,
+        owner_id=owner,
         lead_name=data.lead_name,
         comments=data.comments or "",
         scheduled_for=data.scheduled_for,
@@ -324,8 +350,9 @@ def get_appointments(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # All users share the same appointment pool
-    appts = db.query(Appointment).all()
+    owner = get_owner_id(user)
+    # Only return appointments belonging to this admin's pool
+    appts = db.query(Appointment).filter(Appointment.owner_id == owner).all()
     return [_appt_dict(a, db) for a in appts]
 
 
@@ -336,7 +363,11 @@ def update_appointment(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    appt = db.query(Appointment).filter(Appointment.id == appt_id).first()
+    owner = get_owner_id(user)
+    appt = db.query(Appointment).filter(
+        Appointment.id == appt_id,
+        Appointment.owner_id == owner
+    ).first()
     if not appt:
         raise HTTPException(404, "Appointment not found")
 
@@ -353,7 +384,11 @@ def delete_appointment(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    appt = db.query(Appointment).filter(Appointment.id == appt_id).first()
+    owner = get_owner_id(user)
+    appt = db.query(Appointment).filter(
+        Appointment.id == appt_id,
+        Appointment.owner_id == owner
+    ).first()
     if not appt:
         raise HTTPException(404, "Appointment not found")
     db.delete(appt)

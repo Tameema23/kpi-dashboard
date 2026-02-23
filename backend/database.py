@@ -19,10 +19,13 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True)
     password = Column(String)
-    role = Column(String, default="admin")  # "admin" or "assistant"
+    role = Column(String, default="admin")       # "admin" or "assistant"
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # NULL for admins, set for assistants
 
     logs = relationship("DailyLog", back_populates="user")
     appointments_created = relationship("Appointment", back_populates="created_by_user")
+    # Assistants owned by this admin
+    assistants = relationship("User", foreign_keys="User.owner_id", backref="owner")
 
 
 class DailyLog(Base):
@@ -52,17 +55,16 @@ class Appointment(Base):
 
     id = Column(Integer, primary_key=True)
     created_by = Column(Integer, ForeignKey("users.id"))
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # The admin who owns this appointment pool
 
     lead_name = Column(String, nullable=False)
     comments = Column(String, default="")
 
-    # When the appointment is scheduled for (ISO string "2026-02-24T14:00")
     scheduled_for = Column(String, nullable=False)
-
-    # When it was booked (set at creation time)
     booked_at = Column(String, nullable=False)
 
-    created_by_user = relationship("User", back_populates="appointments_created")
+    created_by_user = relationship("User", foreign_keys=[created_by], back_populates="appointments_created")
+    owner = relationship("User", foreign_keys=[owner_id])
 
 
 def create_db():
