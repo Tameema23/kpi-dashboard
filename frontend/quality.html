@@ -137,7 +137,7 @@
       </div>
       <div class="form-field">
         <label>Follow Up</label>
-        <input id="f_follow_up" type="text">
+        <input id="f_follow_up" type="text" placeholder="e.g. Hazem, Prodadj...">
       </div>
       <div class="form-field">
         <label>Action</label>
@@ -289,8 +289,7 @@
 
   function deleteEntry(id, name) {
     showConfirm(
-      "Delete Entry",
-      "Are you sure you want to delete the entry for <strong>" + esc(name) + "</strong>? This cannot be undone.",
+      "Delete the entry for <strong>" + esc(name) + "</strong>? This cannot be undone.",
       async function() {
         try {
           const res = await fetch(`/quality/${id}`, {
@@ -300,7 +299,8 @@
           if (res.ok) { showToast(name + " deleted."); loadEntries(); }
           else showToast("Failed to delete.", "error");
         } catch { showToast("Server error.", "error"); }
-      }
+      },
+      { confirmText: "Delete" }
     );
   }
 

@@ -365,8 +365,7 @@
 
   function removeAssistant(id, name) {
     showConfirm(
-      "Remove Assistant",
-      "Are you sure you want to remove <strong>" + name + "</strong>? They will no longer be able to log in.",
+      "Remove <strong>" + name + "</strong>? They will no longer be able to log in.",
       async function() {
         const TOKEN = localStorage.getItem("token");
         try {
@@ -384,7 +383,8 @@
         } catch {
           showToast("Server error.", "error");
         }
-      }
+      },
+      { confirmText: "Remove", danger: false }
     );
   }
 

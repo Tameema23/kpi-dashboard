@@ -484,7 +484,7 @@
   document.getElementById("modalDeleteBtn").addEventListener("click", function () {
     if (!editingId) return;
     var idToDelete = editingId;
-    showConfirm("Delete Appointment", "Are you sure you want to delete this appointment? This cannot be undone.", async function() {
+    showConfirm("Delete this appointment? This cannot be undone.", async function() {
       try {
         var res = await fetch(API + "/appointments/" + idToDelete, {
           method: "DELETE",
