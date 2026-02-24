@@ -160,7 +160,7 @@
   }
   var u = localStorage.getItem("username");
   if (u) {
-    document.getElementById("welcome-msg").innerText = "Welcome back, " + u + " \u{1F44B}";
+    document.getElementById("welcome-msg").innerText = "Welcome back, " + u;
     document.getElementById("username-text").innerText = u;
   }
   document.getElementById("welcome-date").innerText = new Date().toLocaleDateString("en-CA", {
