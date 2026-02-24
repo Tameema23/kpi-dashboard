@@ -363,23 +363,29 @@
     }
   }
 
-  async function removeAssistant(id, name) {
-    if (!confirm(`Remove assistant "${name}"?`)) return;
-    const TOKEN = localStorage.getItem("token");
-    try {
-      const res = await fetch(`/assistants/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: "Bearer " + TOKEN }
-      });
-      if (res.ok) {
-        showToast(`${name} removed.`);
-        loadAssistants();
-      } else {
-        showToast("Failed to remove.", "error");
+  function removeAssistant(id, name) {
+    showConfirm(
+      "Remove Assistant",
+      "Are you sure you want to remove <strong>" + name + "</strong>? They will no longer be able to log in.",
+      async function() {
+        const TOKEN = localStorage.getItem("token");
+        try {
+          const res = await fetch(`/assistants/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: "Bearer " + TOKEN }
+          });
+          if (res.ok) {
+            showToast(name + " removed.");
+            loadAssistants();
+            if (typeof loadQualityAssistants === "function") loadQualityAssistants();
+          } else {
+            showToast("Failed to remove.", "error");
+          }
+        } catch {
+          showToast("Server error.", "error");
+        }
       }
-    } catch {
-      showToast("Server error.", "error");
-    }
+    );
   }
 
   function togglePw(inputId, btn) {

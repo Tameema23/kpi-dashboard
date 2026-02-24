@@ -4,7 +4,32 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <title>KPI Dashboard</title>
+  <style>
+    .home-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+    .home-stat-card { background:#fff; border-radius:16px; padding:20px 22px; box-shadow:0 4px 16px rgba(0,0,0,0.06); border:1px solid #f1f5f9; display:flex; align-items:center; gap:14px; transition:transform 0.15s,box-shadow 0.15s; cursor:pointer; }
+    .home-stat-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,0.1); }
+    .home-stat-icon { width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .home-stat-icon svg { width:22px; height:22px; }
+    .home-stat-label { font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+    .home-stat-value { font-size:26px; font-weight:800; color:#0f172a; line-height:1; }
+    .home-lower { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+    .home-nav-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .home-nav-btn { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:16px 14px; cursor:pointer; display:flex; align-items:center; gap:12px; transition:border-color 0.15s,box-shadow 0.15s,transform 0.15s; text-decoration:none; }
+    .home-nav-btn:hover { border-color:#3b82f6; box-shadow:0 4px 14px rgba(59,130,246,0.13); transform:translateY(-1px); }
+    .home-nav-btn-icon { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .home-nav-btn-icon svg { width:18px; height:18px; }
+    .home-nav-btn-label { font-size:14px; font-weight:700; color:#0f172a; }
+    .home-nav-btn-sub { font-size:12px; color:#94a3b8; margin-top:2px; }
+    .home-section-title { font-size:13px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.06em; margin:0 0 14px 0; }
+    .home-upcoming-card { background:#fff; border-radius:16px; padding:20px 22px; box-shadow:0 4px 16px rgba(0,0,0,0.06); border:1px solid #f1f5f9; }
+    .home-welcome { margin-bottom:22px; }
+    .home-welcome h1 { font-size:24px; font-weight:800; color:#0f172a; margin:0 0 4px 0; }
+    .home-welcome p { font-size:14px; color:#64748b; margin:0; }
+    @media (max-width:900px) { .home-grid { grid-template-columns:1fr 1fr; } }
+    @media (max-width:768px) { .home-grid { grid-template-columns:1fr 1fr; } .home-lower { grid-template-columns:1fr; } }
+  </style>
 </head>
 <body>
 
@@ -25,7 +50,7 @@
     </nav>
   </div>
   <div class="topbar-right">
-    <span class="topbar-user" id="topbar-username">
+    <span class="topbar-user">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span id="username-text"></span>
     </span>
@@ -35,83 +60,113 @@
 
 <div class="page">
 
-  <div class="welcome-banner">
+  <div class="home-welcome">
     <h1 id="welcome-msg">Welcome back</h1>
-    <p>Here's your production KPI overview. What would you like to do today?</p>
+    <p id="welcome-date"></p>
   </div>
 
-  <div class="grid">
+  <div class="home-grid">
+    <div class="home-stat-card" onclick="location.href='/reports.html'">
+      <div class="home-stat-icon icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+      <div><div class="home-stat-label">YTD ALP</div><div class="home-stat-value" id="home_alp">&#x2014;</div></div>
+    </div>
+    <div class="home-stat-card" onclick="location.href='/reports.html'">
+      <div class="home-stat-icon icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></div>
+      <div><div class="home-stat-label">YTD Sales</div><div class="home-stat-value" id="home_sales">&#x2014;</div></div>
+    </div>
+    <div class="home-stat-card" onclick="location.href='/reports.html'">
+      <div class="home-stat-icon icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div>
+      <div><div class="home-stat-label">Closing %</div><div class="home-stat-value" id="home_close">&#x2014;</div></div>
+    </div>
+    <div class="home-stat-card" onclick="location.href='/reports.html'">
+      <div class="home-stat-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+      <div><div class="home-stat-label">Presentations</div><div class="home-stat-value" id="home_pres">&#x2014;</div></div>
+    </div>
+  </div>
 
-    <div class="dashboard-card" onclick="location.href='log.html'">
-      <div class="dashboard-card-icon icon-blue">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+  <div class="home-lower">
+    <div>
+      <p class="home-section-title">Quick Access</p>
+      <div class="home-nav-grid">
+        <a class="home-nav-btn admin-only" onclick="location.href='/log.html'">
+          <div class="home-nav-btn-icon icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></div>
+          <div><div class="home-nav-btn-label">Log Day</div><div class="home-nav-btn-sub">Enter today's metrics</div></div>
+        </a>
+        <a class="home-nav-btn admin-only" onclick="location.href='/reports.html'">
+          <div class="home-nav-btn-icon icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+          <div><div class="home-nav-btn-label">Reports</div><div class="home-nav-btn-sub">KPIs &amp; charts</div></div>
+        </a>
+        <a class="home-nav-btn admin-only" onclick="location.href='/planner.html'">
+          <div class="home-nav-btn-icon icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+          <div><div class="home-nav-btn-label">Planner</div><div class="home-nav-btn-sub">Appointments</div></div>
+        </a>
+        <a class="home-nav-btn admin-only" onclick="location.href='/quality.html'">
+          <div class="home-nav-btn-icon icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+          <div><div class="home-nav-btn-label">Quality</div><div class="home-nav-btn-sub">Policy retention</div></div>
+        </a>
+        <a class="home-nav-btn admin-only" onclick="location.href='/history.html'">
+          <div class="home-nav-btn-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+          <div><div class="home-nav-btn-label">History</div><div class="home-nav-btn-sub">Past entries</div></div>
+        </a>
+        <a class="home-nav-btn admin-only" onclick="location.href='/settings.html'">
+          <div class="home-nav-btn-icon" style="background:#f1f5f9;"><svg viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+          <div><div class="home-nav-btn-label">Settings</div><div class="home-nav-btn-sub">Account &amp; assistants</div></div>
+        </a>
       </div>
-      <h2>Log Daily Data</h2>
-      <p>Enter your production metrics for today.</p>
-      <button class="btn" style="margin-top:8px; width:fit-content;">Log a Day</button>
     </div>
 
-    <div class="dashboard-card" onclick="location.href='reports.html'">
-      <div class="dashboard-card-icon icon-green">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <div>
+      <p class="home-section-title">Upcoming Appointments</p>
+      <div class="home-upcoming-card">
+        <div id="upcomingSkeleton">
+          <div class="skeleton" style="height:54px;border-radius:10px;margin-bottom:10px;"></div>
+          <div class="skeleton" style="height:54px;border-radius:10px;margin-bottom:10px;"></div>
+          <div class="skeleton" style="height:54px;border-radius:10px;"></div>
+        </div>
+        <div id="upcomingList"></div>
+        <a onclick="location.href='/planner.html'" style="display:block;text-align:center;margin-top:14px;font-size:13px;font-weight:600;color:#3b82f6;cursor:pointer;padding-top:12px;border-top:1px solid #f1f5f9;">View full planner &#x2192;</a>
       </div>
-      <h2>Weekly Reports</h2>
-      <p>View your KPI percentages and performance charts.</p>
-      <button class="btn" style="margin-top:8px; width:fit-content;">View Reports</button>
     </div>
-
-    <div class="dashboard-card" onclick="location.href='history.html'">
-      <div class="dashboard-card-icon icon-purple">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      </div>
-      <h2>History</h2>
-      <p>Edit and review all your previous entries.</p>
-      <button class="btn" style="margin-top:8px; width:fit-content;">Open History</button>
-    </div>
-
   </div>
 </div>
 
 <nav class="bottom-nav">
   <div class="bottom-nav-items">
     <a href="/index.html" class="bottom-nav-item active">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      Home
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home
     </a>
-    <a href="/log.html" class="bottom-nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      Log
+    <a href="/log.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Log
     </a>
-    <a href="/reports.html" class="bottom-nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-      Reports
+    <a href="/reports.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Reports
     </a>
-    <a href="/history.html" class="bottom-nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      History
+    <a href="/history.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>History
     </a>
-    <a href="/planner.html" class="bottom-nav-item">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      Planner
+    <a href="/planner.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Planner
     </a>
     <a href="/quality.html" class="bottom-nav-item admin-only">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      Quality
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Quality
     </a>
   </div>
 </nav>
 
 <script src="/static/app.js"></script>
 <script>
-  // Role-based nav
   if (localStorage.getItem("role") === "assistant" || localStorage.getItem("role") === "quality_assistant") {
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
   }
-  const u = localStorage.getItem("username");
+  var u = localStorage.getItem("username");
   if (u) {
-    document.getElementById("welcome-msg").innerText = "Welcome back, " + u;
+    document.getElementById("welcome-msg").innerText = "Welcome back, " + u + " \u{1F44B}";
     document.getElementById("username-text").innerText = u;
   }
+  document.getElementById("welcome-date").innerText = new Date().toLocaleDateString("en-CA", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/Edmonton"
+  });
+  loadWeekly();
 </script>
 </body>
 </html>

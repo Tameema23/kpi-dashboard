@@ -1,3 +1,123 @@
+/* ================= CONFIRM / ALERT DIALOGS ================= */
+
+function showConfirm(message, onConfirm, options) {
+  options = options || {};
+  var confirmText = options.confirmText || "Confirm";
+  var cancelText  = options.cancelText  || "Cancel";
+  var danger      = options.danger !== false;
+
+  var existing = document.getElementById("_cfModal");
+  if (existing) existing.remove();
+
+  var iconHtml = danger
+    ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>'
+    : '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+  var iconBg  = danger ? "#fff1f2" : "#eff6ff";
+  var btnBg   = danger ? "#dc2626" : "#2563eb";
+  var title   = danger ? "Confirm Delete" : "Are you sure?";
+  var btnIcon = danger ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' : "";
+
+  var backdrop = document.createElement("div");
+  backdrop.id = "_cfModal";
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.45);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;";
+  backdrop.innerHTML =
+    "<div style='background:#fff;border-radius:18px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(15,23,42,0.22);animation:_cfIn 0.18s ease;overflow:hidden;'>" +
+      "<div style='padding:26px 26px 10px 26px;display:flex;gap:16px;align-items:flex-start;'>" +
+        "<div style='width:44px;height:44px;border-radius:12px;flex-shrink:0;background:" + iconBg + ";display:flex;align-items:center;justify-content:center;'>" + iconHtml + "</div>" +
+        "<div style='flex:1;'>" +
+          "<div style='font-size:17px;font-weight:800;color:#0f172a;margin-bottom:6px;'>" + title + "</div>" +
+          "<div id='_cfMsg' style='font-size:14px;color:#475569;line-height:1.55;'></div>" +
+        "</div>" +
+      "</div>" +
+      "<div style='padding:18px 26px 24px 26px;display:flex;gap:10px;justify-content:flex-end;'>" +
+        "<button id='_cfCancel' style='background:#f1f5f9;color:#475569;border:none;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;'>" + cancelText + "</button>" +
+        "<button id='_cfOk' style='background:" + btnBg + ";color:#fff;border:none;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;'>" + btnIcon + " " + confirmText + "</button>" +
+      "</div>" +
+    "</div>" +
+    "<style>@keyframes _cfIn{from{transform:scale(0.92);opacity:0}to{transform:scale(1);opacity:1}}#_cfCancel:hover{background:#e2e8f0!important}#_cfOk:hover{filter:brightness(0.88)}</style>";
+
+  backdrop.querySelector("#_cfMsg").innerHTML = message;
+  document.body.appendChild(backdrop);
+
+  function close() { backdrop.remove(); }
+  backdrop.querySelector("#_cfOk").onclick    = function() { close(); onConfirm(); };
+  backdrop.querySelector("#_cfCancel").onclick = close;
+  backdrop.addEventListener("click", function(e) { if (e.target === backdrop) close(); });
+  document.addEventListener("keydown", function esc(e) {
+    if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); }
+  });
+}
+
+function showAlert(message, type) {
+  type = type || "info";
+  var existing = document.getElementById("_cfModal");
+  if (existing) existing.remove();
+  var cfg = {
+    info:    { bg: "#eff6ff", stroke: "#2563eb", btn: "#2563eb", icon: "<circle cx='12' cy='12' r='10'/><line x1='12' y1='8' x2='12' y2='12'/><line x1='12' y1='16' x2='12.01' y2='16'/>" },
+    error:   { bg: "#fff1f2", stroke: "#dc2626", btn: "#dc2626", icon: "<circle cx='12' cy='12' r='10'/><line x1='12' y1='8' x2='12' y2='12'/><line x1='12' y1='16' x2='12.01' y2='16'/>" },
+    success: { bg: "#f0fdf4", stroke: "#16a34a", btn: "#16a34a", icon: "<polyline points='20 6 9 17 4 12'/>" }
+  };
+  var c = cfg[type] || cfg.info;
+  var backdrop = document.createElement("div");
+  backdrop.id = "_cfModal";
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.45);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;";
+  backdrop.innerHTML =
+    "<div style='background:#fff;border-radius:18px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(15,23,42,0.22);animation:_cfIn 0.18s ease;overflow:hidden;'>" +
+      "<div style='padding:26px 26px 10px 26px;display:flex;gap:16px;align-items:flex-start;'>" +
+        "<div style='width:44px;height:44px;border-radius:12px;flex-shrink:0;background:" + c.bg + ";display:flex;align-items:center;justify-content:center;'><svg width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='" + c.stroke + "' stroke-width='2.5'>" + c.icon + "</svg></div>" +
+        "<div style='flex:1;padding-top:8px;font-size:14px;color:#334155;line-height:1.55;'>" + message + "</div>" +
+      "</div>" +
+      "<div style='padding:12px 26px 22px 26px;display:flex;justify-content:flex-end;'>" +
+        "<button id='_cfOk' style='background:" + c.btn + ";color:#fff;border:none;padding:10px 24px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;'>OK</button>" +
+      "</div>" +
+    "</div>" +
+    "<style>@keyframes _cfIn{from{transform:scale(0.92);opacity:0}to{transform:scale(1);opacity:1}}#_cfOk:hover{filter:brightness(0.88)}</style>";
+  document.body.appendChild(backdrop);
+  function close() { backdrop.remove(); }
+  backdrop.querySelector("#_cfOk").onclick = close;
+  backdrop.addEventListener("click", function(e) { if (e.target === backdrop) close(); });
+  document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
+}
+
+/* ================= UPCOMING APPOINTMENTS (homepage) ================= */
+
+async function loadUpcomingAppointments() {
+  var container = document.getElementById("upcomingList");
+  if (!container) return;
+  try {
+    var res = await fetch(API_BASE + "/appointments", { headers: { Authorization: "Bearer " + TOKEN } });
+    if (!res.ok) return;
+    var appts = await res.json();
+    var now = new Date();
+    var upcoming = appts
+      .filter(function(a) { return new Date(a.scheduled_for) >= now; })
+      .sort(function(a, b) { return new Date(a.scheduled_for) - new Date(b.scheduled_for); })
+      .slice(0, 5);
+    var skeletonEl = document.getElementById("upcomingSkeleton");
+    if (skeletonEl) skeletonEl.remove();
+    if (upcoming.length === 0) {
+      container.innerHTML = "<div style='text-align:center;padding:28px 0;color:#94a3b8;'><svg width='36' height='36' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' style='opacity:0.4;display:block;margin:0 auto 10px;'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg><p style='font-size:13px;font-weight:500;margin:0;'>No upcoming appointments</p></div>";
+      return;
+    }
+    container.innerHTML = upcoming.map(function(a) {
+      var dt   = new Date(a.scheduled_for);
+      var mon  = dt.toLocaleDateString("en-CA", { month: "short" });
+      var time = dt.toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit", hour12: true });
+      var comm = a.comments ? " · " + a.comments.substring(0, 28) + (a.comments.length > 28 ? "…" : "") : "";
+      return "<div style='display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;'>" +
+        "<div style='width:42px;height:42px;border-radius:10px;background:#eff6ff;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;'>" +
+          "<span style='font-size:10px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:0.04em;'>" + mon + "</span>" +
+          "<span style='font-size:17px;font-weight:800;color:#1e40af;line-height:1;'>" + dt.getDate() + "</span>" +
+        "</div>" +
+        "<div style='flex:1;min-width:0;'>" +
+          "<div style='font-size:14px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>" + a.lead_name + "</div>" +
+          "<div style='font-size:12px;color:#64748b;margin-top:2px;'>" + time + "<span style='color:#94a3b8;'>" + comm + "</span></div>" +
+        "</div>" +
+      "</div>";
+    }).join("");
+  } catch(e) { console.error(e); }
+}
+
 if (!localStorage.getItem("token") && !window.location.href.includes("login")) {
   window.location.href = "login.html";
 }
@@ -207,6 +327,13 @@ async function loadWeekly() {
     const badEl = document.getElementById("wk_bad_lead");
     if (badEl) badEl.className = ytdBadLeadRatio <= 30 ? "good" : ytdBadLeadRatio <= 55 ? "warn" : "bad";
   }, 950);
+
+  // Homepage snapshot KPIs (no-ops on other pages)
+  countUp("home_alp",   ytdTotalAlp,     "$", "", 0);
+  countUp("home_sales", ytdSales);
+  countUp("home_close", ytdClosingRatio, "",  "%");
+  countUp("home_pres",  ytdPres);
+  loadUpcomingAppointments();
 
 
 
@@ -621,32 +748,37 @@ function toggleSelectAll(source){
   });
 }
 
-async function deleteSelected(){
+function deleteSelected(){
 
   const ids = [...document.querySelectorAll(".rowCheck:checked")]
               .map(c => Number(c.value));
 
   if(ids.length === 0){
-    alert("Select at least one day to delete");
+    showAlert("Please select at least one day to delete.", "info");
     return;
   }
 
-  const res = await fetch(`${API_BASE}/delete-days`,{
-    method:"DELETE",
-    headers:{
-      "Content-Type":"application/json",
-      "Authorization":"Bearer " + TOKEN
+  showConfirm(
+    "Delete <strong>" + ids.length + "</strong> selected day" + (ids.length > 1 ? "s" : "") + "? This cannot be undone.",
+    async function() {
+      const res = await fetch(`${API_BASE}/delete-days`,{
+        method:"DELETE",
+        headers:{
+          "Content-Type":"application/json",
+          "Authorization":"Bearer " + TOKEN
+        },
+        body: JSON.stringify(ids)
+      });
+      if(res.ok){
+        showToast("Selected days deleted.");
+        toggleDeleteMode();
+        loadHistory();
+      } else {
+        showToast("Delete failed. Please try again.", "error");
+      }
     },
-    body: JSON.stringify(ids)
-  });
-
-  if(res.ok){
-    showToast("Selected days deleted.");
-    toggleDeleteMode();
-    loadHistory();
-  } else {
-    showToast("Delete failed. Please try again.", "error");
-  }
+    { confirmText: "Delete" }
+  );
 }
 
 /* ================= EDIT AUTOFILL ================= */
@@ -724,14 +856,14 @@ async function exportExcel() {
   });
 
   if (!res.ok) {
-    alert("Failed to fetch data");
+    showAlert("Failed to fetch data.", "error");
     return;
   }
 
   const data = await res.json();
 
   if (data.length === 0) {
-    alert("No data to export yet");
+    showAlert("No data to export yet.", "info");
     return;
   }
 

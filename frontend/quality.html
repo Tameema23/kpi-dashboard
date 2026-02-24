@@ -287,16 +287,21 @@
     } catch { msg.innerText = "Server error."; }
   }
 
-  async function deleteEntry(id, name) {
-    if (!confirm(`Delete entry for "${name}"?`)) return;
-    try {
-      const res = await fetch(`/quality/${id}`, {
-        method: "DELETE",
-        headers: { Authorization: "Bearer " + TOKEN }
-      });
-      if (res.ok) { showToast(`${name} deleted.`); loadEntries(); }
-      else showToast("Failed to delete.", "error");
-    } catch { showToast("Server error.", "error"); }
+  function deleteEntry(id, name) {
+    showConfirm(
+      "Delete Entry",
+      "Are you sure you want to delete the entry for <strong>" + esc(name) + "</strong>? This cannot be undone.",
+      async function() {
+        try {
+          const res = await fetch(`/quality/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: "Bearer " + TOKEN }
+          });
+          if (res.ok) { showToast(name + " deleted."); loadEntries(); }
+          else showToast("Failed to delete.", "error");
+        } catch { showToast("Server error.", "error"); }
+      }
+    );
   }
 
   // ── Helpers ────────────────────────────────────────────────

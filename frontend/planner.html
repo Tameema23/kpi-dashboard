@@ -481,24 +481,26 @@
   });
 
   // ── Delete ───────────────────────────────────────────────────
-  document.getElementById("modalDeleteBtn").addEventListener("click", async function () {
+  document.getElementById("modalDeleteBtn").addEventListener("click", function () {
     if (!editingId) return;
-    if (!confirm("Delete this appointment?")) return;
-    try {
-      var res = await fetch(API + "/appointments/" + editingId, {
-        method: "DELETE",
-        headers: { Authorization: "Bearer " + TOKEN }
-      });
-      if (res.ok) {
-        showToast("Appointment deleted.");
-        closeModal();
-        await loadAppointments();
-      } else {
-        showToast("Delete failed.", "error");
+    var idToDelete = editingId;
+    showConfirm("Delete Appointment", "Are you sure you want to delete this appointment? This cannot be undone.", async function() {
+      try {
+        var res = await fetch(API + "/appointments/" + idToDelete, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + TOKEN }
+        });
+        if (res.ok) {
+          showToast("Appointment deleted.");
+          closeModal();
+          await loadAppointments();
+        } else {
+          showToast("Delete failed.", "error");
+        }
+      } catch (e) {
+        showToast("Server error.", "error");
       }
-    } catch (e) {
-      showToast("Server error.", "error");
-    }
+    });
   });
 
   // ── Mini calendar ────────────────────────────────────────────
