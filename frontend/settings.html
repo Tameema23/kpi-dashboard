@@ -19,7 +19,8 @@
       <a href="/log.html" class="admin-only">Log Day</a>
       <a href="/reports.html" class="admin-only">Reports</a>
       <a href="/history.html" class="admin-only">History</a>
-      <a href="/planner.html">Planner</a>
+      <a href="/planner.html" class="admin-only">Planner</a>
+      <a href="/quality.html" class="admin-only">Quality</a>
       <a href="/settings.html" class="active">Settings</a>
     </nav>
   </div>
@@ -143,6 +144,42 @@
       </div>
     </div>
 
+
+    <!-- Quality Tracker Assistant Card (admin only) -->
+    <div class="card" id="qualityAssistantCard" style="margin-top: 22px; display:none;">
+      <div class="settings-card-header">
+        <div class="settings-icon icon-green">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-size:17px;">Quality Tracker Assistants</h2>
+          <p style="margin:0; font-size:13px; color:#64748b;">Assistants with Quality Tracker access only</p>
+        </div>
+      </div>
+      <div id="qualityAssistantList" style="margin-bottom:20px;"></div>
+      <div style="border-top:2px solid #f1f5f9; padding-top:18px;">
+        <p style="margin:0 0 14px 0; font-size:13px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.05em;">Add Quality Assistant</p>
+        <div class="form-field">
+          <label>Username</label>
+          <input id="new_qa_username" placeholder="e.g. quality_sarah" type="text" autocomplete="off">
+        </div>
+        <div class="form-field">
+          <label>Password</label>
+          <div class="pw-field-wrap">
+            <input id="new_qa_password" placeholder="Set a password" type="password" autocomplete="new-password">
+            <button type="button" class="pw-toggle-btn" onclick="togglePw('new_qa_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:14px; margin-top:4px;">
+          <button class="btn" onclick="createQualityAssistant()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Create Assistant
+          </button>
+          <span id="qa-msg" style="font-size:13px; font-weight:600;"></span>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -165,9 +202,13 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       History
     </a>
-    <a href="/planner.html" class="bottom-nav-item">
+    <a href="/planner.html" class="bottom-nav-item admin-only">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       Planner
+    </a>
+    <a href="/quality.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Quality
     </a>
     <a href="/settings.html" class="bottom-nav-item active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -185,10 +226,9 @@
   }
 
   // Role-based nav
-  if (localStorage.getItem("role") === "assistant") {
-    // Hide all admin-only nav items (topbar + bottom nav)
+  var _role = localStorage.getItem("role");
+  if (_role === "assistant" || _role === "quality_assistant") {
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
-    // Hide Back to Dashboard
     var backBtn = document.getElementById("backToDashboard");
     if (backBtn) backBtn.style.display = "none";
   }
@@ -272,7 +312,7 @@
             </div>
             <div>
               <div style="font-size:14px;font-weight:700;color:#0f172a;">${a.username}</div>
-              <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Assistant</div>
+              <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Planner Assistant</div>
             </div>
           </div>
           <button class="btn small" style="background:#fee2e2;color:#dc2626;" onclick="removeAssistant(${a.id}, '${a.username}')">Remove</button>
@@ -350,6 +390,69 @@
       ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
       : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
     btn.title = showing ? 'Show password' : 'Hide password';
+  }
+
+  // ── Quality Assistant card ──────────────────────────────────────────────
+  if (localStorage.getItem("role") === "admin" || !localStorage.getItem("role")) {
+    var qaCard = document.getElementById("qualityAssistantCard");
+    if (qaCard) { qaCard.style.display = "block"; loadQualityAssistants(); }
+  }
+
+  async function loadQualityAssistants() {
+    var T = localStorage.getItem("token");
+    try {
+      var res = await fetch("/assistants", { headers: { Authorization: "Bearer " + T } });
+      if (!res.ok) return;
+      var list = await res.json();
+      var qaList = list.filter(function(a) { return a.role === "quality_assistant"; });
+      var container = document.getElementById("qualityAssistantList");
+      if (!container) return;
+      if (qaList.length === 0) {
+        container.innerHTML = '<p style="font-size:13px;color:#94a3b8;margin:0;">No quality assistants yet.</p>';
+        return;
+      }
+      container.innerHTML = qaList.map(function(a) {
+        return '<div class="settings-field">' +
+          '<div style="display:flex;align-items:center;gap:10px;">' +
+            '<div style="width:32px;height:32px;border-radius:50%;background:#f0fdf4;display:flex;align-items:center;justify-content:center;">' +
+              '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' +
+            '</div>' +
+            '<div>' +
+              '<div style="font-size:14px;font-weight:700;color:#0f172a;">' + a.username + '</div>' +
+              '<div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Quality Assistant</div>' +
+            '</div>' +
+          '</div>' +
+          '<button class="btn small" style="background:#fee2e2;color:#dc2626;" onclick="removeAssistant(' + a.id + ', \'' + a.username + '\')">Remove</button>' +
+        '</div>';
+      }).join("");
+    } catch(e) { console.error(e); }
+  }
+
+  async function createQualityAssistant() {
+    var username = document.getElementById("new_qa_username").value.trim();
+    var password = document.getElementById("new_qa_password").value;
+    var msg = document.getElementById("qa-msg");
+    if (!username || !password) { msg.innerText = "Please fill in both fields."; msg.style.color = "#dc2626"; return; }
+    if (password.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
+    var T = localStorage.getItem("token");
+    try {
+      var res = await fetch("/create-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + T },
+        body: JSON.stringify({ username: username, password: password, assistant_type: "quality_assistant" })
+      });
+      if (res.ok) {
+        showToast("Quality assistant created!");
+        document.getElementById("new_qa_username").value = "";
+        document.getElementById("new_qa_password").value = "";
+        msg.innerText = "";
+        loadQualityAssistants();
+      } else {
+        var d = await res.json();
+        msg.innerText = d.detail || "Failed to create.";
+        msg.style.color = "#dc2626";
+      }
+    } catch { msg.innerText = "Server error."; msg.style.color = "#dc2626"; }
   }
 </script>
 </body>

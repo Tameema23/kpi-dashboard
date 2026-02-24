@@ -106,6 +106,8 @@ async function submitAuth() {
     localStorage.setItem("role", data.role || "admin");
     if ((data.role || "admin") === "assistant") {
       window.location.href = "/planner.html";
+    } else if (data.role === "quality_assistant") {
+      window.location.href = "/quality.html";
     } else {
       window.location.href = "/index.html";
     }
