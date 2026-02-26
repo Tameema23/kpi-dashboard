@@ -85,6 +85,18 @@
           <input id="m_date" type="date">
           <input id="m_time" type="time" step="900">
         </div>
+        <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+          <label style="font-size:12px; font-weight:600; color:#64748b; margin:0; white-space:nowrap;">Time zone:</label>
+          <select id="m_timezone" style="flex:1; padding:7px 10px; border-radius:8px; border:1.5px solid #e2e8f0; font-size:13px; font-weight:600; color:#0f172a; background:#fafafa; cursor:pointer;">
+            <option value="America/Edmonton" selected>Mountain (Calgary) &#x2014; default</option>
+            <option value="America/Vancouver">Pacific (PT)</option>
+            <option value="America/Winnipeg">Central (CT)</option>
+            <option value="America/Toronto">Eastern (ET)</option>
+            <option value="America/Halifax">Atlantic (AT)</option>
+            <option value="America/St_Johns">Newfoundland (NT)</option>
+          </select>
+        </div>
+        <div id="tz_preview" style="display:none; margin-top:6px; padding:6px 10px; background:#eff6ff; border-radius:8px; font-size:12px; font-weight:600; color:#2563eb;"></div>
       </div>
       <!-- Mini calendar -->
       <div class="mini-cal-wrap">
@@ -391,6 +403,8 @@
     calMonth = d.getMonth();
     renderMiniCal();
 
+    document.getElementById("m_timezone").value = "America/Edmonton";
+    document.getElementById("tz_preview").style.display = "none";
     document.getElementById("modalBackdrop").classList.remove("hidden");
     document.getElementById("m_lead_name").focus();
   }
@@ -416,6 +430,8 @@
     calMonth = d.getMonth();
     renderMiniCal();
 
+    document.getElementById("m_timezone").value = "America/Edmonton";
+    document.getElementById("tz_preview").style.display = "none";
     document.getElementById("modalBackdrop").classList.remove("hidden");
   }
 
@@ -443,6 +459,7 @@
 
     var date     = document.getElementById("m_date").value;
     var time     = document.getElementById("m_time").value;
+    var tz       = document.getElementById("m_timezone").value;
     var comments = document.getElementById("m_comments").value.trim();
 
     if (!date || !time) {
@@ -450,7 +467,46 @@
       return;
     }
 
-    var payload = { lead_name: lead_name, comments: comments, scheduled_for: date + "T" + time };
+    // Convert entered time from selected timezone to Mountain (America/Edmonton)
+    var scheduledFor;
+    if (tz === "America/Edmonton") {
+      scheduledFor = date + "T" + time;
+    } else {
+      // Parse the input as a time in the selected timezone, then convert to Mountain
+      var localDT = date + "T" + time + ":00";
+      // Use Intl to find the UTC offset difference and shift the time
+      var inputDate = new Date(localDT);
+      // Get what the clock reads in the selected TZ for that naive datetime
+      var tzFormatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      });
+      var mtFormatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Edmonton",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      });
+      // Find UTC time for the entered date+time in the selected timezone
+      // by iterating: guess UTC, check what timezone thinks it is, adjust
+      var guess = new Date(localDT + "Z"); // treat as UTC to start
+      for (var i = 0; i < 3; i++) {
+        var parts = tzFormatter.formatToParts(guess);
+        var p = {};
+        parts.forEach(function(x) { p[x.type] = x.value; });
+        var tzClock = p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":" + p.second;
+        var diff = new Date(localDT).getTime() - new Date(tzClock).getTime();
+        guess = new Date(guess.getTime() + diff);
+      }
+      // Now convert UTC guess to Mountain time string for storage
+      var mtParts = mtFormatter.formatToParts(guess);
+      var mp = {};
+      mtParts.forEach(function(x) { mp[x.type] = x.value; });
+      var mtHour = mp.hour === "24" ? "00" : mp.hour;
+      scheduledFor = mp.year + "-" + mp.month + "-" + mp.day + "T" + mtHour + ":" + mp.minute;
+    }
+
+    var payload = { lead_name: lead_name, comments: comments, scheduled_for: scheduledFor };
 
     try {
       var res;
@@ -502,6 +558,44 @@
       }
     });
   });
+
+  // ── Timezone live preview ───────────────────────────────────────
+  function updateTzPreview() {
+    var date = document.getElementById("m_date").value;
+    var time = document.getElementById("m_time").value;
+    var tz   = document.getElementById("m_timezone").value;
+    var preview = document.getElementById("tz_preview");
+    if (!time || tz === "America/Edmonton") { preview.style.display = "none"; return; }
+    try {
+      var localDT = (date || "2000-01-01") + "T" + time + ":00";
+      var guess = new Date(localDT + "Z");
+      var tzFormatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      });
+      for (var i = 0; i < 3; i++) {
+        var parts = tzFormatter.formatToParts(guess);
+        var p = {};
+        parts.forEach(function(x) { p[x.type] = x.value; });
+        var tzClock = p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":" + p.second;
+        var diff = new Date(localDT).getTime() - new Date(tzClock).getTime();
+        guess = new Date(guess.getTime() + diff);
+      }
+      var mtStr = guess.toLocaleTimeString("en-CA", {
+        timeZone: "America/Edmonton",
+        hour: "numeric", minute: "2-digit", hour12: true
+      });
+      var tzLabels = {
+        "America/Vancouver": "PT", "America/Winnipeg": "CT",
+        "America/Toronto": "ET", "America/Halifax": "AT", "America/St_Johns": "NT"
+      };
+      preview.style.display = "block";
+      preview.innerHTML = "&#x2192; Saves as <strong>" + mtStr + " Mountain time</strong> (converted from " + (tzLabels[tz] || tz) + ")";
+    } catch(e) { preview.style.display = "none"; }
+  }
+  document.getElementById("m_time").addEventListener("change", updateTzPreview);
+  document.getElementById("m_timezone").addEventListener("change", updateTzPreview);
 
   // ── Mini calendar ────────────────────────────────────────────
   var CAL_DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
