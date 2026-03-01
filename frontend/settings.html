@@ -195,6 +195,55 @@
   </div>
 </nav>
 
+<!-- Edit Permissions Modal -->
+<div class="modal-backdrop hidden" id="permissionsModal">
+  <div class="modal-card" style="max-width:380px;">
+    <div class="modal-header">
+      <h3 id="permModalTitle">Edit Permissions</h3>
+      <button class="modal-close" onclick="closePermModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:#64748b;margin:0 0 18px 0;">Select which sections this assistant can access. At least one must be enabled.</p>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <label id="perm_modal_planner_label" style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;border:2px solid #e2e8f0;background:#fafafa;cursor:pointer;transition:all 0.15s;">
+          <input type="checkbox" id="perm_modal_planner" style="width:18px;height:18px;accent-color:#7c3aed;flex-shrink:0;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:34px;height:34px;border-radius:8px;background:#f5f3ff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#0f172a;">Planner</div>
+              <div style="font-size:12px;color:#94a3b8;">Appointment scheduling</div>
+            </div>
+          </div>
+        </label>
+        <label id="perm_modal_quality_label" style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;border:2px solid #e2e8f0;background:#fafafa;cursor:pointer;transition:all 0.15s;">
+          <input type="checkbox" id="perm_modal_quality" style="width:18px;height:18px;accent-color:#16a34a;flex-shrink:0;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:34px;height:34px;border-radius:8px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#0f172a;">Quality Tracker</div>
+              <div style="font-size:12px;color:#94a3b8;">Policy retention tracking</div>
+            </div>
+          </div>
+        </label>
+      </div>
+      <p style="font-size:12px;color:#94a3b8;margin:14px 0 0 0;">&#9432; The assistant must sign out and back in for changes to take effect in their navigation.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="savePermissions()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+        Save Permissions
+      </button>
+      <button class="btn" style="background:#f1f5f9;color:#475569;" onclick="closePermModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/app.js"></script>
 <script>
   const u = localStorage.getItem("username");
@@ -344,40 +393,70 @@
     } catch { msg.innerText = "Server error."; msg.style.color = "#dc2626"; }
   }
 
+  var _permEditId = null;
+  var _permEditUsername = null;
+
   function editPermissions(id, username, currentPlanner, currentQuality) {
-    var newPlanner = !!(currentPlanner);
-    var newQuality = !!(currentQuality);
-    showConfirm(
-      "Update permissions for <strong>" + username + "</strong>?" +
-      "<br><br>" +
-      "<label style='display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;cursor:pointer;'>" +
-        "<input type='checkbox' id='ep_planner' " + (newPlanner ? "checked" : "") + " style='width:16px;height:16px;accent-color:#7c3aed;'>" +
-        "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='3' y1='10' x2='21' y2='10'/></svg>" +
-        " Planner access" +
-      "</label>" +
-      "<label style='display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;'>" +
-        "<input type='checkbox' id='ep_quality' " + (newQuality ? "checked" : "") + " style='width:16px;height:16px;accent-color:#16a34a;'>" +
-        "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><path d='M9 11l3 3L22 4'/></svg>" +
-        " Quality Tracker access" +
-      "</label>",
-      async function() {
-        var pl = document.getElementById("ep_planner") ? document.getElementById("ep_planner").checked : newPlanner;
-        var ql = document.getElementById("ep_quality") ? document.getElementById("ep_quality").checked : newQuality;
-        if (!pl && !ql) { showToast("Select at least one permission.", "error"); return; }
-        const TOKEN = localStorage.getItem("token");
-        try {
-          const res = await fetch("/assistants/" + id + "/permissions", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
-            body: JSON.stringify({ can_planner: pl, can_quality: ql })
-          });
-          if (res.ok) { showToast(username + "'s permissions updated!"); loadAssistants(); }
-          else showToast("Failed to update.", "error");
-        } catch { showToast("Server error.", "error"); }
-      },
-      { confirmText: "Save", danger: false }
-    );
+    _permEditId = id;
+    _permEditUsername = username;
+    document.getElementById("permModalTitle").innerText = "Edit — " + username;
+    document.getElementById("perm_modal_planner").checked = !!(currentPlanner);
+    document.getElementById("perm_modal_quality").checked = !!(currentQuality);
+    updatePermModalStyle("perm_modal_planner", "perm_modal_planner_label", "#7c3aed", "#f5f3ff");
+    updatePermModalStyle("perm_modal_quality", "perm_modal_quality_label", "#16a34a", "#f0fdf4");
+    document.getElementById("permissionsModal").classList.remove("hidden");
   }
+
+  function updatePermModalStyle(cbId, labelId, activeColor, activeBg) {
+    var cb = document.getElementById(cbId);
+    var lb = document.getElementById(labelId);
+    if (cb.checked) {
+      lb.style.borderColor = activeColor;
+      lb.style.background  = activeBg;
+    } else {
+      lb.style.borderColor = "#e2e8f0";
+      lb.style.background  = "#fafafa";
+    }
+  }
+
+  document.getElementById("perm_modal_planner").addEventListener("change", function() {
+    updatePermModalStyle("perm_modal_planner", "perm_modal_planner_label", "#7c3aed", "#f5f3ff");
+  });
+  document.getElementById("perm_modal_quality").addEventListener("change", function() {
+    updatePermModalStyle("perm_modal_quality", "perm_modal_quality_label", "#16a34a", "#f0fdf4");
+  });
+
+  function closePermModal() {
+    document.getElementById("permissionsModal").classList.add("hidden");
+    _permEditId = null;
+    _permEditUsername = null;
+  }
+
+  async function savePermissions() {
+    var pl = document.getElementById("perm_modal_planner").checked;
+    var ql = document.getElementById("perm_modal_quality").checked;
+    if (!pl && !ql) { showToast("Select at least one permission.", "error"); return; }
+    const TOKEN = localStorage.getItem("token");
+    try {
+      const res = await fetch("/assistants/" + _permEditId + "/permissions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify({ can_planner: pl, can_quality: ql })
+      });
+      if (res.ok) {
+        closePermModal();
+        showToast(_permEditUsername + "'s permissions saved! They must re-login to see changes.");
+        loadAssistants();
+      } else {
+        showToast("Failed to update.", "error");
+      }
+    } catch { showToast("Server error.", "error"); }
+  }
+
+  // Close on backdrop click
+  document.getElementById("permissionsModal").addEventListener("click", function(e) {
+    if (e.target === this) closePermModal();
+  });
 
   function removeAssistant(id, name) {
     showConfirm(

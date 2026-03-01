@@ -157,7 +157,8 @@ def update_assistant_permissions(assistant_id: int, data: AssistantPermissionsPa
     assistant.can_planner = data.can_planner
     assistant.can_quality = data.can_quality
     db.commit()
-    return {"status": "updated", "can_planner": assistant.can_planner, "can_quality": assistant.can_quality}
+    db.refresh(assistant)
+    return {"status": "updated", "can_planner": bool(assistant.can_planner), "can_quality": bool(assistant.can_quality)}
 
 @app.get("/assistants")
 def list_assistants(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -264,14 +265,16 @@ def delete_days(ids: list[int], user: User = Depends(get_current_user), db: Sess
 def _check_planner_access(user: User):
     if user.role == "admin":
         return
-    if user.role == "assistant" and user.can_planner:
+    # Explicitly handle None/0/1 from SQLite — treat None as False
+    if user.role == "assistant" and bool(user.can_planner if user.can_planner is not None else False):
         return
     raise HTTPException(403, "No planner access")
 
 def _check_quality_access(user: User):
     if user.role == "admin":
         return
-    if user.role == "assistant" and user.can_quality:
+    # Explicitly handle None/0/1 from SQLite — treat None as False
+    if user.role == "assistant" and bool(user.can_quality if user.can_quality is not None else False):
         return
     raise HTTPException(403, "No quality access")
 
