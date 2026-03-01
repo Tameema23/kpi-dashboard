@@ -80,6 +80,21 @@
         <input id="m_lead_name" placeholder="Enter lead name" type="text">
       </div>
       <div class="form-field">
+        <label>Type</label>
+        <div style="display:flex;gap:10px;">
+          <label id="type_appt_label" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:2px solid #3b82f6;background:#eff6ff;cursor:pointer;font-size:14px;font-weight:600;color:#1d4ed8;transition:all 0.15s;">
+            <input type="radio" name="m_appt_type" id="type_appt" value="appointment" checked style="accent-color:#3b82f6;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Appointment
+          </label>
+          <label id="type_cb_label" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:2px solid #e2e8f0;background:#fafafa;cursor:pointer;font-size:14px;font-weight:600;color:#64748b;transition:all 0.15s;">
+            <input type="radio" name="m_appt_type" id="type_cb" value="callback" style="accent-color:#f59e0b;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            Call Back
+          </label>
+        </div>
+      </div>
+      <div class="form-field">
         <label>Appointment Date &amp; Time</label>
         <div class="datetime-row">
           <input id="m_date" type="date">
@@ -160,8 +175,13 @@
 <script src="/static/app.js"></script>
 <script>
   // Role-based nav
-  if (localStorage.getItem("role") === "assistant" || localStorage.getItem("role") === "quality_assistant") {
+  var _plannerRole = localStorage.getItem("role");
+  if (_plannerRole === "assistant") {
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
+    // Show quality link if they have quality access
+    if (localStorage.getItem("can_quality") === "1") {
+      document.querySelectorAll("a[href='/quality.html']").forEach(function(el) { el.style.display = ""; });
+    }
   }
 // ─── Everything uses TOKEN and API already declared in app.js ───
 
@@ -334,8 +354,10 @@
           if (apptDate !== fmtDate(day) || apptHour !== hour) return;
 
           var block = document.createElement("div");
-          block.className = "pg-appt-block";
+          var isCallback = appt.appt_type === "callback";
+          block.className = "pg-appt-block" + (isCallback ? " pg-appt-callback" : "");
           block.innerHTML =
+            (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
             '<span class="pg-appt-name">' + appt.lead_name + "</span>";
 
@@ -359,7 +381,11 @@
   // ── Tooltip ──────────────────────────────────────────────────
   function showTooltip(e, appt) {
     var tip = document.getElementById("apptTooltip");
+    var typeBadge = appt.appt_type === "callback"
+      ? '<div style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;margin-bottom:6px;">&#x260E; CALL BACK</div><br>'
+      : '';
     tip.innerHTML =
+      typeBadge +
       '<div class="tip-name">' + appt.lead_name + "</div>" +
       '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + fmtDateTime(appt.scheduled_for) + "</div>" +
       (appt.comments ? '<div class="tip-row tip-comments">' + appt.comments + "</div>" : "") +
@@ -405,6 +431,9 @@
 
     document.getElementById("m_timezone").value = "America/Edmonton";
     document.getElementById("tz_preview").style.display = "none";
+    document.getElementById("type_appt").checked = true;
+    document.getElementById("type_cb").checked = false;
+    updateTypeToggle();
     document.getElementById("modalBackdrop").classList.remove("hidden");
     document.getElementById("m_lead_name").focus();
   }
@@ -432,6 +461,10 @@
 
     document.getElementById("m_timezone").value = "America/Edmonton";
     document.getElementById("tz_preview").style.display = "none";
+    var isCallback = appt.appt_type === "callback";
+    document.getElementById("type_appt").checked = !isCallback;
+    document.getElementById("type_cb").checked   = isCallback;
+    updateTypeToggle();
     document.getElementById("modalBackdrop").classList.remove("hidden");
   }
 
@@ -439,6 +472,22 @@
     document.getElementById("modalBackdrop").classList.add("hidden");
     hideTooltip();
   }
+
+  // ── Type toggle styling ───────────────────────────────────────
+  function updateTypeToggle() {
+    var isAppt = document.getElementById("type_appt").checked;
+    var apptL  = document.getElementById("type_appt_label");
+    var cbL    = document.getElementById("type_cb_label");
+    if (isAppt) {
+      apptL.style.borderColor = "#3b82f6"; apptL.style.background = "#eff6ff"; apptL.style.color = "#1d4ed8";
+      cbL.style.borderColor   = "#e2e8f0"; cbL.style.background   = "#fafafa"; cbL.style.color   = "#64748b";
+    } else {
+      cbL.style.borderColor   = "#f59e0b"; cbL.style.background   = "#fffbeb"; cbL.style.color   = "#92400e";
+      apptL.style.borderColor = "#e2e8f0"; apptL.style.background = "#fafafa"; apptL.style.color = "#64748b";
+    }
+  }
+  document.getElementById("type_appt").addEventListener("change", updateTypeToggle);
+  document.getElementById("type_cb").addEventListener("change", updateTypeToggle);
 
   document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
   document.getElementById("modalCancelBtn").addEventListener("click", closeModal);
@@ -506,7 +555,8 @@
       scheduledFor = mp.year + "-" + mp.month + "-" + mp.day + "T" + mtHour + ":" + mp.minute;
     }
 
-    var payload = { lead_name: lead_name, comments: comments, scheduled_for: scheduledFor };
+    var apptType = document.querySelector('input[name="m_appt_type"]:checked').value;
+    var payload = { lead_name: lead_name, comments: comments, scheduled_for: scheduledFor, appt_type: apptType };
 
     try {
       var res;

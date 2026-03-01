@@ -39,7 +39,7 @@
     Back to Dashboard
   </a>
 
-  <div style="max-width: 520px;">
+  <div style="max-width: 560px;">
 
     <!-- Account Info Card -->
     <div class="card" style="margin-bottom: 22px;">
@@ -59,7 +59,7 @@
     </div>
 
     <!-- Change Password Card -->
-    <div class="card">
+    <div class="card" style="margin-bottom: 22px;">
       <div class="settings-card-header">
         <div class="settings-icon icon-amber">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -70,7 +70,6 @@
         </div>
       </div>
 
-      <!-- Dummy fields to prevent browser autofill -->
       <input type="text" style="display:none" aria-hidden="true">
       <input type="password" style="display:none" aria-hidden="true">
 
@@ -106,14 +105,14 @@
     </div>
 
     <!-- Assistant Accounts Card (admin only) -->
-    <div class="card" id="assistantCard" style="margin-top: 22px; display:none;">
+    <div class="card" id="assistantCard" style="display:none;">
       <div class="settings-card-header">
         <div class="settings-icon icon-purple">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         </div>
         <div>
           <h2 style="margin:0 0 2px 0; font-size:17px;">Assistant Accounts</h2>
-          <p style="margin:0; font-size:13px; color:#64748b;">Create accounts for your assistants — planner access only</p>
+          <p style="margin:0; font-size:13px; color:#64748b;">Manage assistants and their access permissions</p>
         </div>
       </div>
 
@@ -134,48 +133,27 @@
             <button type="button" class="pw-toggle-btn" onclick="togglePw('new_assistant_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
           </div>
         </div>
+        <div class="form-field">
+          <label>Access Permissions</label>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:2px solid #e2e8f0;background:#fafafa;cursor:pointer;font-size:13px;font-weight:600;color:#475569;flex:1;transition:all 0.15s;" id="perm_planner_label">
+              <input type="checkbox" id="new_can_planner" checked style="accent-color:#7c3aed;width:16px;height:16px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Planner
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:2px solid #e2e8f0;background:#fafafa;cursor:pointer;font-size:13px;font-weight:600;color:#475569;flex:1;transition:all 0.15s;" id="perm_quality_label">
+              <input type="checkbox" id="new_can_quality" style="accent-color:#16a34a;width:16px;height:16px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              Quality
+            </label>
+          </div>
+        </div>
         <div style="display:flex; align-items:center; gap:14px; margin-top:4px;">
           <button class="btn" onclick="createAssistant()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Create Assistant
           </button>
           <span id="assistant-msg" style="font-size:13px; font-weight:600;"></span>
-        </div>
-      </div>
-    </div>
-
-
-    <!-- Quality Tracker Assistant Card (admin only) -->
-    <div class="card" id="qualityAssistantCard" style="margin-top: 22px; display:none;">
-      <div class="settings-card-header">
-        <div class="settings-icon icon-green">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        </div>
-        <div>
-          <h2 style="margin:0 0 2px 0; font-size:17px;">Quality Tracker Assistants</h2>
-          <p style="margin:0; font-size:13px; color:#64748b;">Assistants with Quality Tracker access only</p>
-        </div>
-      </div>
-      <div id="qualityAssistantList" style="margin-bottom:20px;"></div>
-      <div style="border-top:2px solid #f1f5f9; padding-top:18px;">
-        <p style="margin:0 0 14px 0; font-size:13px; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.05em;">Add Quality Assistant</p>
-        <div class="form-field">
-          <label>Username</label>
-          <input id="new_qa_username" placeholder="e.g. quality_sarah" type="text" autocomplete="off">
-        </div>
-        <div class="form-field">
-          <label>Password</label>
-          <div class="pw-field-wrap">
-            <input id="new_qa_password" placeholder="Set a password" type="password" autocomplete="new-password">
-            <button type="button" class="pw-toggle-btn" onclick="togglePw('new_qa_password', this)" title="Show password"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-          </div>
-        </div>
-        <div style="display:flex; align-items:center; gap:14px; margin-top:4px;">
-          <button class="btn" onclick="createQualityAssistant()">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Create Assistant
-          </button>
-          <span id="qa-msg" style="font-size:13px; font-weight:600;"></span>
         </div>
       </div>
     </div>
@@ -225,48 +203,52 @@
     document.getElementById("display-username").innerText = u;
   }
 
-  // Role-based nav
   var _role = localStorage.getItem("role");
-  if (_role === "assistant" || _role === "quality_assistant") {
+  if (_role === "assistant") {
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
     var backBtn = document.getElementById("backToDashboard");
     if (backBtn) backBtn.style.display = "none";
   }
 
+  // ── Permission checkbox visual feedback ────────────────────────
+  function updatePermLabel(checkboxId, labelId, activeColor) {
+    var cb = document.getElementById(checkboxId);
+    var lb = document.getElementById(labelId);
+    if (!cb || !lb) return;
+    if (cb.checked) {
+      lb.style.borderColor = activeColor;
+      lb.style.background  = activeColor === "#7c3aed" ? "#f5f3ff" : "#f0fdf4";
+      lb.style.color       = activeColor === "#7c3aed" ? "#5b21b6" : "#166534";
+    } else {
+      lb.style.borderColor = "#e2e8f0";
+      lb.style.background  = "#fafafa";
+      lb.style.color       = "#475569";
+    }
+  }
+  document.getElementById("new_can_planner").addEventListener("change", function() {
+    updatePermLabel("new_can_planner", "perm_planner_label", "#7c3aed");
+  });
+  document.getElementById("new_can_quality").addEventListener("change", function() {
+    updatePermLabel("new_can_quality", "perm_quality_label", "#16a34a");
+  });
+  // Set initial state
+  updatePermLabel("new_can_planner", "perm_planner_label", "#7c3aed");
+
+  // ── Password ───────────────────────────────────────────────────
   async function changePassword() {
     const current = document.getElementById("current_password").value;
     const newPw   = document.getElementById("new_password").value;
     const confirm = document.getElementById("confirm_password").value;
     const msg     = document.getElementById("pw-msg");
-
-    if (!current || !newPw || !confirm) {
-      msg.innerText = "Please fill in all fields.";
-      msg.style.color = "#dc2626";
-      return;
-    }
-    if (newPw !== confirm) {
-      msg.innerText = "New passwords do not match.";
-      msg.style.color = "#dc2626";
-      return;
-    }
-    if (newPw.length < 4) {
-      msg.innerText = "Password must be at least 4 characters.";
-      msg.style.color = "#dc2626";
-      return;
-    }
-
+    if (!current || !newPw || !confirm) { msg.innerText = "Please fill in all fields."; msg.style.color = "#dc2626"; return; }
+    if (newPw !== confirm) { msg.innerText = "New passwords do not match."; msg.style.color = "#dc2626"; return; }
+    if (newPw.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
     const TOKEN = localStorage.getItem("token");
     try {
       const res = await fetch("/change-password", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + TOKEN
-        },
-        body: JSON.stringify({
-          current_password: current,
-          new_password: newPw
-        })
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + TOKEN },
+        body: JSON.stringify({ current_password: current, new_password: newPw })
       });
       if (res.ok) {
         showToast("Password updated successfully!");
@@ -279,24 +261,26 @@
         msg.innerText = data.detail || "Incorrect current password.";
         msg.style.color = "#dc2626";
       }
-    } catch {
-      msg.innerText = "Server error. Please try again.";
-      msg.style.color = "#dc2626";
-    }
+    } catch { msg.innerText = "Server error. Please try again."; msg.style.color = "#dc2626"; }
   }
 
-  // Show assistant card only for admins
-  if (localStorage.getItem("role") === "admin" || !localStorage.getItem("role")) {
+  // ── Assistant management (admin only) ─────────────────────────
+  if (_role === "admin" || !_role) {
     document.getElementById("assistantCard").style.display = "block";
     loadAssistants();
+  }
+
+  function permBadge(can_planner, can_quality) {
+    var badges = [];
+    if (can_planner) badges.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f5f3ff;color:#5b21b6;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Planner</span>');
+    if (can_quality) badges.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f0fdf4;color:#166534;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/></svg>Quality</span>');
+    return badges.join(" ");
   }
 
   async function loadAssistants() {
     const TOKEN = localStorage.getItem("token");
     try {
-      const res = await fetch("/assistants", {
-        headers: { Authorization: "Bearer " + TOKEN }
-      });
+      const res = await fetch("/assistants", { headers: { Authorization: "Bearer " + TOKEN } });
       if (!res.ok) return;
       const list = await res.json();
       const container = document.getElementById("assistantList");
@@ -304,63 +288,95 @@
         container.innerHTML = '<p style="font-size:13px;color:#94a3b8;margin:0;">No assistants yet.</p>';
         return;
       }
-      container.innerHTML = list.map(a => `
-        <div class="settings-field">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:32px;height:32px;border-radius:50%;background:#eff6ff;display:flex;align-items:center;justify-content:center;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            </div>
-            <div>
-              <div style="font-size:14px;font-weight:700;color:#0f172a;">${a.username}</div>
-              <div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Planner Assistant</div>
-            </div>
-          </div>
-          <button class="btn small" style="background:#fee2e2;color:#dc2626;" onclick="removeAssistant(${a.id}, '${a.username}')">Remove</button>
-        </div>
-      `).join("");
-    } catch(e) {
-      console.error(e);
-    }
+      container.innerHTML = list.map(function(a) {
+        return '<div class="settings-field" style="align-items:flex-start;">' +
+          '<div style="display:flex;flex-direction:column;gap:6px;">' +
+            '<div style="display:flex;align-items:center;gap:10px;">' +
+              '<div style="width:32px;height:32px;border-radius:50%;background:#f5f3ff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
+              '</div>' +
+              '<div style="font-size:14px;font-weight:700;color:#0f172a;">' + a.username + '</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:5px;flex-wrap:wrap;">' + permBadge(a.can_planner, a.can_quality) + '</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+              '<button class="btn small" style="background:#f5f3ff;color:#5b21b6;font-size:11px;" onclick="editPermissions(' + a.id + ',\'' + a.username + '\',' + a.can_planner + ',' + a.can_quality + ')">Edit Permissions</button>' +
+              '<button class="btn small" style="background:#fee2e2;color:#dc2626;font-size:11px;" onclick="removeAssistant(' + a.id + ',\'' + a.username + '\')">Remove</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join("");
+    } catch(e) { console.error(e); }
   }
 
   async function createAssistant() {
-    const username = document.getElementById("new_assistant_username").value.trim();
-    const password = document.getElementById("new_assistant_password").value;
-    const msg = document.getElementById("assistant-msg");
+    const username    = document.getElementById("new_assistant_username").value.trim();
+    const password    = document.getElementById("new_assistant_password").value;
+    const can_planner = document.getElementById("new_can_planner").checked;
+    const can_quality = document.getElementById("new_can_quality").checked;
+    const msg         = document.getElementById("assistant-msg");
 
-    if (!username || !password) {
-      msg.innerText = "Please fill in both fields.";
-      msg.style.color = "#dc2626";
-      return;
-    }
-    if (password.length < 4) {
-      msg.innerText = "Password must be at least 4 characters.";
-      msg.style.color = "#dc2626";
-      return;
-    }
+    if (!username || !password) { msg.innerText = "Please fill in both fields."; msg.style.color = "#dc2626"; return; }
+    if (password.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
+    if (!can_planner && !can_quality) { msg.innerText = "Select at least one permission."; msg.style.color = "#dc2626"; return; }
 
     const TOKEN = localStorage.getItem("token");
     try {
       const res = await fetch("/create-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password, can_planner, can_quality })
       });
       if (res.ok) {
-        showToast("Assistant account created!");
+        showToast("Assistant created!");
         document.getElementById("new_assistant_username").value = "";
         document.getElementById("new_assistant_password").value = "";
+        document.getElementById("new_can_planner").checked = true;
+        document.getElementById("new_can_quality").checked = false;
+        updatePermLabel("new_can_planner", "perm_planner_label", "#7c3aed");
+        updatePermLabel("new_can_quality", "perm_quality_label", "#16a34a");
         msg.innerText = "";
         loadAssistants();
       } else {
         const data = await res.json();
-        msg.innerText = data.detail || "Failed to create assistant.";
+        msg.innerText = data.detail || "Failed to create.";
         msg.style.color = "#dc2626";
       }
-    } catch {
-      msg.innerText = "Server error.";
-      msg.style.color = "#dc2626";
-    }
+    } catch { msg.innerText = "Server error."; msg.style.color = "#dc2626"; }
+  }
+
+  function editPermissions(id, username, currentPlanner, currentQuality) {
+    var newPlanner = !!(currentPlanner);
+    var newQuality = !!(currentQuality);
+    showConfirm(
+      "Update permissions for <strong>" + username + "</strong>?" +
+      "<br><br>" +
+      "<label style='display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;cursor:pointer;'>" +
+        "<input type='checkbox' id='ep_planner' " + (newPlanner ? "checked" : "") + " style='width:16px;height:16px;accent-color:#7c3aed;'>" +
+        "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='3' y1='10' x2='21' y2='10'/></svg>" +
+        " Planner access" +
+      "</label>" +
+      "<label style='display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;'>" +
+        "<input type='checkbox' id='ep_quality' " + (newQuality ? "checked" : "") + " style='width:16px;height:16px;accent-color:#16a34a;'>" +
+        "<svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5'><path d='M9 11l3 3L22 4'/></svg>" +
+        " Quality Tracker access" +
+      "</label>",
+      async function() {
+        var pl = document.getElementById("ep_planner") ? document.getElementById("ep_planner").checked : newPlanner;
+        var ql = document.getElementById("ep_quality") ? document.getElementById("ep_quality").checked : newQuality;
+        if (!pl && !ql) { showToast("Select at least one permission.", "error"); return; }
+        const TOKEN = localStorage.getItem("token");
+        try {
+          const res = await fetch("/assistants/" + id + "/permissions", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+            body: JSON.stringify({ can_planner: pl, can_quality: ql })
+          });
+          if (res.ok) { showToast(username + "'s permissions updated!"); loadAssistants(); }
+          else showToast("Failed to update.", "error");
+        } catch { showToast("Server error.", "error"); }
+      },
+      { confirmText: "Save", danger: false }
+    );
   }
 
   function removeAssistant(id, name) {
@@ -369,20 +385,13 @@
       async function() {
         const TOKEN = localStorage.getItem("token");
         try {
-          const res = await fetch(`/assistants/${id}`, {
+          const res = await fetch("/assistants/" + id, {
             method: "DELETE",
             headers: { Authorization: "Bearer " + TOKEN }
           });
-          if (res.ok) {
-            showToast(name + " removed.");
-            loadAssistants();
-            if (typeof loadQualityAssistants === "function") loadQualityAssistants();
-          } else {
-            showToast("Failed to remove.", "error");
-          }
-        } catch {
-          showToast("Server error.", "error");
-        }
+          if (res.ok) { showToast(name + " removed."); loadAssistants(); }
+          else showToast("Failed to remove.", "error");
+        } catch { showToast("Server error.", "error"); }
       },
       { confirmText: "Remove", danger: false }
     );
@@ -396,69 +405,6 @@
       ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
       : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
     btn.title = showing ? 'Show password' : 'Hide password';
-  }
-
-  // ── Quality Assistant card ──────────────────────────────────────────────
-  if (localStorage.getItem("role") === "admin" || !localStorage.getItem("role")) {
-    var qaCard = document.getElementById("qualityAssistantCard");
-    if (qaCard) { qaCard.style.display = "block"; loadQualityAssistants(); }
-  }
-
-  async function loadQualityAssistants() {
-    var T = localStorage.getItem("token");
-    try {
-      var res = await fetch("/assistants", { headers: { Authorization: "Bearer " + T } });
-      if (!res.ok) return;
-      var list = await res.json();
-      var qaList = list.filter(function(a) { return a.role === "quality_assistant"; });
-      var container = document.getElementById("qualityAssistantList");
-      if (!container) return;
-      if (qaList.length === 0) {
-        container.innerHTML = '<p style="font-size:13px;color:#94a3b8;margin:0;">No quality assistants yet.</p>';
-        return;
-      }
-      container.innerHTML = qaList.map(function(a) {
-        return '<div class="settings-field">' +
-          '<div style="display:flex;align-items:center;gap:10px;">' +
-            '<div style="width:32px;height:32px;border-radius:50%;background:#f0fdf4;display:flex;align-items:center;justify-content:center;">' +
-              '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' +
-            '</div>' +
-            '<div>' +
-              '<div style="font-size:14px;font-weight:700;color:#0f172a;">' + a.username + '</div>' +
-              '<div style="font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Quality Assistant</div>' +
-            '</div>' +
-          '</div>' +
-          '<button class="btn small" style="background:#fee2e2;color:#dc2626;" onclick="removeAssistant(' + a.id + ', \'' + a.username + '\')">Remove</button>' +
-        '</div>';
-      }).join("");
-    } catch(e) { console.error(e); }
-  }
-
-  async function createQualityAssistant() {
-    var username = document.getElementById("new_qa_username").value.trim();
-    var password = document.getElementById("new_qa_password").value;
-    var msg = document.getElementById("qa-msg");
-    if (!username || !password) { msg.innerText = "Please fill in both fields."; msg.style.color = "#dc2626"; return; }
-    if (password.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
-    var T = localStorage.getItem("token");
-    try {
-      var res = await fetch("/create-assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + T },
-        body: JSON.stringify({ username: username, password: password, assistant_type: "quality_assistant" })
-      });
-      if (res.ok) {
-        showToast("Quality assistant created!");
-        document.getElementById("new_qa_username").value = "";
-        document.getElementById("new_qa_password").value = "";
-        msg.innerText = "";
-        loadQualityAssistants();
-      } else {
-        var d = await res.json();
-        msg.innerText = d.detail || "Failed to create.";
-        msg.style.color = "#dc2626";
-      }
-    } catch { msg.innerText = "Server error."; msg.style.color = "#dc2626"; }
   }
 </script>
 </body>

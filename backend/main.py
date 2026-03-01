@@ -18,11 +18,11 @@ app = FastAPI()
 
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
-@app.get("/")           
+@app.get("/")
 def serve_home():   return FileResponse("frontend/login.html")
-@app.get("/index.html") 
+@app.get("/index.html")
 def dashboard():    return FileResponse("frontend/index.html")
-@app.get("/log.html")   
+@app.get("/log.html")
 def log_page():     return FileResponse("frontend/log.html")
 @app.get("/reports.html")
 def reports_page(): return FileResponse("frontend/reports.html")
@@ -55,15 +55,16 @@ def get_db():
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
 def get_owner_id(user: User) -> int:
-    """Admin → own id. Assistant (any type) → owner_id (the admin who made them)."""
-    if user.role in ("assistant", "quality_assistant"):
+    """Admin → own id. Assistant → owner_id (the admin who made them)."""
+    if user.role == "assistant":
         return user.owner_id
     return user.id
 
 
-def create_token(user_id: int, role: str):
+def create_token(user_id: int, role: str, can_planner: bool = True, can_quality: bool = False):
     return jwt.encode(
         {"user_id": user_id, "role": role,
+         "can_planner": can_planner, "can_quality": can_quality,
          "exp": datetime.utcnow() + timedelta(days=7)},
         SECRET_KEY, algorithm="HS256"
     )
@@ -99,10 +100,18 @@ def login(data: UserPayload, db: Session = Depends(get_db)):
         User.username == data.username, User.password == data.password
     ).first()
     if not user: raise HTTPException(401)
+    can_planner = bool(user.can_planner) if user.can_planner is not None else True
+    can_quality = bool(user.can_quality) if user.can_quality is not None else False
+    # Admins get full access
+    if user.role == "admin":
+        can_planner = True
+        can_quality = True
     return {
-        "token": create_token(user.id, user.role or "admin"),
-        "role":  user.role or "admin",
-        "username": user.username
+        "token":       create_token(user.id, user.role or "admin", can_planner, can_quality),
+        "role":        user.role or "admin",
+        "can_planner": can_planner,
+        "can_quality": can_quality,
+        "username":    user.username
     }
 
 # ── Assistant management (admin only) ─────────────────────────────────────────
@@ -110,7 +119,12 @@ def login(data: UserPayload, db: Session = Depends(get_db)):
 class AssistantPayload(BaseModel):
     username: str
     password: str
-    assistant_type: str = "assistant"   # "assistant" | "quality_assistant"
+    can_planner: bool = True
+    can_quality: bool = False
+
+class AssistantPermissionsPayload(BaseModel):
+    can_planner: bool
+    can_quality: bool
 
 @app.post("/create-assistant")
 def create_assistant(data: AssistantPayload,
@@ -120,22 +134,43 @@ def create_assistant(data: AssistantPayload,
         raise HTTPException(403, "Admin only")
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(400, "Username already exists")
-
-    role = data.assistant_type if data.assistant_type in ("assistant", "quality_assistant") else "assistant"
+    if not data.can_planner and not data.can_quality:
+        raise HTTPException(400, "At least one permission must be selected")
     db.add(User(username=data.username, password=data.password,
-                role=role, owner_id=user.id))
+                role="assistant", owner_id=user.id,
+                can_planner=data.can_planner, can_quality=data.can_quality))
     db.commit()
     return {"status": "created"}
+
+@app.put("/assistants/{assistant_id}/permissions")
+def update_assistant_permissions(assistant_id: int, data: AssistantPermissionsPayload,
+                                  user: User = Depends(get_current_user),
+                                  db: Session = Depends(get_db)):
+    if (user.role or "admin") != "admin":
+        raise HTTPException(403, "Admin only")
+    if not data.can_planner and not data.can_quality:
+        raise HTTPException(400, "At least one permission must be selected")
+    assistant = db.query(User).filter(
+        User.id == assistant_id, User.role == "assistant", User.owner_id == user.id
+    ).first()
+    if not assistant: raise HTTPException(404, "Assistant not found")
+    assistant.can_planner = data.can_planner
+    assistant.can_quality = data.can_quality
+    db.commit()
+    return {"status": "updated", "can_planner": assistant.can_planner, "can_quality": assistant.can_quality}
 
 @app.get("/assistants")
 def list_assistants(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if (user.role or "admin") != "admin":
         raise HTTPException(403, "Admin only")
     assistants = db.query(User).filter(
-        User.role.in_(["assistant", "quality_assistant"]),
+        User.role == "assistant",
         User.owner_id == user.id
     ).all()
-    return [{"id": a.id, "username": a.username, "role": a.role} for a in assistants]
+    return [{"id": a.id, "username": a.username, "role": a.role,
+             "can_planner": bool(a.can_planner) if a.can_planner is not None else True,
+             "can_quality": bool(a.can_quality) if a.can_quality is not None else False}
+            for a in assistants]
 
 @app.delete("/assistants/{assistant_id}")
 def delete_assistant(assistant_id: int,
@@ -145,7 +180,7 @@ def delete_assistant(assistant_id: int,
         raise HTTPException(403, "Admin only")
     assistant = db.query(User).filter(
         User.id == assistant_id,
-        User.role.in_(["assistant", "quality_assistant"]),
+        User.role == "assistant",
         User.owner_id == user.id
     ).first()
     if not assistant: raise HTTPException(404, "Assistant not found")
@@ -226,25 +261,44 @@ def delete_days(ids: list[int], user: User = Depends(get_current_user), db: Sess
 
 # ── Appointments (Planner) ────────────────────────────────────────────────────
 
+def _check_planner_access(user: User):
+    if user.role == "admin":
+        return
+    if user.role == "assistant" and user.can_planner:
+        return
+    raise HTTPException(403, "No planner access")
+
+def _check_quality_access(user: User):
+    if user.role == "admin":
+        return
+    if user.role == "assistant" and user.can_quality:
+        return
+    raise HTTPException(403, "No quality access")
+
 class AppointmentPayload(BaseModel):
     lead_name: str
     comments: Optional[str] = ""
     scheduled_for: str
+    appt_type: Optional[str] = "appointment"
 
 class AppointmentUpdatePayload(BaseModel):
     lead_name: str
     comments: Optional[str] = ""
     scheduled_for: str
+    appt_type: Optional[str] = "appointment"
 
 @app.post("/appointments")
 def create_appointment(data: AppointmentPayload,
                        user: User = Depends(get_current_user),
                        db: Session = Depends(get_db)):
+    _check_planner_access(user)
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     owner = get_owner_id(user)
+    appt_type = data.appt_type if data.appt_type in ("appointment", "callback") else "appointment"
     appt  = Appointment(created_by=user.id, owner_id=owner,
                         lead_name=data.lead_name, comments=data.comments or "",
-                        scheduled_for=data.scheduled_for, booked_at=now)
+                        scheduled_for=data.scheduled_for, booked_at=now,
+                        appt_type=appt_type)
     db.add(appt); db.commit(); db.refresh(appt)
     return _appt_dict(appt, db)
 
@@ -252,6 +306,7 @@ def create_appointment(data: AppointmentPayload,
 def get_appointments(week_start: Optional[str] = None,
                      user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
+    _check_planner_access(user)
     owner = get_owner_id(user)
     appts = db.query(Appointment).filter(Appointment.owner_id == owner).all()
     return [_appt_dict(a, db) for a in appts]
@@ -260,14 +315,16 @@ def get_appointments(week_start: Optional[str] = None,
 def update_appointment(appt_id: int, data: AppointmentUpdatePayload,
                        user: User = Depends(get_current_user),
                        db: Session = Depends(get_db)):
+    _check_planner_access(user)
     owner = get_owner_id(user)
     appt  = db.query(Appointment).filter(
         Appointment.id == appt_id, Appointment.owner_id == owner
     ).first()
     if not appt: raise HTTPException(404, "Appointment not found")
-    appt.lead_name = data.lead_name
-    appt.comments  = data.comments or ""
+    appt.lead_name    = data.lead_name
+    appt.comments     = data.comments or ""
     appt.scheduled_for = data.scheduled_for
+    appt.appt_type    = data.appt_type if data.appt_type in ("appointment", "callback") else "appointment"
     db.commit()
     return _appt_dict(appt, db)
 
@@ -275,6 +332,7 @@ def update_appointment(appt_id: int, data: AppointmentUpdatePayload,
 def delete_appointment(appt_id: int,
                        user: User = Depends(get_current_user),
                        db: Session = Depends(get_db)):
+    _check_planner_access(user)
     owner = get_owner_id(user)
     appt  = db.query(Appointment).filter(
         Appointment.id == appt_id, Appointment.owner_id == owner
@@ -287,7 +345,8 @@ def _appt_dict(appt, db):
     creator = db.query(User).filter(User.id == appt.created_by).first()
     return {"id": appt.id, "lead_name": appt.lead_name, "comments": appt.comments,
             "scheduled_for": appt.scheduled_for, "booked_at": appt.booked_at,
-            "created_by": creator.username if creator else "unknown"}
+            "created_by": creator.username if creator else "unknown",
+            "appt_type": appt.appt_type or "appointment"}
 
 # ── Quality Tracker ───────────────────────────────────────────────────────────
 
@@ -312,8 +371,7 @@ def _quality_dict(e):
 def create_quality(data: QualityPayload,
                    user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    if user.role not in ("admin", "quality_assistant"):
-        raise HTTPException(403, "Not authorized")
+    _check_quality_access(user)
     owner = get_owner_id(user)
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     entry = QualityEntry(owner_id=owner, created_by=user.id,
@@ -331,8 +389,7 @@ def create_quality(data: QualityPayload,
 
 @app.get("/quality")
 def get_quality(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if user.role not in ("admin", "quality_assistant"):
-        raise HTTPException(403, "Not authorized")
+    _check_quality_access(user)
     owner   = get_owner_id(user)
     entries = db.query(QualityEntry).filter(
         QualityEntry.owner_id == owner
@@ -343,8 +400,7 @@ def get_quality(user: User = Depends(get_current_user), db: Session = Depends(ge
 def update_quality(entry_id: int, data: QualityPayload,
                    user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    if user.role not in ("admin", "quality_assistant"):
-        raise HTTPException(403, "Not authorized")
+    _check_quality_access(user)
     owner = get_owner_id(user)
     entry = db.query(QualityEntry).filter(
         QualityEntry.id == entry_id, QualityEntry.owner_id == owner
@@ -365,8 +421,7 @@ def update_quality(entry_id: int, data: QualityPayload,
 def delete_quality(entry_id: int,
                    user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    if user.role not in ("admin", "quality_assistant"):
-        raise HTTPException(403, "Not authorized")
+    _check_quality_access(user)
     owner = get_owner_id(user)
     entry = db.query(QualityEntry).filter(
         QualityEntry.id == entry_id, QualityEntry.owner_id == owner

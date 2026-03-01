@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <title>Quality Tracker</title>
 </head>
 <body>
@@ -45,10 +46,16 @@
         <h2 style="margin:0 0 4px 0; font-size:20px; font-weight:800; color:#0f172a;">Quality Tracker</h2>
         <p style="margin:0; font-size:13px; color:#64748b;">Track policy retention and follow-up actions</p>
       </div>
-      <button class="btn" onclick="openAddModal()">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Entry
-      </button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn" style="background:#f0fdf4;color:#166534;border:1.5px solid #bbf7d0;" onclick="exportQualityExcel()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export Excel
+        </button>
+        <button class="btn" onclick="openAddModal()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Entry
+        </button>
+      </div>
     </div>
 
     <div style="overflow-x:auto;">
@@ -164,13 +171,48 @@
   const u = localStorage.getItem("username");
   if (u) document.getElementById("username-text").innerText = u;
 
-  // Role nav — quality_assistant only sees Quality tab
-  if (localStorage.getItem("role") === "quality_assistant") {
+  // Role nav
+  var _qualRole = localStorage.getItem("role");
+  if (_qualRole === "assistant") {
     document.querySelectorAll(".admin-only").forEach(el => el.style.display = "none");
+    // Show planner link if they have planner access
+    if (localStorage.getItem("can_planner") === "1") {
+      document.querySelectorAll("a[href='/planner.html']").forEach(el => el.style.display = "");
+    }
   }
 
   let entriesCache = [];
   let editingId    = null;
+
+  // ── Excel Export ──────────────────────────────────────────────
+  function exportQualityExcel() {
+    if (!entriesCache || entriesCache.length === 0) {
+      showToast("No entries to export.", "error");
+      return;
+    }
+    var rows = [["Insured Name","Policy #","Remarks","Date","Phone Number","Follow Up","Action","ALP"]];
+    entriesCache.forEach(function(e) {
+      rows.push([
+        e.insured_name  || "",
+        e.policy_number || "",
+        e.remarks       || "",
+        e.date          || "",
+        e.phone_number  || "",
+        e.follow_up     || "",
+        e.action        || "",
+        e.alp           || ""
+      ]);
+    });
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    // Column widths
+    ws["!cols"] = [22,16,20,12,16,14,30,12].map(function(w){ return {wch:w}; });
+    // Header style (SheetJS CE doesn't do styling, but width is enough)
+    XLSX.utils.book_append_sheet(wb, ws, "Quality Tracker");
+    var today = new Date().toLocaleDateString("en-CA").replace(/\//g,"-");
+    XLSX.writeFile(wb, "quality_tracker_" + today + ".xlsx");
+    showToast("Excel exported!");
+  }
 
   // ── Load ──────────────────────────────────────────────────
   async function loadEntries() {

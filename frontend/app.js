@@ -100,17 +100,24 @@ async function loadUpcomingAppointments() {
       return;
     }
     container.innerHTML = upcoming.map(function(a) {
-      var dt   = new Date(a.scheduled_for);
-      var mon  = dt.toLocaleDateString("en-CA", { month: "short" });
-      var time = dt.toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit", hour12: true });
-      var comm = a.comments ? " · " + a.comments.substring(0, 28) + (a.comments.length > 28 ? "…" : "") : "";
+      var dt        = new Date(a.scheduled_for);
+      var mon       = dt.toLocaleDateString("en-CA", { month: "short" });
+      var time      = dt.toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit", hour12: true });
+      var comm      = a.comments ? " · " + a.comments.substring(0, 28) + (a.comments.length > 28 ? "…" : "") : "";
+      var isCallback = a.appt_type === "callback";
+      var iconBg    = isCallback ? "#fef3c7" : "#eff6ff";
+      var iconColor = isCallback ? "#92400e" : "#2563eb";
+      var numColor  = isCallback ? "#92400e" : "#1e40af";
+      var typeBadge = isCallback
+        ? "<span style='display:inline-block;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:6px;vertical-align:middle;'>CB</span>"
+        : "";
       return "<div style='display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9;'>" +
-        "<div style='width:42px;height:42px;border-radius:10px;background:#eff6ff;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;'>" +
-          "<span style='font-size:10px;font-weight:700;color:#2563eb;text-transform:uppercase;letter-spacing:0.04em;'>" + mon + "</span>" +
-          "<span style='font-size:17px;font-weight:800;color:#1e40af;line-height:1;'>" + dt.getDate() + "</span>" +
+        "<div style='width:42px;height:42px;border-radius:10px;background:" + iconBg + ";display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;'>" +
+          "<span style='font-size:10px;font-weight:700;color:" + iconColor + ";text-transform:uppercase;letter-spacing:0.04em;'>" + mon + "</span>" +
+          "<span style='font-size:17px;font-weight:800;color:" + numColor + ";line-height:1;'>" + dt.getDate() + "</span>" +
         "</div>" +
         "<div style='flex:1;min-width:0;'>" +
-          "<div style='font-size:14px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>" + a.lead_name + "</div>" +
+          "<div style='font-size:14px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>" + a.lead_name + typeBadge + "</div>" +
           "<div style='font-size:12px;color:#64748b;margin-top:2px;'>" + time + "<span style='color:#94a3b8;'>" + comm + "</span></div>" +
         "</div>" +
       "</div>";

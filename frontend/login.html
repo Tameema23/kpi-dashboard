@@ -104,12 +104,17 @@ async function submitAuth() {
     localStorage.setItem("token", data.token);
     localStorage.setItem("username", username);
     localStorage.setItem("role", data.role || "admin");
-    if ((data.role || "admin") === "assistant") {
+    localStorage.setItem("can_planner", data.can_planner ? "1" : "0");
+    localStorage.setItem("can_quality", data.can_quality ? "1" : "0");
+    if ((data.role || "admin") === "admin") {
+      window.location.href = "/index.html";
+    } else if (data.can_planner && !data.can_quality) {
       window.location.href = "/planner.html";
-    } else if (data.role === "quality_assistant") {
+    } else if (data.can_quality && !data.can_planner) {
       window.location.href = "/quality.html";
     } else {
-      window.location.href = "/index.html";
+      // has both — go to planner
+      window.location.href = "/planner.html";
     }
 
   } catch {

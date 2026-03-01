@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Float, String, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, Float, String, Boolean, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 
 SQLALCHEMY_DATABASE_URL = "sqlite:////data/kpi.db"
@@ -19,8 +19,11 @@ class User(Base):
     username = Column(String, unique=True)
     password = Column(String)
     role     = Column(String, default="admin")
-    # roles: "admin" | "assistant" (planner) | "quality_assistant"
+    # roles: "admin" | "assistant"
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Permission flags for assistants (ignored for admins)
+    can_planner = Column(Boolean, default=True)
+    can_quality = Column(Boolean, default=False)
 
     logs                 = relationship("DailyLog",   back_populates="user")
     appointments_created = relationship("Appointment", foreign_keys="Appointment.created_by",
@@ -60,6 +63,7 @@ class Appointment(Base):
     comments      = Column(String, default="")
     scheduled_for = Column(String, nullable=False)
     booked_at     = Column(String, nullable=False)
+    appt_type     = Column(String, default="appointment")  # "appointment" | "callback"
 
     created_by_user = relationship("User", foreign_keys=[created_by],
                                    back_populates="appointments_created")
