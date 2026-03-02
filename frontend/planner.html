@@ -410,27 +410,27 @@
       '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + fmtDateTime(appt.scheduled_for) + "</div>" +
       (appt.comments ? (function() {
         var raw = appt.comments;
-        var latestNote = "";
-        var rescheduleCount = 0;
-        if (raw.indexOf("===ENTRY===") !== -1) {
-          var entries = raw.split("===ENTRY===");
-          rescheduleCount = entries.length - 1;
-          var first = entries[0].trim();
-          var noteMatch = first.match(/^NOTE:([\s\S]*)$/m);
-          latestNote = noteMatch ? noteMatch[1].trim() : "";
-        } else if (raw.indexOf("BY:") === 0) {
-          var noteMatch2 = raw.match(/^NOTE:([\s\S]*)$/m);
-          latestNote = noteMatch2 ? noteMatch2[1].trim() : "";
-        } else {
-          latestNote = raw.trim();
-        }
+        // Parse all entries
+        var blocks = raw.indexOf("===ENTRY===") !== -1 ? raw.split("===ENTRY===") : [raw];
         var html = "";
-        if (rescheduleCount > 0) {
-          html += '<div style="display:inline-block;background:#eff6ff;color:#2563eb;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;margin-bottom:5px;">' + rescheduleCount + (rescheduleCount === 1 ? " reschedule" : " reschedules") + '</div><br>';
-        }
-        if (latestNote) {
-          html += '<div class="tip-row tip-comments">' + latestNote + '</div>';
-        }
+        blocks.forEach(function(block) {
+          var b = block.trim();
+          if (!b) return;
+          var byMatch   = b.match(/^BY:(.+)$/m);
+          var dateMatch = b.match(/^DATE:(.+)$/m);
+          var noteMatch = b.match(/^NOTE:([\s\S]*)$/m);
+          var by   = byMatch   ? byMatch[1].trim()   : "";
+          var date = dateMatch ? dateMatch[1].trim()  : "";
+          var note = noteMatch ? noteMatch[1].trim()  : b;
+          // Show note text (if any)
+          if (note) {
+            html += '<div class="tip-row tip-comments">' + note + '</div>';
+          }
+          // Show meta line: date & by, styled like the booked line
+          if (by || date) {
+            html += '<div class="tip-row tip-meta" style="margin-bottom:8px;">' + (date || "") + (by ? " by " + by : "") + '</div>';
+          }
+        });
         return html;
       })() : "") +
       '<div class="tip-row tip-meta">Booked ' + fmtDateTime(appt.booked_at) + " by " + appt.created_by + "</div>";
@@ -487,13 +487,17 @@
 
   // ── Parse stored comments string into structured history entries ──
   function parseHistory(raw) {
-    // Each entry is delimited by "===ENTRY===" when there are multiple
     if (!raw || !raw.trim()) return [];
-    if (raw.indexOf("===ENTRY===") === -1) {
-      // Legacy plain text — treat as one entry with no metadata
+    // Normalize: old buggy saves had no newlines between fields, e.g. "BY:userDATE:...NOTE:..."
+    // Insert newlines before DATE: and NOTE: if missing
+    raw = raw.replace(/([^\n])(DATE:)/g, "$1\nDATE:").replace(/([^\n])(NOTE:)/g, "$1\nNOTE:");
+    // Split on entry delimiter (with or without surrounding newlines)
+    var blocks = raw.indexOf("===ENTRY===") !== -1 ? raw.split(/\n?===ENTRY===\n?/) : [raw];
+    if (blocks.length === 1 && raw.indexOf("BY:") !== 0) {
+      // Plain legacy text with no structure
       return [{ by: "", date: "", note: raw.trim() }];
     }
-    return raw.split("===ENTRY===").map(function(block) {
+    return blocks.map(function(block) {
       var b = block.trim();
       if (!b) return null;
       var byMatch   = b.match(/^BY:(.+)$/m);
@@ -511,44 +515,32 @@
   function renderHistory(entries) {
     var wrap = document.getElementById("m_history_entries");
     wrap.innerHTML = "";
-    var count = entries.length;
-    // Most recent first
-    for (var i = 0; i < entries.length; i++) {
-      var e = entries[i];
+    entries.forEach(function(e, i) {
       var isFirst = (i === 0);
       var div = document.createElement("div");
-      div.style.cssText = [
-        "border-radius:10px",
-        "padding:10px 13px",
-        "border:1.5px solid " + (isFirst ? "#bfdbfe" : "#f1f5f9"),
-        "background:" + (isFirst ? "#eff6ff" : "#fafafa"),
-        "position:relative"
-      ].join(";");
+      div.style.cssText = "border-radius:10px;padding:10px 13px;border:1.5px solid " +
+        (isFirst ? "#bfdbfe" : "#f1f5f9") + ";background:" + (isFirst ? "#eff6ff" : "#fafafa");
 
-      var meta = "";
-      if (e.by || e.date) {
-        meta = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:' + (e.note ? '6px' : '0') + ';">';
-        if (isFirst) {
-          meta += '<span style="font-size:10px;font-weight:700;background:#2563eb;color:#fff;padding:1px 7px;border-radius:20px;">Latest</span>';
-        }
-        if (e.by) {
-          meta += '<span style="font-size:11px;font-weight:700;color:' + (isFirst ? '#1d4ed8' : '#64748b') + ';">' + escHtml(e.by) + '</span>';
-        }
-        if (e.date) {
-          meta += '<span style="font-size:11px;color:#94a3b8;">' + escHtml(e.date) + '</span>';
-        }
-        meta += '</div>';
+      var inner = "";
+      // Note text
+      if (e.note) {
+        inner += '<div style="font-size:13px;color:' + (isFirst ? '#1e3a8a' : '#374151') + ';line-height:1.55;white-space:pre-wrap;margin-bottom:5px;">' + escHtml(e.note) + '</div>';
       }
-
-      var noteHtml = e.note
-        ? '<div style="font-size:13px;color:' + (isFirst ? '#1e3a8a' : '#475569') + ';line-height:1.55;white-space:pre-wrap;">' + escHtml(e.note) + '</div>'
-        : '<div style="font-size:12px;color:#94a3b8;font-style:italic;">No note added</div>';
-
-      div.innerHTML = meta + noteHtml;
+      // Grey meta line — same style as "Booked at" line
+      if (e.date || e.by) {
+        inner += '<div style="font-size:11px;color:#94a3b8;">' +
+          (e.date ? escHtml(e.date) : "") +
+          (e.by ? " by " + escHtml(e.by) : "") +
+          '</div>';
+      }
+      if (!e.note && !e.date && !e.by) {
+        inner += '<div style="font-size:12px;color:#94a3b8;font-style:italic;">No note</div>';
+      }
+      div.innerHTML = inner;
       wrap.appendChild(div);
-    }
-    // Reschedule count badge (# of updates = entries - 1 since first is the original booking, but show total updates)
-    var updates = count - 1;
+    });
+
+    var updates = entries.length - 1;
     var badge = document.getElementById("m_reschedule_count");
     if (updates > 0) {
       badge.innerText = updates + (updates === 1 ? " reschedule" : " reschedules");
