@@ -408,7 +408,31 @@
       typeBadge +
       '<div class="tip-name">' + appt.lead_name + "</div>" +
       '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + fmtDateTime(appt.scheduled_for) + "</div>" +
-      (appt.comments ? '<div class="tip-row tip-comments">' + appt.comments + "</div>" : "") +
+      (appt.comments ? (function() {
+        var raw = appt.comments;
+        var latestNote = "";
+        var rescheduleCount = 0;
+        if (raw.indexOf("===ENTRY===") !== -1) {
+          var entries = raw.split("===ENTRY===");
+          rescheduleCount = entries.length - 1;
+          var first = entries[0].trim();
+          var noteMatch = first.match(/^NOTE:([\s\S]*)$/m);
+          latestNote = noteMatch ? noteMatch[1].trim() : "";
+        } else if (raw.indexOf("BY:") === 0) {
+          var noteMatch2 = raw.match(/^NOTE:([\s\S]*)$/m);
+          latestNote = noteMatch2 ? noteMatch2[1].trim() : "";
+        } else {
+          latestNote = raw.trim();
+        }
+        var html = "";
+        if (rescheduleCount > 0) {
+          html += '<div style="display:inline-block;background:#eff6ff;color:#2563eb;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;margin-bottom:5px;">' + rescheduleCount + (rescheduleCount === 1 ? " reschedule" : " reschedules") + '</div><br>';
+        }
+        if (latestNote) {
+          html += '<div class="tip-row tip-comments">' + latestNote + '</div>';
+        }
+        return html;
+      })() : "") +
       '<div class="tip-row tip-meta">Booked ' + fmtDateTime(appt.booked_at) + " by " + appt.created_by + "</div>";
     tip.classList.remove("hidden");
     positionTooltip(e);
@@ -685,9 +709,9 @@
         timeZone: "America/Edmonton", hour: "2-digit", minute: "2-digit", hour12: true
       });
       var updatedBy = localStorage.getItem("username") || "unknown";
-      var newEntry = "BY:" + updatedBy + "DATE:" + dateStr + " at " + timeStr + "NOTE:" + (comments || "");
+      var newEntry = "BY:" + updatedBy + "\nDATE:" + dateStr + " at " + timeStr + "\nNOTE:" + (comments || "");
       if (existingRaw.trim()) {
-        finalComments = newEntry + " ===ENTRY===" + existingRaw.trim();
+        finalComments = newEntry + "\n===ENTRY===\n" + existingRaw.trim();
       } else {
         finalComments = newEntry;
       }
