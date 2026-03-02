@@ -126,9 +126,29 @@
         </div>
         <div class="mini-cal-grid" id="miniCalGrid"></div>
       </div>
+      <!-- ── Update history (shown only when editing) ── -->
+      <div id="m_history_wrap" style="display:none; margin-bottom:2px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Reschedule History</span>
+          </div>
+          <span id="m_reschedule_count" style="font-size:11px;font-weight:700;background:#eff6ff;color:#2563eb;padding:2px 8px;border-radius:20px;"></span>
+        </div>
+        <div id="m_history_entries" style="
+          max-height:200px;
+          overflow-y:auto;
+          display:flex;
+          flex-direction:column;
+          gap:6px;
+          padding-right:2px;
+        "></div>
+        <div style="height:1px;background:#f1f5f9;margin:12px 0 10px;"></div>
+      </div>
+      <!-- ── New note input ── -->
       <div class="form-field">
-        <label>Comments / Notes</label>
-        <textarea id="m_comments" rows="3" placeholder="Any notes about this lead..."></textarea>
+        <label id="m_comments_label">Comments / Notes</label>
+        <textarea id="m_comments" rows="3" placeholder="Add a note..."></textarea>
       </div>
       <div class="modal-booked-at hidden" id="modalBookedAt">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -434,16 +454,111 @@
     document.getElementById("type_appt").checked = true;
     document.getElementById("type_cb").checked = false;
     updateTypeToggle();
+    document.getElementById("m_history_wrap").style.display = "none";
+    document.getElementById("m_comments_label").innerText = "Comments / Notes";
+    document.getElementById("m_comments").placeholder = "Any notes about this lead...";
     document.getElementById("modalBackdrop").classList.remove("hidden");
     document.getElementById("m_lead_name").focus();
+  }
+
+  // ── Parse stored comments string into structured history entries ──
+  function parseHistory(raw) {
+    // Each entry is delimited by "===ENTRY===" when there are multiple
+    if (!raw || !raw.trim()) return [];
+    if (raw.indexOf("===ENTRY===") === -1) {
+      // Legacy plain text — treat as one entry with no metadata
+      return [{ by: "", date: "", note: raw.trim() }];
+    }
+    return raw.split("===ENTRY===").map(function(block) {
+      var b = block.trim();
+      if (!b) return null;
+      var byMatch   = b.match(/^BY:(.+)$/m);
+      var dateMatch = b.match(/^DATE:(.+)$/m);
+      var noteMatch = b.match(/^NOTE:([\s\S]*)$/m);
+      return {
+        by:   byMatch   ? byMatch[1].trim()   : "",
+        date: dateMatch ? dateMatch[1].trim()  : "",
+        note: noteMatch ? noteMatch[1].trim()  : b
+      };
+    }).filter(Boolean);
+  }
+
+  // ── Render the history list in the modal ─────────────────────
+  function renderHistory(entries) {
+    var wrap = document.getElementById("m_history_entries");
+    wrap.innerHTML = "";
+    var count = entries.length;
+    // Most recent first
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      var isFirst = (i === 0);
+      var div = document.createElement("div");
+      div.style.cssText = [
+        "border-radius:10px",
+        "padding:10px 13px",
+        "border:1.5px solid " + (isFirst ? "#bfdbfe" : "#f1f5f9"),
+        "background:" + (isFirst ? "#eff6ff" : "#fafafa"),
+        "position:relative"
+      ].join(";");
+
+      var meta = "";
+      if (e.by || e.date) {
+        meta = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:' + (e.note ? '6px' : '0') + ';">';
+        if (isFirst) {
+          meta += '<span style="font-size:10px;font-weight:700;background:#2563eb;color:#fff;padding:1px 7px;border-radius:20px;">Latest</span>';
+        }
+        if (e.by) {
+          meta += '<span style="font-size:11px;font-weight:700;color:' + (isFirst ? '#1d4ed8' : '#64748b') + ';">' + escHtml(e.by) + '</span>';
+        }
+        if (e.date) {
+          meta += '<span style="font-size:11px;color:#94a3b8;">' + escHtml(e.date) + '</span>';
+        }
+        meta += '</div>';
+      }
+
+      var noteHtml = e.note
+        ? '<div style="font-size:13px;color:' + (isFirst ? '#1e3a8a' : '#475569') + ';line-height:1.55;white-space:pre-wrap;">' + escHtml(e.note) + '</div>'
+        : '<div style="font-size:12px;color:#94a3b8;font-style:italic;">No note added</div>';
+
+      div.innerHTML = meta + noteHtml;
+      wrap.appendChild(div);
+    }
+    // Reschedule count badge (# of updates = entries - 1 since first is the original booking, but show total updates)
+    var updates = count - 1;
+    var badge = document.getElementById("m_reschedule_count");
+    if (updates > 0) {
+      badge.innerText = updates + (updates === 1 ? " reschedule" : " reschedules");
+      badge.style.display = "inline-block";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
 
   // ── Modal: open edit ─────────────────────────────────────────
   function openEditModal(appt) {
     editingId = appt.id;
+    // Store original comments on the modal so save can access it
+    document.getElementById("modalBackdrop").dataset.existingComments = appt.comments || "";
     document.getElementById("modalTitle").innerText = "Edit Appointment";
     document.getElementById("m_lead_name").value = appt.lead_name;
-    document.getElementById("m_comments").value  = appt.comments || "";
+
+    // Parse and render history
+    var history = parseHistory(appt.comments || "");
+    if (history.length > 0) {
+      renderHistory(history);
+      document.getElementById("m_history_wrap").style.display = "block";
+      document.getElementById("m_comments_label").innerText = "Add New Note (optional)";
+      document.getElementById("m_comments").placeholder = "What changed? e.g. 'Client rescheduled to next week'";
+    } else {
+      document.getElementById("m_history_wrap").style.display = "none";
+      document.getElementById("m_comments_label").innerText = "Comments / Notes";
+      document.getElementById("m_comments").placeholder = "Any notes about this lead...";
+    }
+    document.getElementById("m_comments").value = "";
 
     var parts = (appt.scheduled_for || "T").split("T");
     document.getElementById("m_date").value = parts[0] || "";
@@ -556,7 +671,29 @@
     }
 
     var apptType = document.querySelector('input[name="m_appt_type"]:checked').value;
-    var payload = { lead_name: lead_name, comments: comments, scheduled_for: scheduledFor, appt_type: apptType };
+
+    // Build the final comments string
+    var finalComments = comments;
+    if (editingId) {
+      var existingRaw = document.getElementById("modalBackdrop").dataset.existingComments || "";
+      // Build a new structured entry for this update
+      var now = new Date();
+      var dateStr = now.toLocaleDateString("en-CA", {
+        timeZone: "America/Edmonton", month: "short", day: "numeric", year: "numeric"
+      });
+      var timeStr = now.toLocaleTimeString("en-CA", {
+        timeZone: "America/Edmonton", hour: "2-digit", minute: "2-digit", hour12: true
+      });
+      var updatedBy = localStorage.getItem("username") || "unknown";
+      var newEntry = "BY:" + updatedBy + "DATE:" + dateStr + " at " + timeStr + "NOTE:" + (comments || "");
+      if (existingRaw.trim()) {
+        finalComments = newEntry + " ===ENTRY===" + existingRaw.trim();
+      } else {
+        finalComments = newEntry;
+      }
+    }
+
+    var payload = { lead_name: lead_name, comments: finalComments, scheduled_for: scheduledFor, appt_type: apptType };
 
     try {
       var res;
