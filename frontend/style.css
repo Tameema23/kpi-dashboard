@@ -852,20 +852,59 @@ h2 { margin-top: 0; }
    ============================================= */
 
 @media (max-width: 768px) {
+  /* ── Base layout ── */
   .bottom-nav { display: block; }
-  .page { padding: 16px 16px 90px 16px; }
+  .page { padding: 12px 12px 90px 12px; }
   .topbar-nav { display: none; }
-  .log-columns { grid-template-columns: 1fr; gap: 0; }
-  .kpi-grid-3 { grid-template-columns: 1fr 1fr; }
-  .chart-grid-2 { grid-template-columns: 1fr; }
-  .topbar { padding: 0 16px; }
+  .topbar { padding: 0 14px; height: 56px; }
+  .topbar-brand { font-size: 15px; }
+  .topbar-brand svg { width: 18px; height: 18px; }
   .topbar-user { display: none; }
+  .logout { font-size: 12px; padding: 6px 12px; }
 
-  /* Planner mobile */
+  /* ── Cards ── */
+  .card { padding: 16px 14px; border-radius: 12px; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; }
+
+  /* ── Back button ── */
+  .back { font-size: 13px; margin-bottom: 12px; }
+
+  /* ── Log form ── */
+  .log-columns { grid-template-columns: 1fr; gap: 0; }
+  .log-form-header p { font-size: 13px; }
+
+  /* ── Reports / KPI ── */
+  .kpi-grid-3 { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpi-card { padding: 12px; gap: 10px; }
+  .kpi-icon { width: 34px; height: 34px; border-radius: 8px; }
+  .kpi-label { font-size: 10px; }
+  .kpi-card b { font-size: 18px; }
+  .chart-grid-2 { grid-template-columns: 1fr; }
+  .section-title { font-size: 15px; }
+
+  /* ── History table — horizontal scroll ── */
+  .history-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -14px;
+    padding: 0 14px;
+  }
+  .history-table {
+    min-width: 640px;
+    font-size: 12px;
+  }
+  .history-table th, .history-table td {
+    padding: 9px 8px;
+  }
+
+  /* ── Settings ── */
+  .settings-card-header { gap: 10px; }
+
+  /* ── Planner header ── */
   .planner-header {
     flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 14px;
+    gap: 8px;
+    margin-bottom: 12px;
   }
   .planner-week-nav {
     flex: 1;
@@ -880,12 +919,19 @@ h2 { margin-top: 0; }
     justify-content: center;
     order: 3;
   }
-  #todayBtn {
-    order: 2;
-  }
+  #todayBtn { order: 2; }
+
+  /* ── Planner grid — day list view on mobile ── */
   .planner-wrap {
     border-radius: 10px;
+    overflow-x: hidden;
   }
+  /* Hide the full 7-col grid on mobile */
+  .planner-grid { display: none !important; }
+  /* Show the mobile day list */
+  .planner-mobile-list { display: block !important; }
+
+  /* ── Modal — slide up from bottom ── */
   .modal-card {
     margin: 0;
     border-radius: 16px 16px 0 0;
@@ -894,14 +940,17 @@ h2 { margin-top: 0; }
     left: 0;
     right: 0;
     max-height: 92vh;
+    overflow-y: auto;
   }
   .modal-backdrop {
     align-items: flex-end;
     padding: 0;
   }
-  .datetime-row {
-    grid-template-columns: 1fr 1fr;
-  }
+  .datetime-row { grid-template-columns: 1fr 1fr; }
+
+  /* ── Bottom nav ── */
+  .bottom-nav-item { font-size: 10px; gap: 3px; }
+  .bottom-nav-item svg { width: 20px; height: 20px; }
 }
 
 /* =============================================
