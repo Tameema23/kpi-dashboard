@@ -951,6 +951,10 @@ h2 { margin-top: 0; }
   /* ── Bottom nav ── */
   .bottom-nav-item { font-size: 10px; gap: 3px; }
   .bottom-nav-item svg { width: 20px; height: 20px; }
+
+  /* Hide full 7-col planner grid; show mobile day list instead */
+  .planner-grid { display: none !important; }
+  .planner-mobile-list { display: block !important; }
 }
 
 /* =============================================
