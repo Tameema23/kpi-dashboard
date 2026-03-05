@@ -283,12 +283,14 @@ class AppointmentPayload(BaseModel):
     comments: Optional[str] = ""
     scheduled_for: str
     appt_type: Optional[str] = "appointment"
+    booking_tz: Optional[str] = "America/Edmonton"
 
 class AppointmentUpdatePayload(BaseModel):
     lead_name: str
     comments: Optional[str] = ""
     scheduled_for: str
     appt_type: Optional[str] = "appointment"
+    booking_tz: Optional[str] = "America/Edmonton"
 
 @app.post("/appointments")
 def create_appointment(data: AppointmentPayload,
@@ -298,10 +300,11 @@ def create_appointment(data: AppointmentPayload,
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     owner = get_owner_id(user)
     appt_type = data.appt_type if data.appt_type in ("appointment", "callback") else "appointment"
+    booking_tz = data.booking_tz if data.booking_tz else "America/Edmonton"
     appt  = Appointment(created_by=user.id, owner_id=owner,
                         lead_name=data.lead_name, comments=data.comments or "",
                         scheduled_for=data.scheduled_for, booked_at=now,
-                        appt_type=appt_type)
+                        appt_type=appt_type, booking_tz=booking_tz)
     db.add(appt); db.commit(); db.refresh(appt)
     return _appt_dict(appt, db)
 
@@ -328,6 +331,8 @@ def update_appointment(appt_id: int, data: AppointmentUpdatePayload,
     appt.comments     = data.comments or ""
     appt.scheduled_for = data.scheduled_for
     appt.appt_type    = data.appt_type if data.appt_type in ("appointment", "callback") else "appointment"
+    if data.booking_tz:
+        appt.booking_tz = data.booking_tz
     db.commit()
     return _appt_dict(appt, db)
 
@@ -349,7 +354,8 @@ def _appt_dict(appt, db):
     return {"id": appt.id, "lead_name": appt.lead_name, "comments": appt.comments,
             "scheduled_for": appt.scheduled_for, "booked_at": appt.booked_at,
             "created_by": creator.username if creator else "unknown",
-            "appt_type": appt.appt_type or "appointment"}
+            "appt_type": appt.appt_type or "appointment",
+            "booking_tz": appt.booking_tz or "America/Edmonton"}
 
 # ── Quality Tracker ───────────────────────────────────────────────────────────
 

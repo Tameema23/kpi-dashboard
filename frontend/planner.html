@@ -531,7 +531,32 @@
     tip.innerHTML =
       typeBadge +
       '<div class="tip-name">' + appt.lead_name + "</div>" +
-      '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + fmtDateTime(appt.scheduled_for) + "</div>" +
+      (function() {
+        var tzLabels = {
+          "America/Edmonton": "MT", "America/Vancouver": "PT", "America/Winnipeg": "CT",
+          "America/Toronto": "ET", "America/Halifax": "AT", "America/St_Johns": "NT"
+        };
+        var mtLine = '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + fmtDateTime(appt.scheduled_for) + " MT</div>";
+        var origLine = "";
+        var btz = appt.booking_tz || "America/Edmonton";
+        if (btz !== "America/Edmonton") {
+          try {
+            var dtStr = appt.scheduled_for; // "YYYY-MM-DDTHH:MM" in Mountain time
+            // Convert Mountain stored time back to original timezone for display
+            var mtDate = new Date(dtStr + ":00");
+            // Get what the clock shows in the original timezone
+            var origFmt = new Intl.DateTimeFormat("en-CA", {
+              timeZone: btz,
+              month: "short", day: "numeric",
+              hour: "numeric", minute: "2-digit", hour12: true
+            });
+            var origStr = origFmt.format(mtDate);
+            var label = tzLabels[btz] || btz;
+            origLine = '<div class="tip-row tip-meta" style="color:#60a5fa;font-style:italic;">Originally booked for ' + origStr + " " + label + '</div>';
+          } catch(e) {}
+        }
+        return mtLine + origLine;
+      })() +
       (appt.comments ? (function() {
         // Reuse parseHistory logic inline for tooltip
         var raw = appt.comments;
@@ -850,7 +875,8 @@
       }
     }
 
-    var payload = { lead_name: lead_name, comments: finalComments, scheduled_for: scheduledFor, appt_type: apptType };
+    var bookingTz = document.getElementById("m_timezone").value || "America/Edmonton";
+    var payload = { lead_name: lead_name, comments: finalComments, scheduled_for: scheduledFor, appt_type: apptType, booking_tz: bookingTz };
 
     try {
       var res;

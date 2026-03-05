@@ -64,6 +64,7 @@ class Appointment(Base):
     scheduled_for = Column(String, nullable=False)
     booked_at     = Column(String, nullable=False)
     appt_type     = Column(String, default="appointment")  # "appointment" | "callback"
+    booking_tz    = Column(String, default="America/Edmonton")  # original timezone when booked
 
     created_by_user = relationship("User", foreign_keys=[created_by],
                                    back_populates="appointments_created")
