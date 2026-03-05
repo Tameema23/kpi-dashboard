@@ -852,15 +852,45 @@ h2 { margin-top: 0; }
    ============================================= */
 
 @media (max-width: 768px) {
+
+  /* ── Prevent ALL horizontal overflow on every page ── */
+  html, body {
+    overflow-x: hidden;
+    max-width: 100%;
+    width: 100%;
+  }
+
   /* ── Base layout ── */
   .bottom-nav { display: block; }
-  .page { padding: 12px 12px 90px 12px; }
+  .page { padding: 12px 12px 90px 12px; max-width: 100%; }
   .topbar-nav { display: none; }
-  .topbar { padding: 0 14px; height: 56px; }
-  .topbar-brand { font-size: 15px; }
+
+  /* Topbar: fixed width = screen width, no overflow */
+  .topbar {
+    padding: 0 14px;
+    height: 56px;
+    width: 100%;
+    box-sizing: border-box;
+    position: sticky;
+    top: 0;
+    left: 0;
+    right: 0;
+  }
+  .topbar-left {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+  .topbar-brand {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .topbar-brand svg { width: 18px; height: 18px; }
+  .topbar-right { flex-shrink: 0; gap: 8px; }
   .topbar-user { display: none; }
-  .logout { font-size: 12px; padding: 6px 12px; }
+  .logout { font-size: 12px; padding: 6px 10px; white-space: nowrap; }
 
   /* ── Cards ── */
   .card { padding: 16px 14px; border-radius: 12px; }
@@ -872,6 +902,7 @@ h2 { margin-top: 0; }
   /* ── Log form ── */
   .log-columns { grid-template-columns: 1fr; gap: 0; }
   .log-form-header p { font-size: 13px; }
+  .log-form-footer { flex-wrap: wrap; gap: 10px; }
 
   /* ── Reports / KPI ── */
   .kpi-grid-3 { grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -880,7 +911,9 @@ h2 { margin-top: 0; }
   .kpi-label { font-size: 10px; }
   .kpi-card b { font-size: 18px; }
   .chart-grid-2 { grid-template-columns: 1fr; }
+  .chart-card canvas { height: 220px !important; }
   .section-title { font-size: 15px; }
+  .reports-header { margin-bottom: 14px; }
 
   /* ── History table — horizontal scroll ── */
   .history-table-wrap {
@@ -899,6 +932,7 @@ h2 { margin-top: 0; }
 
   /* ── Settings ── */
   .settings-card-header { gap: 10px; }
+  .settings-card-header .settings-icon { display: none; }
 
   /* ── Planner header ── */
   .planner-header {
@@ -913,6 +947,9 @@ h2 { margin-top: 0; }
   .planner-week-label {
     min-width: 0;
     font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   #newApptBtn {
     width: 100%;
@@ -921,37 +958,67 @@ h2 { margin-top: 0; }
   }
   #todayBtn { order: 2; }
 
-  /* ── Planner grid — day list view on mobile ── */
+  /* ── Planner — day list on mobile ── */
   .planner-wrap {
     border-radius: 10px;
     overflow-x: hidden;
+    overflow-y: visible;
   }
-  /* Hide the full 7-col grid on mobile */
   .planner-grid { display: none !important; }
-  /* Show the mobile day list */
   .planner-mobile-list { display: block !important; }
 
-  /* ── Modal — slide up from bottom ── */
-  .modal-card {
-    margin: 0;
-    border-radius: 16px 16px 0 0;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    max-height: 92vh;
-    overflow-y: auto;
-  }
+  /* ── Modal — slide up from bottom like a native sheet ── */
   .modal-backdrop {
     align-items: flex-end;
     padding: 0;
   }
+  .modal-card {
+    margin: 0;
+    border-radius: 20px 20px 0 0;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 92vh;
+    overflow-y: auto;
+    box-sizing: border-box;
+  }
   .datetime-row { grid-template-columns: 1fr 1fr; }
 
-  /* Planner — allow full grid to scroll horizontally on mobile */
-  .planner-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .planner-grid { display: flex !important; min-width: 700px; }
-  .planner-mobile-list { display: none !important; }
+  /* ── Bottom nav — evenly spaced, no overflow ── */
+  .bottom-nav-item {
+    font-size: 10px;
+    gap: 3px;
+    padding: 4px 6px;
+    min-width: 0;
+    flex: 1;
+  }
+  .bottom-nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
+  .bottom-nav-items { gap: 0; }
+
+  /* ── Toast — full width on mobile ── */
+  #toast-container {
+    bottom: 90px;
+    right: 12px;
+    left: 12px;
+  }
+  .toast {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* ── Home page inline styles ── */
+  .home-welcome h1 { font-size: 20px; }
+  .home-welcome p { font-size: 13px; }
+  .home-upcoming-card { padding: 14px; }
+  .home-nav-btn { padding: 12px 10px; }
+  .home-nav-btn-label { font-size: 13px; }
+  .home-nav-btn-sub { font-size: 11px; }
+  .home-stat-value { font-size: 20px !important; }
+  .home-stat-card { padding: 14px 12px !important; gap: 10px !important; }
 }
 
 /* =============================================
