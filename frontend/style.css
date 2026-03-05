@@ -958,14 +958,16 @@ h2 { margin-top: 0; }
   }
   #todayBtn { order: 2; }
 
-  /* ── Planner — day list on mobile ── */
+  /* ── Planner — horizontal scroll on mobile (like quality table) ── */
   .planner-wrap {
     border-radius: 10px;
-    overflow-x: hidden;
-    overflow-y: visible;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .planner-grid { display: none !important; }
-  .planner-mobile-list { display: block !important; }
+  .planner-grid {
+    display: flex !important;
+    min-width: 700px;
+  }
 
   /* ── Modal — slide up from bottom like a native sheet ── */
   .modal-backdrop {
