@@ -125,10 +125,6 @@ async function loadUpcomingAppointments() {
   } catch(e) { console.error(e); }
 }
 
-if (!localStorage.getItem("token") && !window.location.href.includes("login")) {
-  window.location.href = "login.html";
-}
-
 const API = "https://data-log.onrender.com";
 const API_BASE = API;
 const TOKEN = localStorage.getItem("token");
@@ -145,8 +141,6 @@ const CHART_COLORS = {
   purple: "#7c3aed",
   gray: "#64748b"
 };
-
-
 
 /* ================= TIME ================= */
 
@@ -193,7 +187,6 @@ async function loadWeekly() {
   const weeklyConversionRatio = [];
   const weeklyBadLeadRatio = [];
   const weeklyAssignedLeads = [];
-  let ytdTotalAlp = 0;
   let ytdPres = 0;
   let ytdSales = 0;
   let ytdAlp = 0;
@@ -201,9 +194,6 @@ async function loadWeekly() {
   let ytdRefs = 0;
   let ytdAssignedLeads = 0;
   let ytdBadLeads = 0;
-
-
-
 
   Object.keys(weeks).sort().forEach(week => {
 
@@ -215,7 +205,6 @@ async function loadWeekly() {
     let assignedLeads = 0;
     let badLeads = 0;
 
-
     weeks[week].forEach(d => {
       pres += d.total_presentations;
       sales += d.total_sales;
@@ -225,7 +214,6 @@ async function loadWeekly() {
       assignedLeads += (d.assigned_leads || 0);
       badLeads += (d.bad_leads || 0);
     });
-    ytdTotalAlp += alp;
     ytdPres += pres;
     ytdSales += sales;
     ytdAlp += alp;
@@ -233,8 +221,6 @@ async function loadWeekly() {
     ytdRefs += refs;
     ytdAssignedLeads += assignedLeads;
     ytdBadLeads += badLeads;
-
-
 
     weekLabels.push(week);
     weeklySales.push(sales);
@@ -276,7 +262,6 @@ async function loadWeekly() {
     ? ytdRefs / ytdPres
     : 0;
 
-
   /* ================= KPI CARDS (LATEST WEEK) ================= */
 
   const lastIndex = weekLabels.length - 1;
@@ -312,7 +297,7 @@ async function loadWeekly() {
 
   countUp("wk_pres", ytdPres);
   countUp("wk_sales", ytdSales);
-  countUp("wk_ytd_alp", ytdTotalAlp, "$", "", 0);
+  countUp("wk_ytd_alp", ytdAlp, "$", "", 0);
   countUp("wk_show", ytdShowRatio, "", "%");
   countUp("wk_close", ytdClosingRatio, "", "%");
   countUp("wk_alp", ytdAlpPerSale, "$", "", 0);
@@ -336,13 +321,11 @@ async function loadWeekly() {
   }, 950);
 
   // Homepage snapshot KPIs (no-ops on other pages)
-  countUp("home_alp",   ytdTotalAlp,     "$", "", 0);
+  countUp("home_alp",   ytdAlp,     "$", "", 0);
   countUp("home_sales", ytdSales);
   countUp("home_close", ytdClosingRatio, "",  "%");
   countUp("home_pres",  ytdPres);
   loadUpcomingAppointments();
-
-
 
   /* ================= WEEKLY TREND CHARTS ================= */
 
@@ -434,7 +417,6 @@ async function loadWeekly() {
   const lastSales = weeklySales[lastIndex] || 0;
   const lastApptStart = weeklyApptStart[lastIndex] || 0;
 
-
   drawChart({
     canvasId: "closingPieChart",
     type: "pie",
@@ -446,7 +428,6 @@ async function loadWeekly() {
     title: "Year-to-Date Closing Ratio",
     colors: { bg: [CHART_COLORS.green, CHART_COLORS.red] }
   });
-
 
   drawChart({
     canvasId: "showRatioPieChart",
@@ -460,7 +441,6 @@ async function loadWeekly() {
     colors: { bg: [CHART_COLORS.green, CHART_COLORS.gray] }
   });
 }
-
 
 /* ================= LEAD RATIO CHART ================= */
 
@@ -518,7 +498,6 @@ function drawLeadRatioChart(period) {
     }
   });
 }
-
 
 /* ================= CHART ================= */
 
@@ -632,7 +611,6 @@ function drawChart({
     }
   });
 }
-
 
 /* ================= SAVE DAY ================= */
 
@@ -851,8 +829,6 @@ function logout() {
   localStorage.removeItem("role");
   window.location.href = "/";
 }
-
-window.logout = logout;
 
 /* ================= EXPORT ================= */
 

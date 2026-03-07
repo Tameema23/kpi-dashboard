@@ -100,12 +100,11 @@ def login(data: UserPayload, db: Session = Depends(get_db)):
         User.username == data.username, User.password == data.password
     ).first()
     if not user: raise HTTPException(401)
-    can_planner = bool(user.can_planner) if user.can_planner is not None else True
-    can_quality = bool(user.can_quality) if user.can_quality is not None else False
-    # Admins get full access
     if user.role == "admin":
-        can_planner = True
-        can_quality = True
+        can_planner, can_quality = True, True
+    else:
+        can_planner = bool(user.can_planner)
+        can_quality = bool(user.can_quality)
     return {
         "token":       create_token(user.id, user.role or "admin", can_planner, can_quality),
         "role":        user.role or "admin",
@@ -130,8 +129,7 @@ class AssistantPermissionsPayload(BaseModel):
 def create_assistant(data: AssistantPayload,
                      user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
-    if (user.role or "admin") != "admin":
-        raise HTTPException(403, "Admin only")
+    _require_admin(user)
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(400, "Username already exists")
     if not data.can_planner and not data.can_quality:
@@ -146,8 +144,7 @@ def create_assistant(data: AssistantPayload,
 def update_assistant_permissions(assistant_id: int, data: AssistantPermissionsPayload,
                                   user: User = Depends(get_current_user),
                                   db: Session = Depends(get_db)):
-    if (user.role or "admin") != "admin":
-        raise HTTPException(403, "Admin only")
+    _require_admin(user)
     if not data.can_planner and not data.can_quality:
         raise HTTPException(400, "At least one permission must be selected")
     assistant = db.query(User).filter(
@@ -162,23 +159,21 @@ def update_assistant_permissions(assistant_id: int, data: AssistantPermissionsPa
 
 @app.get("/assistants")
 def list_assistants(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if (user.role or "admin") != "admin":
-        raise HTTPException(403, "Admin only")
+    _require_admin(user)
     assistants = db.query(User).filter(
         User.role == "assistant",
         User.owner_id == user.id
     ).all()
     return [{"id": a.id, "username": a.username, "role": a.role,
-             "can_planner": bool(a.can_planner) if a.can_planner is not None else True,
-             "can_quality": bool(a.can_quality) if a.can_quality is not None else False}
+             "can_planner": bool(a.can_planner),
+             "can_quality": bool(a.can_quality)}
             for a in assistants]
 
 @app.delete("/assistants/{assistant_id}")
 def delete_assistant(assistant_id: int,
                      user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
-    if (user.role or "admin") != "admin":
-        raise HTTPException(403, "Admin only")
+    _require_admin(user)
     assistant = db.query(User).filter(
         User.id == assistant_id,
         User.role == "assistant",
@@ -262,30 +257,20 @@ def delete_days(ids: list[int], user: User = Depends(get_current_user), db: Sess
 
 # ── Appointments (Planner) ────────────────────────────────────────────────────
 
+def _require_admin(user: User):
+    _require_admin(user)
+
 def _check_planner_access(user: User):
-    if user.role == "admin":
-        return
-    # Explicitly handle None/0/1 from SQLite — treat None as False
-    if user.role == "assistant" and bool(user.can_planner if user.can_planner is not None else False):
+    if user.role == "admin" or bool(user.can_planner):
         return
     raise HTTPException(403, "No planner access")
 
 def _check_quality_access(user: User):
-    if user.role == "admin":
-        return
-    # Explicitly handle None/0/1 from SQLite — treat None as False
-    if user.role == "assistant" and bool(user.can_quality if user.can_quality is not None else False):
+    if user.role == "admin" or bool(user.can_quality):
         return
     raise HTTPException(403, "No quality access")
 
 class AppointmentPayload(BaseModel):
-    lead_name: str
-    comments: Optional[str] = ""
-    scheduled_for: str
-    appt_type: Optional[str] = "appointment"
-    booking_tz: Optional[str] = "America/Edmonton"
-
-class AppointmentUpdatePayload(BaseModel):
     lead_name: str
     comments: Optional[str] = ""
     scheduled_for: str
@@ -309,8 +294,7 @@ def create_appointment(data: AppointmentPayload,
     return _appt_dict(appt, db)
 
 @app.get("/appointments")
-def get_appointments(week_start: Optional[str] = None,
-                     user: User = Depends(get_current_user),
+def get_appointments(user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     _check_planner_access(user)
     owner = get_owner_id(user)
@@ -318,7 +302,7 @@ def get_appointments(week_start: Optional[str] = None,
     return [_appt_dict(a, db) for a in appts]
 
 @app.put("/appointments/{appt_id}")
-def update_appointment(appt_id: int, data: AppointmentUpdatePayload,
+def update_appointment(appt_id: int, data: AppointmentPayload,
                        user: User = Depends(get_current_user),
                        db: Session = Depends(get_db)):
     _check_planner_access(user)

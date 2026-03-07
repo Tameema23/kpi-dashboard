@@ -966,8 +966,6 @@ h2 { margin-top: 0; }
     overflow-y: visible;
   }
   .planner-grid { display: flex !important; min-width: 700px; }
-  .planner-mobile-list { display: none !important; }
-
   /* ── Modal — slide up from bottom like a native sheet ── */
   .modal-backdrop {
     align-items: flex-end;

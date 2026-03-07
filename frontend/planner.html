@@ -14,18 +14,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       KPI Dashboard
     </span>
-    <!-- Admin nav -->
-    <nav class="topbar-nav" id="admin-nav" style="display:none;">
+    <nav class="topbar-nav">
       <a href="/index.html" class="admin-only">Home</a>
       <a href="/log.html" class="admin-only">Log Day</a>
       <a href="/reports.html" class="admin-only">Reports</a>
       <a href="/history.html" class="admin-only">History</a>
-      <a href="/planner.html" class="active">Planner</a>
-      <a href="/quality.html" class="admin-only">Quality</a>
-      <a href="/settings.html" class="admin-only">Settings</a>
-    </nav>
-    <!-- Assistant nav -->
-    <nav class="topbar-nav" id="assistant-nav" style="display:none;">
       <a href="/planner.html" class="active">Planner</a>
       <a href="/quality.html" class="admin-only">Quality</a>
       <a href="/settings.html" class="admin-only">Settings</a>
@@ -66,8 +59,6 @@
 
   <div class="planner-wrap">
     <div class="planner-grid" id="plannerGrid"></div>
-    <!-- Mobile day-list view (hidden on desktop, shown on mobile via CSS) -->
-    <div class="planner-mobile-list" id="plannerMobileList" style="display:none;"></div>
   </div>
 
 </div>
@@ -204,17 +195,6 @@
 
 <script src="/static/app.js"></script>
 <script>
-  // Role-based nav
-  var _plannerRole = localStorage.getItem("role");
-  if (_plannerRole === "assistant") {
-    document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
-    // Show quality link if they have quality access
-    if (localStorage.getItem("can_quality") === "1") {
-      document.querySelectorAll("a[href='/quality.html']").forEach(function(el) { el.style.display = ""; });
-    }
-  }
-// ─── Everything uses TOKEN and API already declared in app.js ───
-
 (function () {
 
   // ── Role & UI setup ──────────────────────────────────────────
@@ -222,18 +202,17 @@
   document.getElementById("username-text").innerText = localStorage.getItem("username") || "";
 
   if (role === "assistant") {
-    document.getElementById("assistant-nav").style.display = "flex";
-    // Hide non-planner tabs in bottom nav for assistants
-    // For assistants: hide everything except their permitted pages + settings
+    document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
+    if (localStorage.getItem("can_quality") === "1") {
+      document.querySelectorAll("a[href='/quality.html']").forEach(function(el) { el.style.display = ""; });
+    }
+    // For assistants: restrict bottom nav to permitted pages
     document.querySelectorAll("#adminBottomNav .bottom-nav-item").forEach(function(el) {
       var href = el.getAttribute("href");
       var keep = ["/settings.html", "/planner.html"];
       if (localStorage.getItem("can_quality") === "1") keep.push("/quality.html");
       if (keep.indexOf(href) === -1) el.style.display = "none";
     });
-  } else {
-    document.getElementById("admin-nav").style.display = "flex";
-    // bottom nav is shown via CSS on mobile automatically
   }
 
   // ── State ────────────────────────────────────────────────────
@@ -411,12 +390,11 @@
       grid.appendChild(row);
     });
 
-    // Also render mobile view
-    renderMobilePlanner();
   }
 
-  // ── Mobile day-list renderer ──────────────────────────────────
-  function renderMobilePlanner() {
+  // ── Dead code removed: renderMobilePlanner replaced by CSS horizontal scroll ──
+  // (kept as marker to avoid re-introduction) 
+  function _unused_renderMobilePlanner() {
     var list = document.getElementById("plannerMobileList");
     if (!list) return;
     var days = getWeekDays(currentWeekStart);

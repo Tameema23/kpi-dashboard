@@ -74,13 +74,7 @@
             <th style="width:80px; text-align:center;">Delete</th>
           </tr>
         </thead>
-        <tbody id="qualityBody">
-          <tr>
-            <td colspan="10" style="text-align:center; color:#94a3b8; padding:40px 0; font-size:14px;">
-              No entries yet. Click "Add Entry" to get started.
-            </td>
-          </tr>
-        </tbody>
+        <tbody id="qualityBody"></tbody>
       </table>
     </div>
   </div>
@@ -169,15 +163,10 @@
   const u = localStorage.getItem("username");
   if (u) document.getElementById("username-text").innerText = u;
 
-  // Role nav
-  var _qualRole = localStorage.getItem("role");
-  if (_qualRole === "assistant") {
+  if (localStorage.getItem("role") === "assistant") {
     document.querySelectorAll(".admin-only").forEach(el => el.style.display = "none");
-    // Show planner link if they have planner access
-    if (localStorage.getItem("can_planner") === "1") {
+    if (localStorage.getItem("can_planner") === "1")
       document.querySelectorAll("a[href='/planner.html']").forEach(el => el.style.display = "");
-    }
-    // Always show settings for assistants
     document.querySelectorAll("a[href='/settings.html']").forEach(el => el.style.display = "");
   }
 

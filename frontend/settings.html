@@ -14,7 +14,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       KPI Dashboard
     </span>
-    <nav class="topbar-nav" id="settings-topbar-nav">
+    <nav class="topbar-nav">
       <a href="/index.html" class="admin-only">Home</a>
       <a href="/log.html" class="admin-only">Log Day</a>
       <a href="/reports.html" class="admin-only">Reports</a>
@@ -301,7 +301,6 @@
     if (!current || !newPw || !confirm) { msg.innerText = "Please fill in all fields."; msg.style.color = "#dc2626"; return; }
     if (newPw !== confirm) { msg.innerText = "New passwords do not match."; msg.style.color = "#dc2626"; return; }
     if (newPw.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
-    const TOKEN = localStorage.getItem("token");
     try {
       const res = await fetch("/change-password", {
         method: "POST",
@@ -336,7 +335,6 @@
   }
 
   async function loadAssistants() {
-    const TOKEN = localStorage.getItem("token");
     try {
       const res = await fetch("/assistants", { headers: { Authorization: "Bearer " + TOKEN } });
       if (!res.ok) return;
@@ -377,7 +375,6 @@
     if (password.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
     if (!can_planner && !can_quality) { msg.innerText = "Select at least one permission."; msg.style.color = "#dc2626"; return; }
 
-    const TOKEN = localStorage.getItem("token");
     try {
       const res = await fetch("/create-assistant", {
         method: "POST",
@@ -445,7 +442,6 @@
     var pl = document.getElementById("perm_modal_planner").checked;
     var ql = document.getElementById("perm_modal_quality").checked;
     if (!pl && !ql) { showToast("Select at least one permission.", "error"); return; }
-    const TOKEN = localStorage.getItem("token");
     try {
       const res = await fetch("/assistants/" + _permEditId + "/permissions", {
         method: "PUT",
@@ -471,7 +467,6 @@
     showConfirm(
       "Remove <strong>" + name + "</strong>? They will no longer be able to log in.",
       async function() {
-        const TOKEN = localStorage.getItem("token");
         try {
           const res = await fetch("/assistants/" + id, {
             method: "DELETE",
