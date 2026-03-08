@@ -192,6 +192,8 @@ async function loadWeekly() {
   let ytdAlp = 0;
   let ytdApptStart = 0;
   let ytdRefs = 0;
+  let ytdRefPres = 0;
+  let ytdRefSales = 0;
   let ytdAssignedLeads = 0;
   let ytdBadLeads = 0;
 
@@ -202,6 +204,8 @@ async function loadWeekly() {
     let alp = 0;
     let apptStart = 0;
     let refs = 0;
+    let refPres = 0;
+    let refSales = 0;
     let assignedLeads = 0;
     let badLeads = 0;
 
@@ -211,6 +215,8 @@ async function loadWeekly() {
       alp += d.total_alp;
       apptStart += d.appointments_start;
       refs += d.referrals_collected;
+      refPres += (d.referral_presentations || 0);
+      refSales += (d.referral_sales || 0);
       assignedLeads += (d.assigned_leads || 0);
       badLeads += (d.bad_leads || 0);
     });
@@ -219,6 +225,8 @@ async function loadWeekly() {
     ytdAlp += alp;
     ytdApptStart += apptStart;
     ytdRefs += refs;
+    ytdRefPres += refPres;
+    ytdRefSales += refSales;
     ytdAssignedLeads += assignedLeads;
     ytdBadLeads += badLeads;
 
@@ -260,6 +268,14 @@ async function loadWeekly() {
 
   const ytdRefsPerPres = ytdPres
     ? ytdRefs / ytdPres
+    : 0;
+
+  const ytdRefClosingRatio = ytdRefPres
+    ? (ytdRefSales / ytdRefPres) * 100
+    : 0;
+
+  const ytdRefSalesRatio = ytdSales
+    ? (ytdRefSales / ytdSales) * 100
     : 0;
 
   /* ================= KPI CARDS (LATEST WEEK) ================= */
@@ -304,6 +320,8 @@ async function loadWeekly() {
   countUp("wk_conv", ytdConvRatio, "", "%");
   countUp("wk_bad_lead", ytdBadLeadRatio, "", "%");
   countUp("wk_refs", ytdRefsPerPres, "", "", 2);
+  countUp("wk_ref_close", ytdRefClosingRatio, "", "%");
+  countUp("wk_ref_sales_ratio", ytdRefSalesRatio, "", "%");
 
   // Color-code ratios
   setTimeout(() => {
@@ -318,6 +336,12 @@ async function loadWeekly() {
 
     const badEl = document.getElementById("wk_bad_lead");
     if (badEl) badEl.className = ytdBadLeadRatio <= 30 ? "good" : ytdBadLeadRatio <= 55 ? "warn" : "bad";
+
+    const refCloseEl = document.getElementById("wk_ref_close");
+    if (refCloseEl) refCloseEl.className = ytdRefClosingRatio >= 75 ? "good" : ytdRefClosingRatio >= 50 ? "warn" : "bad";
+
+    const refSalesRatioEl = document.getElementById("wk_ref_sales_ratio");
+    if (refSalesRatioEl) refSalesRatioEl.className = ytdRefSalesRatio >= 30 ? "good" : ytdRefSalesRatio >= 15 ? "warn" : "bad";
   }, 950);
 
   // Homepage snapshot KPIs (no-ops on other pages)
