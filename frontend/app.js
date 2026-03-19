@@ -1363,7 +1363,7 @@ function renderInstallAppCard() {
         '<div><h2 style="margin:0 0 2px 0;font-size:17px;">App Installed</h2>' +
         '<p style="margin:0;font-size:13px;color:#64748b;">KPI Dashboard is installed on this device</p></div>' +
       '</div>' +
-      '<p style="font-size:13px;color:#64748b;margin:0;line-height:1.6;">You're running the installed version. Find it on your home screen.</p>';
+      '<p style="font-size:13px;color:#64748b;margin:0;line-height:1.6;">Youre running the installed version. Find it on your home screen.</p>';
     return;
   }
 
@@ -1502,9 +1502,9 @@ initDarkMode();
   timer = setTimeout(showOverlay, 3000);
 
   // Intercept all fetch calls — hide overlay on first successful response
-  var _origFetch = window.fetch;
+  var _origFetch = window.fetch.bind(window);
   window.fetch = function() {
-    return _origFetch.apply(this, arguments).then(function(res) {
+    return _origFetch.apply(null, arguments).then(function(res) {
       if (res.ok) hideOverlay();
       return res;
     }).catch(function(err) {
