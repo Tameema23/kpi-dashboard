@@ -9,6 +9,11 @@
   <link rel="apple-touch-icon" href="/icon-192.png">
   <meta name="api-base" content="https://data-log.onrender.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Performance: preconnect to CDNs and API -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://data-log.onrender.com">
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="/static/style.css">
   <title>Weekly Reports</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -36,11 +41,6 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span id="username-text"></span>
     </span>
-    <button class="dark-toggle" onclick="toggleDarkMode()" title="Toggle dark mode">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-      </svg>
-    </button>
     <button class="logout" onclick="logout()">Sign Out</button>
   </div>
 </div>

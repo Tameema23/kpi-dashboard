@@ -3,6 +3,7 @@
    ============================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+/* font-display:swap is set in the URL above — text shows immediately in fallback font */
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -1745,109 +1746,6 @@ textarea:focus {
 }
 
 /* =============================================
-   #25 DARK MODE
-   ============================================= */
-
-body.dark-mode {
-  background: #0f172a;
-  color: #e2e8f0;
-}
-
-body.dark-mode .topbar {
-  background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 60%, #2563eb 100%);
-}
-
-body.dark-mode .card,
-body.dark-mode .home-stat-card,
-body.dark-mode .home-nav-btn,
-body.dark-mode .home-upcoming-card,
-body.dark-mode .kpi-card,
-body.dark-mode .planner-wrap,
-body.dark-mode .modal-card,
-body.dark-mode .planner-summary,
-body.dark-mode .quality-stat {
-  background: #1e293b;
-  border-color: #334155;
-  color: #e2e8f0;
-}
-
-body.dark-mode .card h2,
-body.dark-mode .home-welcome h1,
-body.dark-mode .home-nav-btn-label,
-body.dark-mode .home-stat-value,
-body.dark-mode .kpi-card b,
-body.dark-mode .quality-stat-value,
-body.dark-mode .modal-header h3 { color: #f1f5f9; }
-
-body.dark-mode .card p,
-body.dark-mode .home-welcome p,
-body.dark-mode .home-nav-btn-sub,
-body.dark-mode .kpi-label,
-body.dark-mode .planner-summary-label { color: #94a3b8; }
-
-body.dark-mode .form-field input,
-body.dark-mode .form-field select,
-body.dark-mode .log-date-row input,
-body.dark-mode textarea,
-body.dark-mode .auth-input-group input {
-  background: #0f172a;
-  border-color: #334155;
-  color: #f1f5f9;
-}
-
-body.dark-mode .form-field input:focus,
-body.dark-mode textarea:focus,
-body.dark-mode .log-date-row input:focus {
-  border-color: #3b82f6;
-  background: #1e293b;
-}
-
-body.dark-mode .history-table th  { background: #1e293b; color: #94a3b8; border-color: #334155; }
-body.dark-mode .history-table td  { color: #cbd5e1; border-color: #1e293b; }
-body.dark-mode .history-table tr:hover { background: #293548; }
-
-body.dark-mode .pg-gutter,
-body.dark-mode .pg-gutter-head  { background: #1e293b; color: #64748b; border-color: #334155; }
-body.dark-mode .pg-row          { border-color: #1e293b; }
-body.dark-mode .pg-cell         { border-color: #1e293b; }
-body.dark-mode .pg-cell:hover   { background: #293548; }
-body.dark-mode .pg-day-head     { border-color: #1e293b; }
-body.dark-mode .pg-header-row   { background: #1e293b; border-color: #334155; }
-body.dark-mode .pg-dom          { color: #f1f5f9; }
-
-body.dark-mode .bottom-nav      { background: #1e293b; border-color: #334155; }
-body.dark-mode .bottom-nav-item { color: #64748b; }
-body.dark-mode .bottom-nav-item.active { color: #3b82f6; }
-
-body.dark-mode .modal-header,
-body.dark-mode .modal-footer    { border-color: #334155; }
-body.dark-mode .modal-close     { background: #334155; color: #94a3b8; }
-body.dark-mode .modal-close:hover { background: #475569; }
-
-body.dark-mode .skeleton {
-  background: linear-gradient(90deg, #1e293b 25%, #293548 50%, #1e293b 75%);
-  background-size: 200% 100%;
-}
-
-/* Dark mode toggle button */
-.dark-toggle {
-  background: none;
-  border: 1.5px solid rgba(255,255,255,0.25);
-  border-radius: 8px;
-  width: 34px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: rgba(255,255,255,0.8);
-  transition: background 0.15s;
-  flex-shrink: 0;
-}
-.dark-toggle:hover { background: rgba(255,255,255,0.15); color: #fff; }
-.dark-toggle svg   { width: 16px; height: 16px; }
-
-/* =============================================
    #28 CHART DATA LABELS (via plugin — no CSS needed)
    Styles for the datalabels are set in JS.
    This is a placeholder comment for reference.
@@ -1985,9 +1883,6 @@ body {
   to   { opacity: 1; }
 }
 
-/* Dark mode — html must also go dark or you get a light flash */
-body.dark-mode { background: #0f172a; }
-
 /* =============================================
    COLD START OVERLAY
    ============================================= */
@@ -2056,10 +1951,6 @@ tr.quality-due-soon td:first-child { border-left: 3px solid #f59e0b; }
 .due-badge.overdue { background: #fee2e2; color: #dc2626; }
 .due-badge.soon    { background: #fef3c7; color: #d97706; }
 .due-badge.ok      { background: #dcfce7; color: #166534; }
-
-/* dark mode due rows */
-body.dark-mode tr.quality-overdue td  { background: #2d1515 !important; }
-body.dark-mode tr.quality-due-soon td { background: #2d2210 !important; }
 
 /* =============================================
    DRAG AND DROP — PLANNER
@@ -2158,4 +2049,40 @@ body.dark-mode tr.quality-due-soon td { background: #2d2210 !important; }
     font-weight: 800;
     color: #0f172a;
   }
+}
+/* =============================================
+   PERFORMANCE OPTIMISATIONS
+   ============================================= */
+
+/* Faster perceived load: GPU-accelerate the topbar and bottom nav
+   since they're always visible and fixed/sticky */
+.topbar, .bottom-nav {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* content-visibility: auto tells the browser to skip rendering
+   off-screen content until it scrolls into view.
+   Huge win on long pages like history and quality. */
+.history-table-wrap,
+.chart-grid-2,
+.chart-grid-1,
+.kpi-grid-3 {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 400px;
+}
+
+/* Prevent layout thrash on cards during load */
+.kpi-card, .home-stat-card, .card {
+  contain: layout style;
+}
+
+/* Faster tap response on mobile — removes 300ms click delay */
+a, button, .btn, .bottom-nav-item, .home-nav-btn, .pg-appt-block {
+  touch-action: manipulation;
+}
+
+/* Font loading: swap ensures text is visible during font load */
+@font-face {
+  font-display: swap;
 }
