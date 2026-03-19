@@ -1346,7 +1346,7 @@ function renderInstallAppCard() {
         '<div><h2 style="margin:0 0 2px 0;font-size:17px;">App Installed</h2>' +
         '<p style="margin:0;font-size:13px;color:#64748b;">KPI Dashboard is installed on this device</p></div>' +
       '</div>' +
-      '<p style="font-size:13px;color:#64748b;margin:0 0 16px 0;line-height:1.6;">You're running the installed version. Find it on your home screen.</p>' +
+      '<p style="font-size:13px;color:#64748b;margin:0 0 16px 0;line-height:1.6;">Youre running the installed version. Find it on your home screen.</p>' +
       '<button onclick="uninstallPWA()" style="background:none;border:1.5px solid #e2e8f0;color:#64748b;' +
         'border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;' +
         'display:flex;align-items:center;gap:6px;font-family:inherit;">' +
