@@ -143,6 +143,11 @@
       <div id="backupList" style="margin-top:14px;"></div>
     </div>
 
+    <!-- Install App Card — visible to everyone -->
+    <div class="card" id="installAppCard" style="margin-bottom:22px;">
+      <div style="padding:6px 0;color:#94a3b8;font-size:13px;">Checking install status...</div>
+    </div>
+
     <!-- Assistant Accounts Card (admin only) -->
     <div class="card" id="assistantCard" style="display:none;">
       <div class="settings-card-header">
@@ -311,6 +316,12 @@
       document.querySelectorAll("a[href='/quality.html']").forEach(function(el) { el.style.display = ""; });
     }
   }
+
+  // ── Install App card ──────────────────────────────────────────
+  // Delay slightly so beforeinstallprompt has time to fire first
+  setTimeout(function() {
+    if (typeof renderInstallAppCard === "function") renderInstallAppCard();
+  }, 600);
 
   // ── Permission checkbox visual feedback ────────────────────────
   function updatePermLabel(checkboxId, labelId, activeColor) {

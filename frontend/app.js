@@ -1241,42 +1241,159 @@ function initPullToRefresh(onRefresh) {
   });
 }
 
-/* ── #34  PWA install prompt (Android) ───────────────────────────
-   Catches the browser's beforeinstallprompt event and shows
-   a custom banner at the bottom of the screen. */
+/* ── PWA install — dismiss persists, settings page hook ──────────
+   Auto-banner shows once. Hitting × stores pwaInstallDismissed
+   permanently — it will never auto-show again.
+   The Settings page always has an Install App card where the user
+   can trigger the install prompt any time they want.
+   window._pwaPrompt is stored globally for Settings to use. */
 (function() {
-  var deferredPrompt = null;
+  window._pwaPrompt = null;
+
   window.addEventListener("beforeinstallprompt", function(e) {
     e.preventDefault();
-    deferredPrompt = e;
-    // Show banner after a short delay
-    setTimeout(showPWABanner, 2000);
+    window._pwaPrompt = e;
+    // Only auto-show if user has never dismissed it
+    if (!localStorage.getItem("pwaInstallDismissed")) {
+      setTimeout(showPWABanner, 3000);
+    }
+    // Refresh Settings install card if it's on screen
+    if (typeof renderInstallAppCard === "function") renderInstallAppCard();
   });
 
-  function showPWABanner() {
-    if (!deferredPrompt) return;
-    if (localStorage.getItem("pwaPromptDismissed")) return;
+  window.addEventListener("appinstalled", function() {
+    if (document.getElementById("_pwaBanner")) document.getElementById("_pwaBanner").remove();
+    localStorage.setItem("pwaInstalled", "1");
+    window._pwaPrompt = null;
+    if (typeof renderInstallAppCard === "function") renderInstallAppCard();
+  });
+
+  window.showPWABanner = function() {
+    if (localStorage.getItem("pwaInstalled") === "1") return;
+    if (localStorage.getItem("pwaInstallDismissed") === "1") return;
+    if (!window._pwaPrompt) return;
+    if (document.getElementById("_pwaBanner")) return;
 
     var banner = document.createElement("div");
-    banner.className = "pwa-install-banner visible";
-    banner.id = "pwaBanner";
+    banner.id = "_pwaBanner";
+    banner.style.cssText = [
+      "position:fixed", "bottom:80px", "left:12px", "right:12px",
+      "background:#1e293b", "color:#fff", "border-radius:14px",
+      "padding:14px 16px", "box-shadow:0 8px 24px rgba(0,0,0,0.3)",
+      "z-index:400", "display:flex", "align-items:center", "gap:12px",
+      "animation:kpi-page-in 0.2s ease-out"
+    ].join(";");
     banner.innerHTML =
-      '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>' +
-      '<p>Add KPI Dashboard to your home screen</p>' +
-      '<button class="pwa-btn" id="pwaInstallBtn">Install</button>' +
-      '<button class="pwa-dismiss" id="pwaDismissBtn">&times;</button>';
+      '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0">' +
+        '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>' +
+      '</svg>' +
+      '<div style="flex:1;">' +
+        '<div style="font-size:14px;font-weight:700;margin-bottom:2px;">Add to Home Screen</div>' +
+        '<div style="font-size:12px;color:rgba(255,255,255,0.6);">Quick access, full screen, no browser bar</div>' +
+      '</div>' +
+      '<button id="_pwaInstallBtn" style="background:#3b82f6;color:#fff;border:none;border-radius:8px;' +
+        'padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">Install</button>' +
+      '<button id="_pwaDismissBtn" style="background:none;border:none;color:rgba(255,255,255,0.5);' +
+        'cursor:pointer;padding:4px 8px;font-size:22px;line-height:1;flex-shrink:0;" title="Dismiss">&times;</button>';
     document.body.appendChild(banner);
 
-    document.getElementById("pwaInstallBtn").onclick = function() {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then(function() { banner.remove(); deferredPrompt = null; });
+    document.getElementById("_pwaInstallBtn").onclick = function() {
+      window._pwaPrompt.prompt();
+      window._pwaPrompt.userChoice.then(function(r) {
+        banner.remove();
+        if (r.outcome === "accepted") {
+          localStorage.setItem("pwaInstalled", "1");
+          window._pwaPrompt = null;
+        }
+      });
     };
-    document.getElementById("pwaDismissBtn").onclick = function() {
+    document.getElementById("_pwaDismissBtn").onclick = function() {
       banner.remove();
-      localStorage.setItem("pwaPromptDismissed", "1");
+      // Permanently dismissed — won't auto-show again ever
+      // but Settings page can still trigger the prompt
+      localStorage.setItem("pwaInstallDismissed", "1");
+      if (typeof renderInstallAppCard === "function") renderInstallAppCard();
     };
-  }
+  };
+
+  // Called from Settings "Install Now" button
+  window.triggerPWAInstall = function() {
+    if (localStorage.getItem("pwaInstalled") === "1") {
+      showToast("KPI Dashboard is already installed!", "info");
+      return;
+    }
+    if (!window._pwaPrompt) {
+      showToast("Open from Chrome on Android, or use Safari on iOS to install.", "info");
+      return;
+    }
+    localStorage.removeItem("pwaInstallDismissed");
+    window._pwaPrompt.prompt();
+    window._pwaPrompt.userChoice.then(function(r) {
+      if (r.outcome === "accepted") {
+        localStorage.setItem("pwaInstalled", "1");
+        window._pwaPrompt = null;
+        showToast("KPI Dashboard installed!", "success");
+      }
+      if (typeof renderInstallAppCard === "function") renderInstallAppCard();
+    });
+  };
 })();
+
+/* ── Install App card renderer (used by settings.html) ───────────
+   Renders into #installAppCard with 3 states:
+   1. Already installed / running standalone → green checkmark
+   2. Prompt available → Install Now button
+   3. No prompt (iOS/desktop) → manual instructions */
+function renderInstallAppCard() {
+  var card = document.getElementById("installAppCard");
+  if (!card) return;
+
+  var isStandalone = window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+  var isInstalled  = localStorage.getItem("pwaInstalled") === "1";
+  var wasDismissed = localStorage.getItem("pwaInstallDismissed") === "1";
+  var hasPrompt    = !!window._pwaPrompt;
+
+  if (isStandalone || isInstalled) {
+    card.innerHTML =
+      '<div class="settings-card-header">' +
+        '<div class="settings-icon icon-green">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
+        '</div>' +
+        '<div><h2 style="margin:0 0 2px 0;font-size:17px;">App Installed</h2>' +
+        '<p style="margin:0;font-size:13px;color:#64748b;">KPI Dashboard is installed on this device</p></div>' +
+      '</div>' +
+      '<p style="font-size:13px;color:#64748b;margin:0;line-height:1.6;">You're running the installed version. Find it on your home screen.</p>';
+    return;
+  }
+
+  var installBtn = hasPrompt
+    ? '<button class="btn" onclick="triggerPWAInstall()">' +
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+        ' Install Now</button>'
+    : '<div style="font-size:13px;color:#64748b;background:#f8fafc;padding:12px 14px;border-radius:10px;border:1px solid #f1f5f9;line-height:1.7;">' +
+        '<strong style="color:#0f172a;">Android Chrome:</strong> tap menu (⋮) → "Add to Home Screen"<br>' +
+        '<strong style="color:#0f172a;">iOS Safari:</strong> tap Share (□↑) → "Add to Home Screen"' +
+      '</div>';
+
+  var dismissedNote = wasDismissed
+    ? '<span style="color:#f59e0b;font-weight:600;font-size:12px;">You previously dismissed the install prompt. </span>'
+    : '';
+
+  card.innerHTML =
+    '<div class="settings-card-header">' +
+      '<div class="settings-icon icon-blue">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+      '</div>' +
+      '<div><h2 style="margin:0 0 2px 0;font-size:17px;">Install App</h2>' +
+      '<p style="margin:0;font-size:13px;color:#64748b;">Add KPI Dashboard to your home screen</p></div>' +
+    '</div>' +
+    '<p style="font-size:13px;color:#475569;margin:0 0 14px 0;line-height:1.6;">' +
+      dismissedNote +
+      'Install the app for faster access, full-screen experience, and no browser navigation bar.' +
+    '</p>' +
+    installBtn;
+}
 
 /* ── #37  Environment-based API URL ──────────────────────────────
    Reads API_BASE from a <meta name="api-base"> tag if present,
@@ -1346,32 +1463,10 @@ initDarkMode();
    ================================================================= */
 
 /* ── PAGE TRANSITIONS ────────────────────────────────────────────
-   Intercepts internal link clicks and adds a 80ms fade-out before
-   navigating. The fade-in is handled by the CSS @keyframes pageIn. */
-(function() {
-  function isInternal(href) {
-    if (!href) return false;
-    if (href.startsWith("http") && !href.includes(location.hostname)) return false;
-    if (href.startsWith("#") || href.startsWith("javascript")) return false;
-    return true;
-  }
-
-  document.addEventListener("click", function(e) {
-    var a = e.target.closest("a[href]");
-    if (!a) return;
-    var href = a.getAttribute("href");
-    if (!isInternal(href)) return;
-    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (href === location.pathname || href === location.href) return;
-    e.preventDefault();
-    document.body.classList.add("page-exit");
-    setTimeout(function() { location.href = href; }, 80);
-  });
-
-  // Also handle onclick="location.href=..." patterns by patching location.href setter
-  // (We do this by wrapping window.onload navigation — existing onclick navigations
-  //  already work because the CSS animation fires on body load anyway)
-})();
+   No JS needed. The CSS kpi-page-in animation handles the fade-in.
+   html { background: #f1f5f9 } in style.css kills the white flash
+   by painting the correct background before any CSS loads.
+   Navigation is instant — no interception, no fake delays. */
 
 /* ── COLD START OVERLAY ──────────────────────────────────────────
    Shows a "Connecting to server..." overlay after 3 seconds if

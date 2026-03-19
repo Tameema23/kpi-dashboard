@@ -1962,28 +1962,31 @@ body.dark-mode .skeleton {
   line-height: 1;
 }
 /* =============================================
-   PAGE TRANSITIONS
+   PAGE TRANSITIONS — fade-in only, no flash
+   =============================================
+   The key to no white flash:
+   1. Set html background = body background so the browser
+      paints slate-grey INSTANTLY before any CSS loads.
+   2. Only fade IN — no fade out, no click interception.
+      Navigation is instant; only the content fades in.
+   3. No translateY — that causes a jump on fast machines.
    ============================================= */
 
+html {
+  background: #f1f5f9;
+}
+
 body {
-  animation: pageIn 0.12s ease-out both;
+  animation: kpi-page-in 0.13s ease-out both;
 }
 
-@keyframes pageIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes kpi-page-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-/* Prevent flash on internal navigation */
-body.page-exit {
-  animation: pageOut 0.08s ease-in both;
-  pointer-events: none;
-}
-
-@keyframes pageOut {
-  from { opacity: 1; }
-  to   { opacity: 0; }
-}
+/* Dark mode — html must also go dark or you get a light flash */
+body.dark-mode { background: #0f172a; }
 
 /* =============================================
    COLD START OVERLAY
