@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="api-base" content="https://data-log.onrender.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/static/style.css">
   <title>Settings</title>
@@ -29,6 +30,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span id="username-text"></span>
     </span>
+    <button class="dark-toggle" onclick="toggleDarkMode()" title="Toggle dark mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
     <button class="logout" onclick="logout()">Sign Out</button>
   </div>
 </div>
@@ -254,18 +260,23 @@
 
   var _role = localStorage.getItem("role");
   if (_role === "assistant") {
+    // Hide all admin-only elements
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
+    // Show assistant-visible elements (Settings link, their permitted nav)
+    document.querySelectorAll(".assistant-visible").forEach(function(el) { el.style.display = ""; });
+    // Assistants can only change their own password — hide assistant management card
+    var assistantCard = document.getElementById("assistantCard");
+    if (assistantCard) assistantCard.style.display = "none";
+    // Hide back button — assistants have no dashboard to go back to
     var backBtn = document.getElementById("backToDashboard");
     if (backBtn) backBtn.style.display = "none";
-    // Assistants can see their accessible bottom nav links
+    // Show their permitted bottom nav links
     if (localStorage.getItem("can_planner") === "1") {
       document.querySelectorAll("a[href='/planner.html']").forEach(function(el) { el.style.display = ""; });
     }
     if (localStorage.getItem("can_quality") === "1") {
       document.querySelectorAll("a[href='/quality.html']").forEach(function(el) { el.style.display = ""; });
     }
-    // Settings itself always visible for assistants
-    document.querySelectorAll("a[href='/settings.html']").forEach(function(el) { el.style.display = ""; });
   }
 
   // ── Permission checkbox visual feedback ────────────────────────
@@ -300,7 +311,7 @@
     const msg     = document.getElementById("pw-msg");
     if (!current || !newPw || !confirm) { msg.innerText = "Please fill in all fields."; msg.style.color = "#dc2626"; return; }
     if (newPw !== confirm) { msg.innerText = "New passwords do not match."; msg.style.color = "#dc2626"; return; }
-    if (newPw.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
+    if (newPw.length < 8) { msg.innerText = "Password must be at least 8 characters."; msg.style.color = "#dc2626"; return; }
     try {
       const res = await fetch("/change-password", {
         method: "POST",

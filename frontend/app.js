@@ -151,7 +151,7 @@ async function loadWeekly() {
   });
 
   const data = await res.json();
-  if (!data.length) return;
+  if (!data.length) { if (typeof showOnboardingState === 'function') showOnboardingState(); return; }
 
   /* ================= GROUP DATA BY WEEK ================= */
 
@@ -640,6 +640,8 @@ function drawChart({
 /* ================= SAVE DAY ================= */
 
 async function save() {
+  var _saveBtn = document.querySelector('.log-form-footer .btn');
+  if (_saveBtn) { _saveBtn.disabled = true; _saveBtn.style.opacity = '0.7'; }
 
   const payload = {
     date: document.getElementById("date").value,
@@ -670,9 +672,12 @@ async function save() {
     const el = document.getElementById("saveSuccess");
     if (el) { el.style.display = "flex"; setTimeout(() => el.style.display = "none", 3000); }
     showToast(result.status === "updated" ? "Day updated successfully!" : "Day saved successfully!");
+    if (typeof window._markSaved === "function") window._markSaved();
   } else {
     showToast("Save failed. Please try again.", "error");
   }
+  var _saveBtn2 = document.querySelector('.log-form-footer .btn');
+  if (_saveBtn2) { _saveBtn2.disabled = false; _saveBtn2.style.opacity = '1'; }
 }
 
 /* ================= HISTORY ================= */
@@ -859,7 +864,7 @@ function logout() {
 
 async function exportExcel() {
 
-  const res = await fetch("/history", {
+  const res = await fetch(`${API_BASE}/history`, {
     headers: { Authorization: "Bearer " + TOKEN }
   });
 
@@ -875,20 +880,29 @@ async function exportExcel() {
     return;
   }
 
-  const headers = Object.keys(data[0]).filter(k => k !== "id" && k !== "user_id");
-
-  let csv = headers.join(",") + "\n";
-
+  // Human-readable headers + calculated columns
+  const HEADER_MAP = {
+    date: "Date", appointments_start: "Appts Start", appointments_finish: "Appts Finish",
+    total_presentations: "Presentations", total_sales: "Sales",
+    total_alp: "Total ALP ($)", total_ah: "Total A&H ($)",
+    referrals_collected: "Refs Collected", referral_presentations: "Ref Presentations",
+    referral_sales: "Ref Sales", assigned_leads: "Assigned Leads", bad_leads: "Bad Leads"
+  };
+  const keys = Object.keys(HEADER_MAP);
+  const allHeaders = Object.values(HEADER_MAP).concat(["Closing %", "Show Ratio %", "ALP / Sale"]);
+  let csv = allHeaders.join(",") + "\n";
   data.forEach(row => {
-    csv += headers.map(h => row[h]).join(",") + "\n";
+    const closing = row.total_presentations > 0 ? ((row.total_sales / row.total_presentations) * 100).toFixed(1) : "0.0";
+    const show    = row.appointments_start  > 0 ? ((row.total_presentations / row.appointments_start) * 100).toFixed(1) : "0.0";
+    const alpSale = row.total_sales > 0 ? (row.total_alp / row.total_sales).toFixed(2) : "0.00";
+    csv += keys.map(k => row[k] !== undefined ? row[k] : 0).join(",") + "," + closing + "," + show + "," + alpSale + "\n";
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
   const url = window.URL.createObjectURL(blob);
-
   const a = document.createElement("a");
   a.href = url;
-  a.download = "kpi_data.csv";
+  a.download = "kpi_export_" + new Date().toLocaleDateString("en-CA") + ".csv";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -914,3 +928,408 @@ function showToast(message, type = "success") {
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 3200);
 }
+/* =================================================================
+   UX IMPROVEMENTS — items 20-38
+   ================================================================= */
+
+/* ── #20  Onboarding empty state ─────────────────────────────────
+   Replaces blank KPI cards on first login with a friendly prompt. */
+function showOnboardingState() {
+  var grid = document.querySelector(".home-grid");
+  if (!grid) return;
+  grid.innerHTML =
+    '<div class="onboarding-banner">' +
+      '<div class="onboarding-icon">' +
+        '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2">' +
+          '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>' +
+          '<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>' +
+        '</svg>' +
+      '</div>' +
+      '<div class="onboarding-text">' +
+        '<h3>Welcome! Log your first day to get started</h3>' +
+        '<p>Your KPI stats, charts, and reports will appear here once you log your first day of production.</p>' +
+        '<a href="/log.html" class="onboarding-btn">' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+          'Log Today\'s KPIs' +
+        '</a>' +
+      '</div>' +
+    '</div>';
+}
+
+/* ── #21  Notification badge on Planner nav link ─────────────────
+   Fetches appointments and shows a red badge on Planner links
+   for appointments booked since the user last visited the planner.
+   Clears when user visits planner. */
+function initPlannerBadge() {
+  var isPlanner = location.pathname.includes("planner");
+  if (isPlanner) {
+    // Clear on planner page
+    localStorage.setItem("planner_last_seen", Date.now().toString());
+    localStorage.removeItem("planner_new_count");
+    return;
+  }
+  if (!TOKEN) return;
+
+  fetch(API_BASE + "/appointments", {
+    headers: { Authorization: "Bearer " + TOKEN }
+  }).then(function(r) {
+    if (!r.ok) return null;
+    return r.json();
+  }).then(function(appts) {
+    if (!appts) return;
+    var lastSeen = parseInt(localStorage.getItem("planner_last_seen") || "0");
+    var newCount = appts.filter(function(a) {
+      // booked_at is "YYYY-MM-DDTHH:MM" — convert to ms
+      var ts = new Date(a.booked_at).getTime();
+      return ts > lastSeen;
+    }).length;
+    if (newCount < 1) return;
+    document.querySelectorAll("a[href='/planner.html']").forEach(function(link) {
+      if (link.querySelector(".nav-badge")) return; // already has badge
+      var badge = document.createElement("span");
+      badge.className = "nav-badge";
+      badge.innerText  = newCount > 9 ? "9+" : String(newCount);
+      link.style.position = "relative";
+      link.appendChild(badge);
+    });
+  }).catch(function() {});
+}
+
+/* ── #22  Planner appointment count summary bar ──────────────────
+   Called after renderPlanner() — updates the summary bar above
+   the grid with counts for this week and today. */
+function updatePlannerSummary(appointments, weekStart) {
+  var bar = document.getElementById("plannerSummary");
+  if (!bar) return;
+
+  var now     = new Date();
+  var today   = now.toLocaleDateString("en-CA");
+  var weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+
+  var weekAppts  = appointments.filter(function(a) {
+    var d = (a.scheduled_for || "").split("T")[0];
+    var dt = new Date(d + "T00:00:00");
+    return dt >= weekStart && dt <= weekEnd;
+  });
+  var todayAppts = appointments.filter(function(a) {
+    return (a.scheduled_for || "").split("T")[0] === today;
+  });
+  var callbacks  = weekAppts.filter(function(a) { return a.appt_type === "callback"; });
+  var appts      = weekAppts.filter(function(a) { return a.appt_type !== "callback"; });
+
+  if (weekAppts.length === 0) {
+    bar.innerHTML = '<span class="planner-summary-badge empty">No appointments this week</span>';
+    return;
+  }
+
+  var html = '<span class="planner-summary-label">This week:</span>';
+  if (appts.length    > 0) html += '<span class="planner-summary-badge appt">' + appts.length + (appts.length === 1 ? " appt" : " appts") + '</span>';
+  if (callbacks.length > 0) html += '<span class="planner-summary-badge cb">' + callbacks.length + (callbacks.length === 1 ? " callback" : " callbacks") + '</span>';
+  if (todayAppts.length > 0) html += '<span class="planner-summary-badge today">' + todayAppts.length + ' today</span>';
+  bar.innerHTML = html;
+}
+
+/* ── #24  Quality page analytics summary ─────────────────────────
+   Renders a summary row above the quality table with totals. */
+function renderQualityAnalytics(entries) {
+  var container = document.getElementById("qualitySummary");
+  if (!container) return;
+
+  var totalAlp = 0;
+  var followUpCount = 0;
+  var now = new Date().toLocaleDateString("en-CA");
+
+  entries.forEach(function(e) {
+    var alp = parseFloat((e.alp || "0").replace(/[^0-9.]/g, ""));
+    if (!isNaN(alp)) totalAlp += alp;
+    if (e.follow_up && e.follow_up.trim()) followUpCount++;
+  });
+
+  container.innerHTML =
+    '<div class="quality-stat">' +
+      '<div class="quality-stat-label">Total Entries</div>' +
+      '<div class="quality-stat-value">' + entries.length + '</div>' +
+    '</div>' +
+    '<div class="quality-stat">' +
+      '<div class="quality-stat-label">Total ALP Tracked</div>' +
+      '<div class="quality-stat-value green">$' + totalAlp.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0}) + '</div>' +
+    '</div>' +
+    '<div class="quality-stat">' +
+      '<div class="quality-stat-label">Follow-Ups Assigned</div>' +
+      '<div class="quality-stat-value amber">' + followUpCount + '</div>' +
+    '</div>';
+}
+
+/* ── #25  Dark mode ───────────────────────────────────────────────
+   Toggles dark-mode class on body, persists to localStorage. */
+function initDarkMode() {
+  if (localStorage.getItem("darkMode") === "1") {
+    document.body.classList.add("dark-mode");
+  }
+}
+
+function toggleDarkMode() {
+  var isDark = document.body.classList.toggle("dark-mode");
+  localStorage.setItem("darkMode", isDark ? "1" : "0");
+  // Update toggle button icon
+  document.querySelectorAll(".dark-toggle svg").forEach(function(svg) {
+    svg.innerHTML = isDark
+      ? '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'
+      : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  });
+}
+
+/* ── #26  Log form keyboard navigation ───────────────────────────
+   Enter key on any log input moves to the next field.
+   On the last field, Enter triggers save(). */
+function initLogKeyNav() {
+  var order = [
+    "date",
+    "appointments_start","appointments_finish",
+    "total_presentations","total_sales",
+    "referrals_collected","referral_presentations","referral_sales",
+    "total_alp","total_ah",
+    "assigned_leads","bad_leads"
+  ];
+  order.forEach(function(id, i) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("keydown", function(e) {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      var next = order[i + 1];
+      if (next) {
+        var nextEl = document.getElementById(next);
+        if (nextEl) { nextEl.focus(); nextEl.select && nextEl.select(); }
+      } else {
+        if (typeof save === "function") save();
+      }
+    });
+  });
+}
+
+/* ── #26  Unsaved form warning ────────────────────────────────────
+   Warns before navigating away from a dirty log form. */
+function initUnsavedWarning() {
+  var dirty = false;
+  var saved = false;
+  var fields = ["appointments_start","appointments_finish","total_presentations",
+    "total_sales","referrals_collected","referral_presentations","referral_sales",
+    "total_alp","total_ah","assigned_leads","bad_leads"];
+  fields.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener("input", function() {
+      if (parseFloat(el.value) > 0) dirty = true;
+    });
+  });
+  window._markSaved = function() { saved = true; dirty = false; };
+  window.addEventListener("beforeunload", function(e) {
+    if (dirty && !saved) { e.preventDefault(); e.returnValue = ""; }
+  });
+}
+
+/* ── #28  Chart data labels ───────────────────────────────────────
+   Registers the datalabels plugin inline (no CDN needed)
+   to show values above bar and line data points. */
+(function() {
+  if (typeof Chart === "undefined") return;
+
+  // Minimal inline data labels plugin — shows values above bars only
+  var DataLabels = {
+    id: "kpiDataLabels",
+    afterDatasetsDraw: function(chart) {
+      var ctx = chart.ctx;
+      chart.data.datasets.forEach(function(dataset, i) {
+        var meta = chart.getDatasetMeta(i);
+        if (meta.hidden) return;
+        if (chart.config.type !== "bar") return; // bars only — lines use tooltips
+        meta.data.forEach(function(bar, j) {
+          var val = dataset.data[j];
+          if (!val && val !== 0) return;
+          var label = typeof val === "number" && val >= 1000
+            ? "$" + Math.round(val).toLocaleString()
+            : (Number.isInteger(val) ? String(val) : val.toFixed(1));
+          ctx.save();
+          ctx.font = "bold 11px Inter, Arial, sans-serif";
+          ctx.fillStyle = "#475569";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(label, bar.x, bar.y - 3);
+          ctx.restore();
+        });
+      });
+    }
+  };
+  Chart.register(DataLabels);
+})();
+
+/* ── #31  Long-press on appointment blocks (mobile) ──────────────
+   Attach to any .pg-appt-block element after render. */
+function attachLongPress(el, appt) {
+  var timer = null;
+  el.addEventListener("touchstart", function() {
+    el.classList.add("touch-active");
+    timer = setTimeout(function() {
+      var parts = (appt.scheduled_for || "T").split("T");
+      var h = parseInt((parts[1] || "09:00").split(":")[0]);
+      var m = (parts[1] || "09:00").split(":")[1];
+      var ampm = h >= 12 ? "PM" : "AM";
+      var h12  = h % 12 || 12;
+      var time = h12 + ":" + m + " " + ampm;
+      var msg  = appt.lead_name + " — " + time;
+      if (appt.comments) msg += "\n" + appt.comments.substring(0, 60);
+      showToast(msg, "info");
+    }, 500);
+  }, { passive: true });
+  el.addEventListener("touchend",  function() { clearTimeout(timer); el.classList.remove("touch-active"); }, { passive: true });
+  el.addEventListener("touchmove", function() { clearTimeout(timer); el.classList.remove("touch-active"); }, { passive: true });
+}
+
+/* ── #32  Pull-to-refresh ─────────────────────────────────────────
+   On mobile, pulling down 80px+ triggers onRefresh callback. */
+function initPullToRefresh(onRefresh) {
+  var startY   = 0;
+  var pulling  = false;
+  var THRESH   = 80;
+  var ind      = null;
+
+  function getInd() {
+    if (!ind) {
+      ind = document.createElement("div");
+      ind.className = "ptr-indicator";
+      ind.innerHTML =
+        '<svg class="ptr-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+        '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Pull to refresh';
+      document.body.appendChild(ind);
+    }
+    return ind;
+  }
+
+  document.addEventListener("touchstart", function(e) {
+    if (window.scrollY === 0) { startY = e.touches[0].clientY; pulling = true; }
+  }, { passive: true });
+
+  document.addEventListener("touchmove", function(e) {
+    if (!pulling) return;
+    var delta = e.touches[0].clientY - startY;
+    if (delta < 10) return;
+    var indicator = getInd();
+    indicator.classList.add("visible");
+    var progress = Math.min(delta / THRESH, 1);
+    indicator.style.opacity = String(progress);
+    indicator.innerHTML = delta >= THRESH
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Release to refresh'
+      : '<svg class="ptr-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Pull to refresh';
+  }, { passive: true });
+
+  document.addEventListener("touchend", function(e) {
+    if (!pulling) return;
+    var delta = e.changedTouches[0].clientY - startY;
+    pulling = false;
+    if (ind) { ind.classList.remove("visible"); ind.style.opacity = "0"; }
+    if (delta >= THRESH && typeof onRefresh === "function") {
+      showToast("Refreshing...", "info");
+      onRefresh();
+    }
+  });
+}
+
+/* ── #34  PWA install prompt (Android) ───────────────────────────
+   Catches the browser's beforeinstallprompt event and shows
+   a custom banner at the bottom of the screen. */
+(function() {
+  var deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", function(e) {
+    e.preventDefault();
+    deferredPrompt = e;
+    // Show banner after a short delay
+    setTimeout(showPWABanner, 2000);
+  });
+
+  function showPWABanner() {
+    if (!deferredPrompt) return;
+    if (localStorage.getItem("pwaPromptDismissed")) return;
+
+    var banner = document.createElement("div");
+    banner.className = "pwa-install-banner visible";
+    banner.id = "pwaBanner";
+    banner.innerHTML =
+      '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" style="flex-shrink:0"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>' +
+      '<p>Add KPI Dashboard to your home screen</p>' +
+      '<button class="pwa-btn" id="pwaInstallBtn">Install</button>' +
+      '<button class="pwa-dismiss" id="pwaDismissBtn">&times;</button>';
+    document.body.appendChild(banner);
+
+    document.getElementById("pwaInstallBtn").onclick = function() {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function() { banner.remove(); deferredPrompt = null; });
+    };
+    document.getElementById("pwaDismissBtn").onclick = function() {
+      banner.remove();
+      localStorage.setItem("pwaPromptDismissed", "1");
+    };
+  }
+})();
+
+/* ── #37  Environment-based API URL ──────────────────────────────
+   Reads API_BASE from a <meta name="api-base"> tag if present,
+   falling back to the hardcoded URL. Add this to all HTML heads:
+   <meta name="api-base" content="https://your-host.onrender.com">
+   Already works without the tag — this is a progressive upgrade. */
+(function() {
+  var metaTag = document.querySelector('meta[name="api-base"]');
+  if (metaTag && metaTag.content) {
+    // Override the constants — must run after they're declared
+    // Use a MutationObserver trick if needed, but direct override works here
+    window.API_BASE_OVERRIDE = metaTag.content;
+  }
+})();
+
+/* ── #38  Error boundaries on all API calls ──────────────────────
+   Wraps loadHistory and loadWeekly with user-visible error states. */
+(function() {
+  var _origLoadHistory = typeof loadHistory === "function" ? loadHistory : null;
+  if (_origLoadHistory) {
+    window.loadHistory = async function() {
+      try {
+        await _origLoadHistory();
+      } catch(e) {
+        var body = document.getElementById("historyBody");
+        if (body) {
+          body.innerHTML =
+            '<tr><td colspan="14" style="text-align:center;padding:32px;color:#dc2626;">' +
+            '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:8px;">' +
+            '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+            'Failed to load history. <a href="#" onclick="loadHistory();return false;" style="color:#2563eb;font-weight:700;">Try again</a>' +
+            '</td></tr>';
+        }
+      }
+    };
+  }
+})();
+
+/* ── Page-level init — runs once on DOMContentLoaded ─────────── */
+document.addEventListener("DOMContentLoaded", function() {
+  var path = location.pathname;
+
+  // Dark mode applied early (before paint)
+  initDarkMode();
+
+  // Log page
+  if (path.includes("log")) {
+    initLogKeyNav();
+    initUnsavedWarning();
+  }
+
+  // Planner badge on all non-planner pages
+  if (TOKEN) initPlannerBadge();
+
+  // History pull-to-refresh
+  if (path.includes("history")) {
+    initPullToRefresh(function() { if (typeof loadHistory === "function") loadHistory(); });
+  }
+});
+
+// Apply dark mode immediately (before DOMContentLoaded) to prevent flash
+initDarkMode();

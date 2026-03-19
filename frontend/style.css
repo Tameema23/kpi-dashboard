@@ -1587,3 +1587,377 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
   background: #fff;
 }
+/* =============================================
+   #20 ONBOARDING EMPTY STATE
+   ============================================= */
+
+.onboarding-banner {
+  grid-column: 1 / -1;
+  background: linear-gradient(135deg, #eff6ff, #f0fdf4);
+  border-radius: 16px;
+  padding: 28px 24px;
+  border: 1.5px dashed #bfdbfe;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.onboarding-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.15);
+}
+
+.onboarding-text { flex: 1; min-width: 200px; }
+.onboarding-text h3 { font-size: 17px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; }
+.onboarding-text p  { font-size: 13px; color: #64748b; margin: 0 0 14px 0; }
+
+.onboarding-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.onboarding-btn:hover { background: #1d4ed8; }
+
+/* =============================================
+   #21 NOTIFICATION BADGE on nav links
+   ============================================= */
+
+.nav-badge-wrap { position: relative; display: inline-flex; }
+
+.nav-badge {
+  position: absolute;
+  top: -5px;
+  right: -8px;
+  background: #ef4444;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1.5;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Bottom nav badge */
+.bottom-nav-item { position: relative; }
+.bottom-nav-item .nav-badge { top: 0; right: 4px; }
+
+/* Topbar nav badge */
+.topbar-nav a { position: relative; }
+.topbar-nav a .nav-badge { top: -2px; right: -4px; }
+
+/* =============================================
+   #22 PLANNER SUMMARY BAR
+   ============================================= */
+
+.planner-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 16px;
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.planner-summary-label { color: #94a3b8; margin-right: 4px; }
+
+.planner-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.planner-summary-badge.appt    { background: #eff6ff; color: #2563eb; }
+.planner-summary-badge.cb      { background: #fffbeb; color: #d97706; }
+.planner-summary-badge.today   { background: #dcfce7; color: #166534; }
+.planner-summary-badge.empty   { color: #94a3b8; font-weight: 500; }
+
+/* =============================================
+   #24 QUALITY ANALYTICS SUMMARY CARD
+   ============================================= */
+
+.quality-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.quality-stat {
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 16px 18px;
+  border: 1px solid #f1f5f9;
+}
+
+.quality-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.quality-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1;
+}
+
+.quality-stat-value.green { color: #16a34a; }
+.quality-stat-value.amber { color: #d97706; }
+.quality-stat-value.red   { color: #dc2626; }
+
+@media (max-width: 768px) {
+  .quality-summary { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .quality-stat    { padding: 12px 14px; }
+  .quality-stat-value { font-size: 18px; }
+}
+
+/* =============================================
+   #25 DARK MODE
+   ============================================= */
+
+body.dark-mode {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+body.dark-mode .topbar {
+  background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 60%, #2563eb 100%);
+}
+
+body.dark-mode .card,
+body.dark-mode .home-stat-card,
+body.dark-mode .home-nav-btn,
+body.dark-mode .home-upcoming-card,
+body.dark-mode .kpi-card,
+body.dark-mode .planner-wrap,
+body.dark-mode .modal-card,
+body.dark-mode .planner-summary,
+body.dark-mode .quality-stat {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+body.dark-mode .card h2,
+body.dark-mode .home-welcome h1,
+body.dark-mode .home-nav-btn-label,
+body.dark-mode .home-stat-value,
+body.dark-mode .kpi-card b,
+body.dark-mode .quality-stat-value,
+body.dark-mode .modal-header h3 { color: #f1f5f9; }
+
+body.dark-mode .card p,
+body.dark-mode .home-welcome p,
+body.dark-mode .home-nav-btn-sub,
+body.dark-mode .kpi-label,
+body.dark-mode .planner-summary-label { color: #94a3b8; }
+
+body.dark-mode .form-field input,
+body.dark-mode .form-field select,
+body.dark-mode .log-date-row input,
+body.dark-mode textarea,
+body.dark-mode .auth-input-group input {
+  background: #0f172a;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+body.dark-mode .form-field input:focus,
+body.dark-mode textarea:focus,
+body.dark-mode .log-date-row input:focus {
+  border-color: #3b82f6;
+  background: #1e293b;
+}
+
+body.dark-mode .history-table th  { background: #1e293b; color: #94a3b8; border-color: #334155; }
+body.dark-mode .history-table td  { color: #cbd5e1; border-color: #1e293b; }
+body.dark-mode .history-table tr:hover { background: #293548; }
+
+body.dark-mode .pg-gutter,
+body.dark-mode .pg-gutter-head  { background: #1e293b; color: #64748b; border-color: #334155; }
+body.dark-mode .pg-row          { border-color: #1e293b; }
+body.dark-mode .pg-cell         { border-color: #1e293b; }
+body.dark-mode .pg-cell:hover   { background: #293548; }
+body.dark-mode .pg-day-head     { border-color: #1e293b; }
+body.dark-mode .pg-header-row   { background: #1e293b; border-color: #334155; }
+body.dark-mode .pg-dom          { color: #f1f5f9; }
+
+body.dark-mode .bottom-nav      { background: #1e293b; border-color: #334155; }
+body.dark-mode .bottom-nav-item { color: #64748b; }
+body.dark-mode .bottom-nav-item.active { color: #3b82f6; }
+
+body.dark-mode .modal-header,
+body.dark-mode .modal-footer    { border-color: #334155; }
+body.dark-mode .modal-close     { background: #334155; color: #94a3b8; }
+body.dark-mode .modal-close:hover { background: #475569; }
+
+body.dark-mode .skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #293548 50%, #1e293b 75%);
+  background-size: 200% 100%;
+}
+
+/* Dark mode toggle button */
+.dark-toggle {
+  background: none;
+  border: 1.5px solid rgba(255,255,255,0.25);
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(255,255,255,0.8);
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.dark-toggle:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.dark-toggle svg   { width: 16px; height: 16px; }
+
+/* =============================================
+   #28 CHART DATA LABELS (via plugin — no CSS needed)
+   Styles for the datalabels are set in JS.
+   This is a placeholder comment for reference.
+   ============================================= */
+
+/* =============================================
+   #31 LONG-PRESS TOUCH FEEDBACK
+   ============================================= */
+
+.pg-appt-block.touch-active {
+  transform: scale(0.96);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+}
+
+/* =============================================
+   #32 PULL-TO-REFRESH INDICATOR
+   ============================================= */
+
+.ptr-indicator {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2563eb;
+  color: #fff;
+  border-radius: 20px;
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(37,99,235,0.3);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ptr-indicator.visible { opacity: 1; }
+
+@keyframes ptr-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.ptr-spin { animation: ptr-spin 0.8s linear infinite; }
+
+/* =============================================
+   #33 iOS INPUT ZOOM FIX
+   All inputs must be at least 16px font-size on
+   iOS to prevent Safari auto-zoom on focus.
+   ============================================= */
+
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea,
+  .form-field input,
+  .log-date-row input,
+  .auth-input-group input,
+  .mini-cal-wrap input {
+    font-size: 16px !important;
+  }
+
+  /* Keep the visual size compact while meeting iOS requirement */
+  .form-field input  { padding: 10px 12px; }
+  .log-date-row input { padding: 10px 12px; }
+}
+
+/* =============================================
+   #34 PWA INSTALL BANNER
+   ============================================= */
+
+.pwa-install-banner {
+  display: none;
+  position: fixed;
+  bottom: 80px;
+  left: 12px;
+  right: 12px;
+  background: #1e293b;
+  color: #fff;
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  z-index: 400;
+  align-items: center;
+  gap: 12px;
+}
+
+.pwa-install-banner.visible { display: flex; }
+
+.pwa-install-banner p  { flex: 1; font-size: 13px; font-weight: 600; margin: 0; }
+.pwa-install-banner .pwa-btn {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pwa-install-banner .pwa-dismiss {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  font-size: 18px;
+  line-height: 1;
+}

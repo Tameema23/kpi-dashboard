@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="api-base" content="https://data-log.onrender.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/static/style.css">
   <title>Weekly Reports</title>
@@ -22,7 +23,7 @@
       <a href="/history.html" class="admin-only">History</a>
       <a href="/planner.html" class="admin-only">Planner</a>
       <a href="/quality.html" class="admin-only">Quality</a>
-      <a href="/settings.html" class="admin-only">Settings</a>
+      <a href="/settings.html" class="assistant-visible">Settings</a>
     </nav>
   </div>
   <div class="topbar-right">
@@ -30,6 +31,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span id="username-text"></span>
     </span>
+    <button class="dark-toggle" onclick="toggleDarkMode()" title="Toggle dark mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
     <button class="logout" onclick="logout()">Sign Out</button>
   </div>
 </div>
@@ -193,7 +199,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       Quality
     </a>
-    <a href="/settings.html" class="bottom-nav-item admin-only">
+    <a href="/settings.html" class="bottom-nav-item assistant-visible">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings
     </a>
   </div>
@@ -204,6 +210,8 @@
   // Role-based nav
   if (localStorage.getItem("role") === "assistant") {
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
+    // Settings always visible — assistants need it for password management
+    document.querySelectorAll(".assistant-visible").forEach(function(el) { el.style.display = ""; });
   }
   const u = localStorage.getItem("username");
   if (u) document.getElementById("username-text").innerText = u;
