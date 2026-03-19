@@ -70,13 +70,34 @@ function toggleForm() {
 async function submitAuth() {
   const username = document.getElementById("username").value.trim();
   const password = document.getElementById("password").value;
-  const msg = document.getElementById("msg");
+  const msg      = document.getElementById("msg");
+  const btn      = document.querySelector(".auth-btn");
+
+  msg.innerText = "";
 
   if (!username || !password) {
     msg.innerText = "Please fill in all fields.";
     msg.style.color = "#dc2626";
     return;
   }
+
+  // Frontend validation for signup only
+  if (isSignup) {
+    if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) {
+      msg.innerText = "Username must be 3-30 characters (letters, numbers, underscores only).";
+      msg.style.color = "#dc2626";
+      return;
+    }
+    if (password.length < 8) {
+      msg.innerText = "Password must be at least 8 characters.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+  }
+
+  btn.disabled = true;
+  btn.style.opacity = "0.7";
+  btn.innerText = isSignup ? "Creating..." : "Signing in...";
 
   const url = isSignup ? "/create-user" : "/login";
 
@@ -87,8 +108,15 @@ async function submitAuth() {
       body: JSON.stringify({ username, password })
     });
 
+    if (res.status === 429) {
+      msg.innerText = "Too many login attempts. Please wait a minute and try again.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+
     if (!res.ok) {
-      msg.innerText = isSignup ? "Username already exists." : "Invalid username or password.";
+      const errData = await res.json().catch(() => ({}));
+      msg.innerText = errData.detail || (isSignup ? "Username already exists." : "Invalid username or password.");
       msg.style.color = "#dc2626";
       return;
     }
@@ -106,20 +134,104 @@ async function submitAuth() {
     localStorage.setItem("role", data.role || "admin");
     localStorage.setItem("can_planner", data.can_planner ? "1" : "0");
     localStorage.setItem("can_quality", data.can_quality ? "1" : "0");
-    if ((data.role || "admin") === "admin") {
-      window.location.href = "/index.html";
-    } else if (data.can_planner && !data.can_quality) {
-      window.location.href = "/planner.html";
-    } else if (data.can_quality && !data.can_planner) {
-      window.location.href = "/quality.html";
-    } else {
-      // has both — go to planner
-      window.location.href = "/planner.html";
+
+    // If the account has a short password, show the reset prompt first.
+    // The user IS logged in — they just need to update their password.
+    if (data.needs_password_reset) {
+      document.getElementById("pwResetOverlay").style.display = "flex";
+      return;
     }
+
+    // Normal redirect
+    navigateAfterLogin(data);
 
   } catch {
     msg.innerText = "Server error. Please try again.";
     msg.style.color = "#dc2626";
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.innerText = isSignup ? "Create Account" : "Sign In";
+  }
+}
+
+function navigateAfterLogin(data) {
+  const role = data.role || localStorage.getItem("role") || "admin";
+  const canPlanner = data.can_planner !== undefined
+    ? data.can_planner
+    : localStorage.getItem("can_planner") === "1";
+  const canQuality = data.can_quality !== undefined
+    ? data.can_quality
+    : localStorage.getItem("can_quality") === "1";
+  if (role === "admin") {
+    window.location.href = "/index.html";
+  } else if (canPlanner && !canQuality) {
+    window.location.href = "/planner.html";
+  } else if (canQuality && !canPlanner) {
+    window.location.href = "/quality.html";
+  } else {
+    window.location.href = "/planner.html";
+  }
+}
+
+async function submitPasswordReset() {
+  const current = document.getElementById("pr_current").value;
+  const newPw   = document.getElementById("pr_new").value;
+  const confirm = document.getElementById("pr_confirm").value;
+  const msg     = document.getElementById("pr_msg");
+  const btn     = document.querySelector("#pwResetOverlay button[onclick]");
+
+  msg.innerText = "";
+
+  if (!current || !newPw || !confirm) {
+    msg.innerText = "Please fill in all fields.";
+    return;
+  }
+  if (newPw.length < 8) {
+    msg.innerText = "New password must be at least 8 characters.";
+    return;
+  }
+  if (newPw !== confirm) {
+    msg.innerText = "New passwords do not match.";
+    return;
+  }
+  if (current === newPw) {
+    msg.innerText = "New password must be different from your current password.";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerText = "Updating...";
+
+  try {
+    const token = localStorage.getItem("token");
+    const res   = await fetch("/change-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
+      body: JSON.stringify({ current_password: current, new_password: newPw })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      msg.innerText = err.detail || "Failed to update password. Please try again.";
+      msg.style.color = "#dc2626";
+      return;
+    }
+
+    // Password updated — now navigate normally
+    msg.style.color = "#16a34a";
+    msg.innerText = "Password updated! Redirecting...";
+    setTimeout(() => navigateAfterLogin({}), 1000);
+
+  } catch {
+    msg.innerText = "Server error. Please try again.";
+    msg.style.color = "#dc2626";
+  } finally {
+    btn.disabled = false;
+    btn.innerText = "Update Password";
   }
 }
 
@@ -134,5 +246,102 @@ function togglePw(inputId, btn) {
 
 document.addEventListener("keydown", e => { if (e.key === "Enter") submitAuth(); });
 </script>
+
+<!-- Password Reset Prompt — shown after login if account has a short password -->
+<div id="pwResetOverlay" style="display:none;position:fixed;inset:0;z-index:9999;
+  background:rgba(15,23,42,0.55);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:18px;width:100%;max-width:420px;
+    box-shadow:0 20px 60px rgba(15,23,42,0.25);overflow:hidden;animation:_cfIn 0.2s ease;">
+    <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:24px 26px 20px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:40px;height:40px;border-radius:10px;background:rgba(255,255,255,0.2);
+          display:flex;align-items:center;justify-content:center;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5">
+            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <div>
+          <div style="font-size:17px;font-weight:800;color:#fff;">Update Your Password</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:2px;">
+            Your current password is too short
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:22px 26px;">
+      <p style="font-size:14px;color:#475569;margin:0 0 18px 0;line-height:1.6;">
+        For your security, passwords must now be at least <strong>8 characters</strong>.
+        Please create a new password to continue. You are already logged in.
+      </p>
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-size:12px;font-weight:700;color:#475569;
+          text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">
+          Current Password
+        </label>
+        <div style="position:relative;">
+          <input id="pr_current" type="password" placeholder="Your current password"
+            style="width:100%;padding:11px 42px 11px 14px;border-radius:10px;
+            border:1.5px solid #e2e8f0;font-size:14px;box-sizing:border-box;
+            font-family:inherit;color:#0f172a;">
+          <button type="button" onclick="togglePw('pr_current',this)"
+            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+            background:none;border:none;cursor:pointer;color:#94a3b8;padding:4px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-size:12px;font-weight:700;color:#475569;
+          text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">
+          New Password <span style="color:#dc2626;">*</span>
+        </label>
+        <div style="position:relative;">
+          <input id="pr_new" type="password" placeholder="At least 8 characters"
+            style="width:100%;padding:11px 42px 11px 14px;border-radius:10px;
+            border:1.5px solid #e2e8f0;font-size:14px;box-sizing:border-box;
+            font-family:inherit;color:#0f172a;">
+          <button type="button" onclick="togglePw('pr_new',this)"
+            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);
+            background:none;border:none;cursor:pointer;color:#94a3b8;padding:4px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div style="margin-bottom:18px;">
+        <label style="display:block;font-size:12px;font-weight:700;color:#475569;
+          text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">
+          Confirm New Password <span style="color:#dc2626;">*</span>
+        </label>
+        <input id="pr_confirm" type="password" placeholder="Repeat new password"
+          style="width:100%;padding:11px 14px;border-radius:10px;
+          border:1.5px solid #e2e8f0;font-size:14px;box-sizing:border-box;
+          font-family:inherit;color:#0f172a;">
+      </div>
+      <div id="pr_msg" style="font-size:13px;color:#dc2626;margin-bottom:12px;min-height:18px;"></div>
+      <button onclick="submitPasswordReset()"
+        style="width:100%;background:#2563eb;color:#fff;border:none;padding:13px;
+        border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;
+        font-family:inherit;transition:background 0.15s;"
+        onmouseover="this.style.background='#1d4ed8'"
+        onmouseout="this.style.background='#2563eb'">
+        Update Password
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes _cfIn { from { transform:scale(0.93);opacity:0 } to { transform:scale(1);opacity:1 } }
+  #pr_current:focus, #pr_new:focus, #pr_confirm:focus {
+    outline:none; border-color:#3b82f6;
+    box-shadow:0 0 0 3px rgba(59,130,246,0.12);
+  }
+</style>
+
 </body>
 </html>

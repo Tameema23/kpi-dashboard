@@ -320,6 +320,7 @@ async function loadWeekly() {
   countUp("wk_conv", ytdConvRatio, "", "%");
   countUp("wk_bad_lead", ytdBadLeadRatio, "", "%");
   countUp("wk_refs", ytdRefsPerPres, "", "", 2);
+  countUp("wk_ref_sales", ytdRefSales);
   countUp("wk_ref_close", ytdRefClosingRatio, "", "%");
   countUp("wk_ref_sales_ratio", ytdRefSalesRatio, "", "%");
 
