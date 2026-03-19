@@ -1346,7 +1346,18 @@ function renderInstallAppCard() {
         '<div><h2 style="margin:0 0 2px 0;font-size:17px;">App Installed</h2>' +
         '<p style="margin:0;font-size:13px;color:#64748b;">KPI Dashboard is installed on this device</p></div>' +
       '</div>' +
-      '<p style="font-size:13px;color:#64748b;margin:0;line-height:1.6;">Youre running the installed version. Find it on your home screen.</p>';
+      '<p style="font-size:13px;color:#64748b;margin:0 0 16px 0;line-height:1.6;">You're running the installed version. Find it on your home screen.</p>' +
+      '<button onclick="uninstallPWA()" style="background:none;border:1.5px solid #e2e8f0;color:#64748b;' +
+        'border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;' +
+        'display:flex;align-items:center;gap:6px;font-family:inherit;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+          '<polyline points="3 6 5 6 21 6"/>' +
+          '<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>' +
+          '<path d="M10 11v6"/><path d="M14 11v6"/>' +
+          '<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>' +
+        '</svg>' +
+        'I removed it — show install prompt again' +
+      '</button>';
     return;
   }
 
@@ -1377,6 +1388,19 @@ function renderInstallAppCard() {
     '</p>' +
     installBtn;
 }
+
+/* ── uninstallPWA — called from Settings "I removed it" button ───
+   Clears the installed flag and re-shows the install prompt card.
+   Note: browsers don't let JS actually uninstall a PWA — the user
+   removes it from their home screen manually. This button just
+   resets the state so the "Install Now" prompt appears again. */
+window.uninstallPWA = function() {
+  localStorage.removeItem("pwaInstalled");
+  localStorage.removeItem("pwaInstallDismissed");
+  if (typeof renderInstallAppCard === "function") renderInstallAppCard();
+  // Re-show the auto-banner next time they visit any page
+  showToast("Install prompt reset. Use the button below to reinstall.", "info");
+};
 
 /* ── #37  Environment-based API URL ──────────────────────────────
    Reads API_BASE from a <meta name="api-base"> tag if present,
