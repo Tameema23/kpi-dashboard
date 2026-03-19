@@ -130,7 +130,7 @@ const API_BASE = API;
 const TOKEN = localStorage.getItem("token");
 
 if (!TOKEN && !location.pathname.includes("login")) {
-  location.href = "login.html";
+  location.href = "/login.html";
 }
 
 const CHART_COLORS = {
