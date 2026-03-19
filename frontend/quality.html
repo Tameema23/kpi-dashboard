@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="api-base" content="https://data-log.onrender.com">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="KPI Dashboard">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="api-base" content="https://data-log.onrender.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -226,6 +232,7 @@
       entriesCache = await res.json();
       renderQualityAnalytics(entriesCache);
       renderTable(entriesCache);
+      if (typeof applyQualityDueIndicators === "function") applyQualityDueIndicators(entriesCache);
     } catch(e) { console.error(e); }
   }
 

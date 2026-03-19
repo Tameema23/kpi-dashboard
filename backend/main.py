@@ -20,7 +20,7 @@ Security:
   ✓ Timing-safe login (prevents username enumeration)
 """
 
-import os, re, html, logging
+import os, re, html, logging, shutil
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -114,6 +114,15 @@ def settings_page(): return FileResponse("frontend/settings.html")
 def planner_page():  return FileResponse("frontend/planner.html")
 @app.get("/quality.html")
 def quality_page():  return FileResponse("frontend/quality.html")
+
+@app.get("/manifest.json")
+def manifest():      return FileResponse("frontend/manifest.json", media_type="application/manifest+json")
+
+@app.get("/icon-192.png")
+def icon192():       return FileResponse("frontend/icon-192.png", media_type="image/png")
+
+@app.get("/icon-512.png")
+def icon512():       return FileResponse("frontend/icon-512.png", media_type="image/png")
 
 # ── DB ─────────────────────────────────────────────────────────────────────────
 create_db()
@@ -682,6 +691,82 @@ def delete_quality(entry_id: int,
     if not entry: raise HTTPException(404, "Entry not found.")
     db.delete(entry); db.commit()
     return {"status": "deleted"}
+
+# ── Database backup ───────────────────────────────────────────────────────────
+
+@app.post("/backup")
+def backup_database(user: User = Depends(get_current_user)):
+    """
+    Creates a timestamped copy of the SQLite database file.
+    Stored in /data/backups/ on Render's persistent disk.
+    Admins can also trigger this manually from Settings.
+    """
+    _require_admin(user)
+
+    db_path = os.environ.get("DATABASE_URL", "sqlite:////data/kpi.db")
+
+    # Only works for SQLite
+    if not db_path.startswith("sqlite:///"):
+        raise HTTPException(400, "Backup is only supported for SQLite databases.")
+
+    # Strip sqlite:/// prefix to get the actual file path
+    src = db_path.replace("sqlite:///", "")
+
+    if not os.path.exists(src):
+        raise HTTPException(404, "Database file not found.")
+
+    # Create backups directory next to the database
+    backup_dir = os.path.join(os.path.dirname(src), "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    # Timestamped filename
+    ts       = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y%m%d_%H%M%S")
+    filename = f"kpi_backup_{ts}.db"
+    dest     = os.path.join(backup_dir, filename)
+
+    shutil.copy2(src, dest)
+    logger.info(f"Backup created: {dest} by user {user.username}")
+
+    # Keep only the 10 most recent backups to save disk space
+    try:
+        existing = sorted([
+            f for f in os.listdir(backup_dir) if f.startswith("kpi_backup_") and f.endswith(".db")
+        ])
+        while len(existing) > 10:
+            os.remove(os.path.join(backup_dir, existing.pop(0)))
+    except Exception as e:
+        logger.warning(f"Backup cleanup failed: {e}")
+
+    return {"status": "ok", "filename": filename, "path": dest}
+
+
+@app.get("/backups")
+def list_backups(user: User = Depends(get_current_user)):
+    """Lists available backup files with their sizes and timestamps."""
+    _require_admin(user)
+
+    db_path   = os.environ.get("DATABASE_URL", "sqlite:////data/kpi.db")
+    if not db_path.startswith("sqlite:///"):
+        return []
+
+    src        = db_path.replace("sqlite:///", "")
+    backup_dir = os.path.join(os.path.dirname(src), "backups")
+
+    if not os.path.exists(backup_dir):
+        return []
+
+    files = []
+    for f in sorted(os.listdir(backup_dir), reverse=True):
+        if f.startswith("kpi_backup_") and f.endswith(".db"):
+            fp   = os.path.join(backup_dir, f)
+            size = os.path.getsize(fp)
+            files.append({
+                "filename": f,
+                "size_kb":  round(size / 1024, 1),
+                "created":  f.replace("kpi_backup_", "").replace(".db", "").replace("_", " ")
+            })
+    return files
+
 
 # ── Audit log ──────────────────────────────────────────────────────────────────
 

@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="api-base" content="https://data-log.onrender.com">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="KPI Dashboard">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="api-base" content="https://data-log.onrender.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="/static/style.css">
   <title>Weekly Planner</title>
@@ -362,6 +368,8 @@
       days.forEach(function (day) {
         var cell = document.createElement("div");
         cell.className = "pg-cell" + (fmtDate(day) === today ? " pg-cell-today" : "");
+        cell.dataset.date = fmtDate(day);
+        cell.dataset.hour = hour;
 
         // Click empty area to add
         cell.addEventListener("click", (function (d, hr) {
@@ -384,6 +392,7 @@
           var block = document.createElement("div");
           var isCallback = appt.appt_type === "callback";
           block.className = "pg-appt-block" + (isCallback ? " pg-appt-callback" : "");
+          block.dataset.apptId = appt.id;
           block.innerHTML =
             (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
@@ -1044,7 +1053,53 @@
   loadAppointments().then(function() {
     updatePlannerSummary(appointments, currentWeekStart);
     if (typeof initPullToRefresh === "function") initPullToRefresh(loadAppointments);
+
+    // Drag-and-drop rescheduling
+    if (typeof initDragDrop === "function") {
+      var dd = initDragDrop(
+        function() { return appointments; },
+        rescheduleAppointment,
+        renderPlanner
+      );
+      // Wrap renderPlanner to re-attach drag handlers on every render
+      var _basePlannerRender = renderPlanner;
+      renderPlanner = function() {
+        _basePlannerRender();
+        dd.attachDragHandlers();
+      };
+      dd.attachDragHandlers(); // initial attach
+    }
+
+    // Auto-refresh every 30 seconds
+    if (typeof initPlannerAutoRefresh === "function") {
+      initPlannerAutoRefresh(
+        function() { return appointments; },
+        function(fresh) { appointments = fresh; },
+        function() { renderPlanner(); updatePlannerSummary(appointments, currentWeekStart); }
+      );
+    }
   });
+
+  // Reschedule via API (used by drag-drop)
+  async function rescheduleAppointment(id, changes) {
+    var appt = appointments.find(function(a) { return a.id === id; });
+    if (!appt) return null;
+    try {
+      var res = await fetch(API + "/appointments/" + id, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify({
+          lead_name:     appt.lead_name,
+          comments:      appt.comments || "",
+          scheduled_for: changes.scheduled_for || appt.scheduled_for,
+          appt_type:     appt.appt_type || "appointment",
+          booking_tz:    appt.booking_tz || "America/Edmonton"
+        })
+      });
+      if (res.ok) return await res.json();
+      return null;
+    } catch(e) { return null; }
+  }
 
 })(); // end IIFE
 </script>

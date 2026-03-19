@@ -592,6 +592,7 @@ function drawChart({
       labels,
       datasets: finalDatasets
     },
+    // Note: addChartMobileValues is called after chart creation below
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -635,6 +636,11 @@ function drawChart({
       )
     }
   });
+
+  // Add mobile value display for line/pie charts
+  if (typeof addChartMobileValues === "function") {
+    addChartMobileValues(canvasId, type, labels, data, datasets, colors);
+  }
 }
 
 /* ================= SAVE DAY ================= */
@@ -1333,3 +1339,530 @@ document.addEventListener("DOMContentLoaded", function() {
 
 // Apply dark mode immediately (before DOMContentLoaded) to prevent flash
 initDarkMode();
+/* =================================================================
+   NEW FEATURES — PWA, transitions, cold start, quality, drag-drop,
+   chart mobile labels, planner auto-refresh, nav deduplication,
+   database backup endpoint
+   ================================================================= */
+
+/* ── PAGE TRANSITIONS ────────────────────────────────────────────
+   Intercepts internal link clicks and adds a 80ms fade-out before
+   navigating. The fade-in is handled by the CSS @keyframes pageIn. */
+(function() {
+  function isInternal(href) {
+    if (!href) return false;
+    if (href.startsWith("http") && !href.includes(location.hostname)) return false;
+    if (href.startsWith("#") || href.startsWith("javascript")) return false;
+    return true;
+  }
+
+  document.addEventListener("click", function(e) {
+    var a = e.target.closest("a[href]");
+    if (!a) return;
+    var href = a.getAttribute("href");
+    if (!isInternal(href)) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (href === location.pathname || href === location.href) return;
+    e.preventDefault();
+    document.body.classList.add("page-exit");
+    setTimeout(function() { location.href = href; }, 80);
+  });
+
+  // Also handle onclick="location.href=..." patterns by patching location.href setter
+  // (We do this by wrapping window.onload navigation — existing onclick navigations
+  //  already work because the CSS animation fires on body load anyway)
+})();
+
+/* ── COLD START OVERLAY ──────────────────────────────────────────
+   Shows a "Connecting to server..." overlay after 3 seconds if
+   the first API call hasn't returned. Disappears on first response.
+   Render free tier can take 30-60s to wake up. */
+(function() {
+  if (location.pathname.includes("login")) return;
+
+  var overlay = null;
+  var timer   = null;
+  var dismissed = false;
+
+  function showOverlay() {
+    if (dismissed) return;
+    overlay = document.createElement("div");
+    overlay.className = "cold-start-overlay visible";
+    overlay.innerHTML =
+      '<div class="cold-start-spinner"></div>' +
+      '<div class="cold-start-text">' +
+        'Connecting to server...' +
+        '<div class="cold-start-sub">Render free tier is waking up — usually takes 20-40 seconds</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  function hideOverlay() {
+    dismissed = true;
+    clearTimeout(timer);
+    if (overlay) { overlay.remove(); overlay = null; }
+  }
+
+  // Show after 3 seconds if page hasn't loaded data yet
+  timer = setTimeout(showOverlay, 3000);
+
+  // Intercept all fetch calls — hide overlay on first successful response
+  var _origFetch = window.fetch;
+  window.fetch = function() {
+    return _origFetch.apply(this, arguments).then(function(res) {
+      if (res.ok) hideOverlay();
+      return res;
+    }).catch(function(err) {
+      throw err;
+    });
+  };
+
+  // Also hide if page becomes visible after being hidden
+  document.addEventListener("visibilitychange", function() {
+    if (!document.hidden) hideOverlay();
+  });
+})();
+
+/* ── PLANNER AUTO-REFRESH ────────────────────────────────────────
+   Polls /appointments every 30 seconds on the planner page.
+   Only re-renders if the data has actually changed (compares count
+   and last booked_at). Silently updates — no disruptive flash. */
+function initPlannerAutoRefresh(getAppointments, setAppointments, renderFn) {
+  var INTERVAL = 30000; // 30 seconds
+  var lastHash = "";
+  var intervalId = null;
+
+  function hashAppts(appts) {
+    // Quick hash: count + newest booked_at
+    var sorted = appts.slice().sort(function(a, b) {
+      return (b.booked_at || "").localeCompare(a.booked_at || "");
+    });
+    return appts.length + "|" + (sorted[0] ? sorted[0].booked_at : "");
+  }
+
+  async function poll() {
+    try {
+      var res = await fetch(API_BASE + "/appointments", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (!res.ok) return;
+      var fresh = await res.json();
+      var hash  = hashAppts(fresh);
+      if (hash !== lastHash) {
+        lastHash = hash;
+        setAppointments(fresh);
+        renderFn();
+        // Update badge timestamp
+        var newest = fresh.reduce(function(max, a) {
+          var t = new Date(a.booked_at).getTime();
+          return t > max ? t : max;
+        }, 0);
+        if (newest > 0) {
+          // If a new appointment was booked by someone else, show subtle indicator
+          var lastSeen = parseInt(localStorage.getItem("planner_last_seen") || "0");
+          if (newest > lastSeen) {
+            // Silent re-render already done above — no toast to avoid being annoying
+          }
+        }
+      }
+    } catch(e) { /* silent — don't disrupt the user */ }
+  }
+
+  // Set initial hash
+  lastHash = hashAppts(getAppointments());
+
+  intervalId = setInterval(poll, INTERVAL);
+
+  // Stop polling when page is hidden, restart when visible
+  document.addEventListener("visibilitychange", function() {
+    if (document.hidden) {
+      clearInterval(intervalId);
+    } else {
+      poll(); // Immediate refresh on return
+      intervalId = setInterval(poll, INTERVAL);
+    }
+  });
+
+  return function stop() { clearInterval(intervalId); };
+}
+
+/* ── QUALITY FOLLOW-UP DUE INDICATORS ───────────────────────────
+   After renderTable(), scan rows and highlight overdue/due-soon
+   entries. Called with the entries array. */
+function applyQualityDueIndicators(entries) {
+  var tbody = document.getElementById("qualityBody");
+  if (!tbody) return;
+
+  var today = new Date();
+  today.setHours(0, 0, 0, 0);
+  var soonMs = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  var rows = tbody.querySelectorAll("tr");
+  rows.forEach(function(row, i) {
+    var entry = entries[i];
+    if (!entry) return;
+
+    // Parse follow_up date — it might be "2025-03-15" or "Mar 15, 2025" etc.
+    var followUp = (entry.follow_up || "").trim();
+    if (!followUp) return;
+
+    // Try parsing as a date
+    var dt = new Date(followUp);
+    if (isNaN(dt.getTime())) return; // not a parseable date — skip
+
+    dt.setHours(0, 0, 0, 0);
+    var diff = dt.getTime() - today.getTime();
+
+    // Remove old classes
+    row.classList.remove("quality-overdue", "quality-due-soon");
+
+    // Find the follow_up cell (index 5) and add badge
+    var fuCell = row.cells[5];
+    if (!fuCell) return;
+
+    // Remove existing due badge
+    var existingBadge = fuCell.querySelector(".due-badge");
+    if (existingBadge) existingBadge.remove();
+
+    var badge = document.createElement("span");
+    badge.className = "due-badge";
+
+    if (diff < 0) {
+      // Overdue
+      row.classList.add("quality-overdue");
+      badge.classList.add("overdue");
+      var days = Math.abs(Math.round(diff / (1000*60*60*24)));
+      badge.innerHTML =
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+        (days === 0 ? "Due today" : days + "d overdue");
+    } else if (diff <= soonMs) {
+      // Due within 7 days
+      row.classList.add("quality-due-soon");
+      badge.classList.add("soon");
+      var daysLeft = Math.round(diff / (1000*60*60*24));
+      badge.innerHTML =
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+        (daysLeft === 0 ? "Due today" : "Due in " + daysLeft + "d");
+    } else {
+      return; // Not due soon — no badge needed
+    }
+
+    fuCell.appendChild(badge);
+  });
+}
+
+/* ── DRAG AND DROP RESCHEDULING ──────────────────────────────────
+   Drag an appointment block to any time-slot cell to reschedule it.
+   Shows an undo toast after the API call completes.
+   Must be called after renderPlanner() to attach to new elements. */
+function initDragDrop(getAppointments, saveAppointmentFn, renderFn) {
+  var dragAppt   = null;  // appointment being dragged
+  var dragEl     = null;  // DOM element being dragged
+  var ghostEl    = null;  // preview ghost in target cell
+  var undoStack  = [];    // {id, old_scheduled_for} for undo
+
+  // Re-attach after every render by calling this on the grid
+  function attachDragHandlers() {
+    var grid = document.getElementById("plannerGrid");
+    if (!grid) return;
+
+    // ── Draggable blocks ─────────────────────────────────────
+    grid.querySelectorAll(".pg-appt-block").forEach(function(block) {
+      if (block._dragAttached) return;
+      block._dragAttached = true;
+      block.draggable = true;
+
+      block.addEventListener("dragstart", function(e) {
+        // Find the appointment by matching lead_name + time from block content
+        var nameEl = block.querySelector(".pg-appt-name");
+        var timeEl = block.querySelector(".pg-appt-time");
+        if (!nameEl || !timeEl) return;
+
+        // Store appt id on the element (set during renderPlanner)
+        var apptId = parseInt(block.dataset.apptId);
+        var appts  = getAppointments();
+        dragAppt   = appts.find(function(a) { return a.id === apptId; });
+        if (!dragAppt) return;
+
+        dragEl = block;
+        dragEl.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", String(dragAppt.id));
+      });
+
+      block.addEventListener("dragend", function() {
+        if (dragEl) dragEl.classList.remove("dragging");
+        clearGhost();
+        dragAppt = null;
+        dragEl   = null;
+        // Clean up all drag-over highlights
+        document.querySelectorAll(".pg-cell.drag-over").forEach(function(c) {
+          c.classList.remove("drag-over", "callback-over");
+        });
+      });
+    });
+
+    // ── Drop target cells ─────────────────────────────────────
+    grid.querySelectorAll(".pg-cell").forEach(function(cell) {
+      if (cell._dropAttached) return;
+      cell._dropAttached = true;
+
+      cell.addEventListener("dragover", function(e) {
+        if (!dragAppt) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+
+        // Highlight cell
+        document.querySelectorAll(".pg-cell.drag-over").forEach(function(c) {
+          if (c !== cell) c.classList.remove("drag-over", "callback-over");
+        });
+        cell.classList.add("drag-over");
+        if (dragAppt.appt_type === "callback") cell.classList.add("callback-over");
+
+        // Show ghost
+        clearGhost();
+        ghostEl = document.createElement("div");
+        ghostEl.className = "drop-ghost " + (dragAppt.appt_type === "callback" ? "callback" : "appointment");
+        ghostEl.innerText = dragAppt.lead_name;
+        cell.appendChild(ghostEl);
+      });
+
+      cell.addEventListener("dragleave", function(e) {
+        // Only clear if actually leaving the cell (not entering a child)
+        if (!cell.contains(e.relatedTarget)) {
+          cell.classList.remove("drag-over", "callback-over");
+          clearGhost();
+        }
+      });
+
+      cell.addEventListener("drop", async function(e) {
+        e.preventDefault();
+        if (!dragAppt) return;
+
+        cell.classList.remove("drag-over", "callback-over");
+        clearGhost();
+
+        // Get target date and hour from the cell's position in the grid
+        var targetDate = cell.dataset.date;
+        var targetHour = cell.dataset.hour;
+        if (!targetDate || !targetHour) return;
+
+        // Keep original minutes
+        var origMinutes = (dragAppt.scheduled_for || "T00:00").split("T")[1].split(":")[1] || "00";
+        var newScheduled = targetDate + "T" + String(targetHour).padStart(2, "0") + ":" + origMinutes;
+
+        if (newScheduled === dragAppt.scheduled_for) return; // no change
+
+        var oldScheduled = dragAppt.scheduled_for;
+        var apptId       = dragAppt.id;
+
+        // Optimistic update — update local data immediately
+        var appts = getAppointments();
+        var apptIdx = appts.findIndex(function(a) { return a.id === apptId; });
+        if (apptIdx === -1) return;
+        appts[apptIdx].scheduled_for = newScheduled;
+        setAppointments(appts);
+        renderFn();
+
+        // Save to server
+        try {
+          var result = await saveAppointmentFn(apptId, { scheduled_for: newScheduled });
+          if (result) {
+            // Show undo toast
+            showUndoToast(
+              "Moved to " + formatDropTime(newScheduled),
+              function() {
+                // Undo — move back
+                var appts2 = getAppointments();
+                var idx2 = appts2.findIndex(function(a) { return a.id === apptId; });
+                if (idx2 !== -1) appts2[idx2].scheduled_for = oldScheduled;
+                setAppointments(appts2);
+                renderFn();
+                saveAppointmentFn(apptId, { scheduled_for: oldScheduled });
+              }
+            );
+          }
+        } catch(err) {
+          // Revert on error
+          var appts3 = getAppointments();
+          var idx3 = appts3.findIndex(function(a) { return a.id === apptId; });
+          if (idx3 !== -1) appts3[idx3].scheduled_for = oldScheduled;
+          setAppointments(appts3);
+          renderFn();
+          showToast("Failed to reschedule. Please try again.", "error");
+        }
+
+        dragAppt = null;
+        dragEl   = null;
+      });
+    });
+  }
+
+  function clearGhost() {
+    if (ghostEl) { ghostEl.remove(); ghostEl = null; }
+  }
+
+  function formatDropTime(iso) {
+    var parts = (iso || "T").split("T");
+    var h = parseInt((parts[1] || "0").split(":")[0]);
+    var m = (parts[1] || "00:00").split(":")[1];
+    var ampm = h >= 12 ? "PM" : "AM";
+    var h12  = h % 12 || 12;
+    var days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    var d    = new Date(parts[0] + "T00:00:00");
+    return days[d.getDay()] + " " + h12 + ":" + m + " " + ampm;
+  }
+
+  function showUndoToast(message, onUndo) {
+    var container = document.getElementById("toast-container");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "toast-container";
+      document.body.appendChild(container);
+    }
+    var toast = document.createElement("div");
+    toast.className = "toast success";
+    toast.style.display = "flex";
+    toast.style.alignItems = "center";
+    toast.style.gap = "8px";
+
+    var undoBtn = document.createElement("button");
+    undoBtn.className = "toast-undo-btn";
+    undoBtn.innerText = "Undo";
+    undoBtn.onclick = function() {
+      toast.remove();
+      onUndo();
+    };
+
+    toast.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>' +
+      message;
+    toast.appendChild(undoBtn);
+    container.appendChild(toast);
+    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 5000);
+  }
+
+  return { attachDragHandlers: attachDragHandlers };
+}
+
+/* ── CHART MOBILE DATA VALUES ────────────────────────────────────
+   For line and pie charts, renders a simple value list below the
+   canvas on mobile screens (where hover is unavailable). */
+function addChartMobileValues(canvasId, type, labels, data, datasets, colors) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  // Remove any existing mobile values
+  var existing = canvas.parentElement.querySelector(".chart-mobile-values");
+  if (existing) existing.remove();
+
+  // Only for line and pie
+  if (type !== "line" && type !== "pie") return;
+
+  var container = document.createElement("div");
+  container.className = "chart-mobile-values";
+
+  if (type === "pie" && data && data.length > 0) {
+    var total = data.reduce(function(s, v) { return s + v; }, 0);
+    var bgColors = (colors && colors.bg) ? colors.bg : ["#2563eb","#dc2626","#16a34a","#f59e0b"];
+    if (!Array.isArray(bgColors)) bgColors = [bgColors];
+    labels.forEach(function(lbl, i) {
+      var val  = data[i] || 0;
+      var pct  = total > 0 ? ((val / total) * 100).toFixed(1) : "0.0";
+      var color = bgColors[i % bgColors.length];
+      var item = document.createElement("div");
+      item.className = "chart-mv-item";
+      item.innerHTML =
+        '<div class="chart-mv-dot" style="background:' + color + '"></div>' +
+        lbl + ': <span class="chart-mv-val">' + val + ' (' + pct + '%)</span>';
+      container.appendChild(item);
+    });
+  } else if (type === "line") {
+    // Show latest data point for each dataset
+    var ds = datasets || [{ label: "", data: data || [], borderColor: (colors && colors.border) || "#2563eb" }];
+    ds.forEach(function(d) {
+      if (!d.data || d.data.length === 0) return;
+      var latest = d.data[d.data.length - 1];
+      var val = typeof latest === "number" ? (Number.isInteger(latest) ? latest : latest.toFixed(1)) : latest;
+      var item = document.createElement("div");
+      item.className = "chart-mv-item";
+      item.innerHTML =
+        '<div class="chart-mv-dot" style="background:' + (d.borderColor || "#2563eb") + '"></div>' +
+        (d.label || "") + ': <span class="chart-mv-val">' + val + '</span>';
+      container.appendChild(item);
+    });
+  }
+
+  if (container.children.length > 0) {
+    canvas.parentElement.appendChild(container);
+  }
+}
+
+/* ── NAV DEDUPLICATION — renderNav() ────────────────────────────
+   Call renderNav() from any page to stamp the topbar + bottom nav.
+   Pass `activePage` as one of: home, log, reports, history,
+   planner, quality, settings.
+   This is OPTIONAL — existing pages still work with their hardcoded
+   nav. This function is here for future pages or nav refactors. */
+function renderNav(activePage) {
+  var role       = localStorage.getItem("role") || "admin";
+  var username   = localStorage.getItem("username") || "";
+  var canQuality = localStorage.getItem("can_quality") === "1";
+  var canPlanner = localStorage.getItem("can_planner") === "1";
+
+  var pages = [
+    { id: "home",     href: "/index.html",   label: "Home",     adminOnly: true },
+    { id: "log",      href: "/log.html",     label: "Log Day",  adminOnly: true },
+    { id: "reports",  href: "/reports.html", label: "Reports",  adminOnly: true },
+    { id: "history",  href: "/history.html", label: "History",  adminOnly: true },
+    { id: "planner",  href: "/planner.html", label: "Planner",  adminOnly: false },
+    { id: "quality",  href: "/quality.html", label: "Quality",  adminOnly: false, qualityOnly: true },
+    { id: "settings", href: "/settings.html",label: "Settings", adminOnly: false },
+  ];
+
+  function shouldShow(page) {
+    if (page.adminOnly && role !== "admin") return false;
+    if (page.qualityOnly && role !== "admin" && !canQuality) return false;
+    if (page.id === "planner" && role !== "admin" && !canPlanner && !canQuality) return false;
+    return true;
+  }
+
+  // Topbar nav
+  var topbarNav = document.querySelector(".topbar-nav");
+  if (topbarNav) {
+    topbarNav.innerHTML = pages.filter(shouldShow).map(function(p) {
+      var cls = p.id === activePage ? " class=\"active\"" : "";
+      return '<a href="' + p.href + '"' + cls + '>' + p.label + '</a>';
+    }).join("");
+  }
+
+  // Username
+  var userEl = document.getElementById("username-text");
+  if (userEl) userEl.innerText = username;
+}
+
+/* ── DATABASE BACKUP endpoint trigger ───────────────────────────
+   Admins can trigger a manual backup from Settings.
+   The actual backup logic lives in main.py (/backup endpoint).
+   This function calls it and shows feedback. */
+async function triggerBackup() {
+  var btn = document.getElementById("backupBtn");
+  if (btn) { btn.disabled = true; btn.innerText = "Backing up..."; }
+  try {
+    var res = await fetch(API_BASE + "/backup", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + TOKEN }
+    });
+    if (res.ok) {
+      var data = await res.json();
+      showToast("Backup complete: " + (data.filename || "kpi_backup.db"), "success");
+    } else {
+      var err = await res.json().catch(function() { return {}; });
+      showToast(err.detail || "Backup failed.", "error");
+    }
+  } catch(e) {
+    showToast("Backup failed — server error.", "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = "Backup Now"; }
+  }
+}

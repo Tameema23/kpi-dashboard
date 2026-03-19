@@ -1961,3 +1961,198 @@ body.dark-mode .skeleton {
   font-size: 18px;
   line-height: 1;
 }
+/* =============================================
+   PAGE TRANSITIONS
+   ============================================= */
+
+body {
+  animation: pageIn 0.12s ease-out both;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Prevent flash on internal navigation */
+body.page-exit {
+  animation: pageOut 0.08s ease-in both;
+  pointer-events: none;
+}
+
+@keyframes pageOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* =============================================
+   COLD START OVERLAY
+   ============================================= */
+
+.cold-start-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cold-start-overlay.visible { display: flex; }
+
+.cold-start-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(255,255,255,0.15);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: cspin 0.9s linear infinite;
+}
+
+@keyframes cspin {
+  to { transform: rotate(360deg); }
+}
+
+.cold-start-text {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.cold-start-sub {
+  color: rgba(255,255,255,0.5);
+  font-size: 12px;
+}
+
+/* =============================================
+   QUALITY DUE / OVERDUE INDICATOR
+   ============================================= */
+
+tr.quality-overdue td { background: #fff7f7 !important; }
+tr.quality-overdue td:first-child { border-left: 3px solid #dc2626; }
+
+tr.quality-due-soon td { background: #fffbeb !important; }
+tr.quality-due-soon td:first-child { border-left: 3px solid #f59e0b; }
+
+.due-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.due-badge.overdue { background: #fee2e2; color: #dc2626; }
+.due-badge.soon    { background: #fef3c7; color: #d97706; }
+.due-badge.ok      { background: #dcfce7; color: #166534; }
+
+/* dark mode due rows */
+body.dark-mode tr.quality-overdue td  { background: #2d1515 !important; }
+body.dark-mode tr.quality-due-soon td { background: #2d2210 !important; }
+
+/* =============================================
+   DRAG AND DROP — PLANNER
+   ============================================= */
+
+.pg-appt-block {
+  cursor: grab;
+}
+
+.pg-appt-block:active {
+  cursor: grabbing;
+}
+
+.pg-appt-block.dragging {
+  opacity: 0.45;
+  transform: scale(0.97);
+  box-shadow: none !important;
+}
+
+.pg-cell.drag-over {
+  background: rgba(59, 130, 246, 0.12) !important;
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+}
+
+.pg-cell.drag-over.callback-over {
+  background: rgba(245, 158, 11, 0.12) !important;
+  outline-color: #f59e0b;
+}
+
+/* Drop ghost — shows where block will land */
+.drop-ghost {
+  border-radius: 6px;
+  margin: 2px 3px;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.drop-ghost.appointment { background: #bfdbfe; color: #1e40af; }
+.drop-ghost.callback    { background: #fde68a; color: #92400e; }
+
+/* Undo toast button */
+.toast-undo-btn {
+  background: none;
+  border: 1.5px solid rgba(255,255,255,0.4);
+  color: #fff;
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.toast-undo-btn:hover { background: rgba(255,255,255,0.15); }
+
+/* =============================================
+   CHART MOBILE DATA LABELS
+   (line/pie chart value display on mobile)
+   ============================================= */
+
+.chart-mobile-values {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .chart-mobile-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 14px 4px;
+    border-top: 1px solid #f1f5f9;
+  }
+
+  .chart-mv-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #475569;
+    font-weight: 600;
+  }
+
+  .chart-mv-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .chart-mv-val {
+    font-weight: 800;
+    color: #0f172a;
+  }
+}
