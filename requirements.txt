@@ -8,12 +8,15 @@ uvicorn[standard]==0.30.6
 # Database ORM
 sqlalchemy==2.0.36
 
+# ── PostgreSQL driver ──────────────────────────────────────────────────────────
+# Required for Postgres support (Render managed database)
+psycopg2-binary==2.9.10
+
 # ── Security packages ──────────────────────────────────────────────────────────
 
-# bcrypt password hashing (replaces plain-text password storage)
+# bcrypt password hashing
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.0
-
 
 # JWT token creation and validation
 python-jose[cryptography]==3.3.0
@@ -21,14 +24,6 @@ python-jose[cryptography]==3.3.0
 # Rate limiting (brute-force protection on /login)
 slowapi==0.1.9
 
-# Input validation (already used via pydantic, included for clarity)
+# Input validation
 pydantic==2.9.2
 email-validator==2.2.0
-
-# Timezone support (Python 3.9+ has zoneinfo built-in, this is the backport)
-# Remove if using Python 3.9+
-# backports.zoneinfo==0.2.1
-
-# ── Optional: Postgres support ─────────────────────────────────────────────────
-# Uncomment when you migrate from SQLite to Postgres (Railway, Render, etc.)
-# psycopg2-binary==2.9.10

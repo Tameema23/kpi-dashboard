@@ -95,6 +95,33 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+# ── Security headers middleware ────────────────────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"]           = "DENY"
+        response.headers["X-Content-Type-Options"]    = "nosniff"
+        response.headers["X-XSS-Protection"]          = "1; mode=block"
+        response.headers["Referrer-Policy"]            = "strict-origin-when-cross-origin"
+        response.headers["Strict-Transport-Security"]  = "max-age=31536000; includeSubDomains"
+        response.headers["Permissions-Policy"]         = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"]   = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self' https://data-log.onrender.com; "
+            "frame-ancestors 'none';"
+        )
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # ── Frontend pages ─────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
@@ -697,29 +724,33 @@ def delete_quality(entry_id: int,
 @app.post("/backup")
 def backup_database(user: User = Depends(get_current_user)):
     """
-    Creates a timestamped copy of the SQLite database file.
-    Stored in /data/backups/ on Render's persistent disk.
-    Admins can also trigger this manually from Settings.
+    SQLite: creates a timestamped copy of the database file.
+    PostgreSQL: returns a message directing to Render's built-in backup UI.
+    Admins only.
     """
     _require_admin(user)
 
-    db_path = os.environ.get("DATABASE_URL", "sqlite:////data/kpi.db")
+    db_url = os.environ.get("DATABASE_URL", "sqlite:////data/kpi.db")
 
-    # Only works for SQLite
-    if not db_path.startswith("sqlite:///"):
-        raise HTTPException(400, "Backup is only supported for SQLite databases.")
+    # ── PostgreSQL ─────────────────────────────────────────────────────────────
+    if not db_url.startswith("sqlite:///"):
+        return {
+            "status": "postgres",
+            "message": (
+                "Your database is PostgreSQL. Render manages backups automatically. "
+                "Go to Render Dashboard → your PostgreSQL database → Backups tab "
+                "to download a backup or restore a previous version."
+            )
+        }
 
-    # Strip sqlite:/// prefix to get the actual file path
-    src = db_path.replace("sqlite:///", "")
-
+    # ── SQLite (legacy path — kept for safety during migration) ───────────────
+    src = db_url.replace("sqlite:///", "")
     if not os.path.exists(src):
         raise HTTPException(404, "Database file not found.")
 
-    # Create backups directory next to the database
     backup_dir = os.path.join(os.path.dirname(src), "backups")
     os.makedirs(backup_dir, exist_ok=True)
 
-    # Timestamped filename
     ts       = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y%m%d_%H%M%S")
     filename = f"kpi_backup_{ts}.db"
     dest     = os.path.join(backup_dir, filename)
@@ -727,10 +758,10 @@ def backup_database(user: User = Depends(get_current_user)):
     shutil.copy2(src, dest)
     logger.info(f"Backup created: {dest} by user {user.username}")
 
-    # Keep only the 10 most recent backups to save disk space
     try:
         existing = sorted([
-            f for f in os.listdir(backup_dir) if f.startswith("kpi_backup_") and f.endswith(".db")
+            f for f in os.listdir(backup_dir)
+            if f.startswith("kpi_backup_") and f.endswith(".db")
         ])
         while len(existing) > 10:
             os.remove(os.path.join(backup_dir, existing.pop(0)))
@@ -742,14 +773,24 @@ def backup_database(user: User = Depends(get_current_user)):
 
 @app.get("/backups")
 def list_backups(user: User = Depends(get_current_user)):
-    """Lists available backup files with their sizes and timestamps."""
+    """
+    SQLite: lists backup files.
+    PostgreSQL: returns info about Render's managed backup system.
+    """
     _require_admin(user)
 
-    db_path   = os.environ.get("DATABASE_URL", "sqlite:////data/kpi.db")
-    if not db_path.startswith("sqlite:///"):
-        return []
+    db_url = os.environ.get("DATABASE_URL", "sqlite:////data/kpi.db")
 
-    src        = db_path.replace("sqlite:///", "")
+    # ── PostgreSQL ─────────────────────────────────────────────────────────────
+    if not db_url.startswith("sqlite:///"):
+        return [{
+            "filename": "Managed by Render",
+            "size_kb": 0,
+            "created": "See Render Dashboard → PostgreSQL → Backups"
+        }]
+
+    # ── SQLite ─────────────────────────────────────────────────────────────────
+    src        = db_url.replace("sqlite:///", "")
     backup_dir = os.path.join(os.path.dirname(src), "backups")
 
     if not os.path.exists(backup_dir):
