@@ -2227,3 +2227,60 @@ a, button, .btn, .bottom-nav-item, .home-nav-btn, .pg-appt-block {
 @media (max-width: 768px) {
   .planner-search-bar { max-width: 100%; }
 }
+
+/* =============================================
+   QUALITY SEARCH BAR
+   ============================================= */
+
+.quality-search-bar {
+  margin-bottom: 16px;
+  max-width: 520px;
+}
+
+.quality-search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.quality-search-input-wrap:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.10);
+}
+
+.quality-search-input-wrap input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0f172a;
+  background: transparent;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.quality-search-input-wrap input::placeholder { color: #94a3b8; }
+
+/* Highlight matched text in rows */
+mark.q-highlight {
+  background: #fef9c3;
+  color: #713f12;
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: inherit;
+}
+
+/* Row highlight when matched */
+#qualityBody tr.q-match-row {
+  background: #fafcff;
+}
+
+@media (max-width: 768px) {
+  .quality-search-bar { max-width: 100%; }
+}

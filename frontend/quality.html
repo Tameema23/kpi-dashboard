@@ -77,6 +77,26 @@
       <div class="quality-stat"><div class="quality-stat-label">Follow-Ups Assigned</div><div class="quality-stat-value amber">—</div></div>
     </div>
 
+    <!-- Quality search bar -->
+    <div class="quality-search-bar" id="qualitySearchBar">
+      <div class="quality-search-input-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" style="flex-shrink:0;">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input
+          id="qualitySearchInput"
+          type="text"
+          placeholder="Search by name, policy, phone, remarks…"
+          autocomplete="off"
+          oninput="filterQualityTable(this.value)"
+        >
+        <button class="search-clear-btn" id="qualityClearBtn" onclick="clearQualitySearch()" style="display:none;" title="Clear search">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="qualitySearchCount" style="font-size:12px;color:#94a3b8;margin-top:6px;min-height:16px;"></div>
+    </div>
+
     <div style="overflow-x:auto;">
       <table class="history-table">
         <thead>
@@ -375,6 +395,96 @@
   // Close on backdrop click
   document.getElementById("qualityModal").addEventListener("click", function(e) {
     if (e.target === this) closeModal();
+  });
+
+  // ── Quality search ───────────────────────────────────────────
+  function filterQualityTable(query) {
+    var clearBtn   = document.getElementById("qualityClearBtn");
+    var countEl    = document.getElementById("qualitySearchCount");
+    var q          = (query || "").trim().toLowerCase();
+
+    // Show/hide clear button
+    if (clearBtn) clearBtn.style.display = q ? "flex" : "none";
+
+    if (!q) {
+      renderTable(entriesCache);
+      if (typeof applyQualityDueIndicators === "function") applyQualityDueIndicators(entriesCache);
+      if (countEl) countEl.innerText = "";
+      return;
+    }
+
+    // Search across all text fields
+    var filtered = entriesCache.filter(function(e) {
+      return [
+        e.insured_name  || "",
+        e.policy_number || "",
+        e.remarks       || "",
+        e.date          || "",
+        e.phone_number  || "",
+        e.follow_up     || "",
+        e.action        || "",
+        e.alp           || ""
+      ].some(function(val) {
+        return val.toLowerCase().includes(q);
+      });
+    });
+
+    renderTable(filtered);
+    if (typeof applyQualityDueIndicators === "function") applyQualityDueIndicators(filtered);
+
+    // Show match count
+    if (countEl) {
+      if (filtered.length === 0) {
+        countEl.innerHTML = "<span style='color:#dc2626;'>No results for <strong>\u201c" + esc(query.trim()) + "\u201d</strong></span>";
+      } else {
+        countEl.innerHTML = "<span style='color:#2563eb;font-weight:600;'>" + filtered.length + "</span> result" + (filtered.length === 1 ? "" : "s") + " for <strong>\u201c" + esc(query.trim()) + "\u201d</strong>";
+      }
+    }
+
+    // Highlight matching text in the rendered rows
+    if (filtered.length > 0) highlightQualityMatches(q);
+  }
+
+  function clearQualitySearch() {
+    var input = document.getElementById("qualitySearchInput");
+    if (input) { input.value = ""; input.focus(); }
+    filterQualityTable("");
+  }
+
+  function highlightQualityMatches(query) {
+    if (!query) return;
+    var tbody  = document.getElementById("qualityBody");
+    if (!tbody) return;
+    var cells  = tbody.querySelectorAll("td");
+    cells.forEach(function(cell) {
+      // Only highlight text nodes, skip cells with buttons
+      if (cell.querySelector("button")) return;
+      var original = cell.innerHTML;
+      // Strip any previous highlights first
+      var plain = original.replace(/<mark class="q-highlight"[^>]*>(.*?)<\/mark>/gi, "$1");
+      var safe  = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      var regex = new RegExp("(" + safe + ")", "gi");
+      cell.innerHTML = plain.replace(regex, '<mark class="q-highlight">$1</mark>');
+    });
+  }
+
+  // Intercept Ctrl+F / Cmd+F to focus search instead of browser find
+  document.addEventListener("keydown", function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      var input = document.getElementById("qualitySearchInput");
+      if (input) {
+        e.preventDefault();
+        input.focus();
+        input.select();
+      }
+    }
+    if (e.key === "Escape") {
+      var input = document.getElementById("qualitySearchInput");
+      if (document.activeElement === input) {
+        clearQualitySearch();
+        input.blur();
+      }
+    }
   });
 
   loadEntries();
