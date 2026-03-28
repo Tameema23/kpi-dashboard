@@ -379,9 +379,9 @@
   // ── Helpers ────────────────────────────────────────────────
   function esc(str) {
     if (!str) return "";
-    // Only escape < and > to prevent HTML injection.
-    // Do NOT escape & — data is stored as plain text (not HTML-encoded).
-    return String(str).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return String(str)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
 
   function fmtDate(d) {
@@ -453,18 +453,33 @@
 
   function highlightQualityMatches(query) {
     if (!query) return;
-    var tbody  = document.getElementById("qualityBody");
+    var tbody = document.getElementById("qualityBody");
     if (!tbody) return;
-    var cells  = tbody.querySelectorAll("td");
+    var cells = tbody.querySelectorAll("td");
     cells.forEach(function(cell) {
-      // Only highlight text nodes, skip cells with buttons
+      // Skip cells that contain buttons (edit/delete)
       if (cell.querySelector("button")) return;
-      var original = cell.innerHTML;
-      // Strip any previous highlights first
-      var plain = original.replace(/<mark class="q-highlight"[^>]*>(.*?)<\/mark>/gi, "$1");
+
+      // Work on plain text only — never innerHTML.
+      // innerHTML contains HTML entities (&amp; etc.) which break regex matching
+      // and cause double-encoding when re-injected.
+      var text = cell.textContent;
+      if (!text) return;
+
       var safe  = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       var regex = new RegExp("(" + safe + ")", "gi");
-      cell.innerHTML = plain.replace(regex, '<mark class="q-highlight">$1</mark>');
+
+      if (!regex.test(text)) return; // no match in this cell — leave it alone
+
+      // Build new HTML: split on matches, escape each piece, wrap matches in <mark>
+      var parts = text.split(new RegExp("(" + safe + ")", "gi"));
+      cell.innerHTML = parts.map(function(part, i) {
+        // Every odd index is a match (captured group)
+        if (i % 2 === 1) {
+          return '<mark class="q-highlight">' + esc(part) + '</mark>';
+        }
+        return esc(part);
+      }).join("");
     });
   }
 

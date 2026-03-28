@@ -125,10 +125,10 @@
         </div>
       </div>
       <div class="form-field">
-        <label>Appointment Date &amp; Time</label>
+        <label>Appointment Date &amp; Time <span style="font-size:11px;font-weight:500;color:#94a3b8;">(7:00 AM – 9:00 PM)</span></label>
         <div class="datetime-row">
           <input id="m_date" type="date">
-          <input id="m_time" type="time" step="900">
+          <input id="m_time" type="time" step="900" min="07:00" max="21:00">
         </div>
         <div style="margin-top:8px; display:flex; align-items:center; gap:8px;">
           <label style="font-size:12px; font-weight:600; color:#64748b; margin:0; white-space:nowrap;">Time zone:</label>
@@ -339,7 +339,7 @@
 
   // ── Render grid ──────────────────────────────────────────────
   var HOURS = [];
-  for (var h = 7; h <= 23; h++) HOURS.push(h);
+  for (var h = 7; h <= 21; h++) HOURS.push(h);
 
   function renderPlanner() {
     var days   = getWeekDays(currentWeekStart);
@@ -748,10 +748,7 @@
   }
 
   function escHtml(s) {
-    // Only escape < and > to prevent HTML injection.
-    // Do NOT escape & — data is stored as plain text in the DB (not HTML-encoded).
-    // Encoding & here would cause "&" to display as "&amp;" in the UI.
-    return String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
 
   // ── Modal: open edit ─────────────────────────────────────────
@@ -844,6 +841,19 @@
 
     if (!date || !time) {
       showToast("Please select a date and time.", "error");
+      return;
+    }
+
+    // ── Work hours check (7:00 AM – 9:00 PM) ─────────────────
+    var timeParts = time.split(":");
+    var timeMinutes = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1] || 0);
+    var WORK_START = 7  * 60; // 07:00 = 420 min
+    var WORK_END   = 21 * 60; // 21:00 = 1260 min
+    if (timeMinutes < WORK_START || timeMinutes > WORK_END) {
+      var timeEl = document.getElementById("m_time");
+      timeEl.style.borderColor = "#dc2626";
+      setTimeout(function() { timeEl.style.borderColor = ""; }, 2000);
+      showToast("Appointments must be between 7:00 AM and 9:00 PM.", "error");
       return;
     }
 
