@@ -379,9 +379,9 @@
   // ── Helpers ────────────────────────────────────────────────
   function esc(str) {
     if (!str) return "";
-    return String(str)
-      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-      .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    // Only escape < and > to prevent HTML injection.
+    // Do NOT escape & — data is stored as plain text (not HTML-encoded).
+    return String(str).replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   function fmtDate(d) {

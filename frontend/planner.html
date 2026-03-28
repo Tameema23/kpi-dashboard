@@ -339,7 +339,7 @@
 
   // ── Render grid ──────────────────────────────────────────────
   var HOURS = [];
-  for (var h = 7; h <= 21; h++) HOURS.push(h);
+  for (var h = 7; h <= 23; h++) HOURS.push(h);
 
   function renderPlanner() {
     var days   = getWeekDays(currentWeekStart);
@@ -748,7 +748,10 @@
   }
 
   function escHtml(s) {
-    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    // Only escape < and > to prevent HTML injection.
+    // Do NOT escape & — data is stored as plain text in the DB (not HTML-encoded).
+    // Encoding & here would cause "&" to display as "&amp;" in the UI.
+    return String(s).replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   // ── Modal: open edit ─────────────────────────────────────────

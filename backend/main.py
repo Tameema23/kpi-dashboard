@@ -137,8 +137,11 @@ def get_db():
 def sanitize_str(value: str, max_len: int = 500) -> str:
     if not value:
         return ""
+    # Strip HTML tags to prevent XSS — but do NOT html.escape() the result.
+    # html.escape() encodes & → &amp;, which corrupts data stored in the DB
+    # and displayed in the frontend via JSON (not HTML). Escaping must happen
+    # at render time in the browser, not at storage time on the server.
     cleaned = re.sub(r"<[^>]+>", "", value)
-    cleaned = html.escape(cleaned, quote=True)
     return cleaned[:max_len].strip()
 
 def validate_date(value: str) -> str:
