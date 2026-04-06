@@ -112,6 +112,52 @@ class QualityEntry(Base):
     created_at    = Column(String(16),  default="")
 
 
+class ReferralProgram(Base):
+    """A sponsorship/referral program record — one per client visit."""
+    __tablename__ = "referral_programs"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    owner_id     = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_by   = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    # Sponsor (the person giving the referrals)
+    sponsor_first   = Column(String(100), default="")
+    sponsor_last    = Column(String(100), default="")
+    sponsor_org     = Column(String(200), default="")
+    sponsor_phone   = Column(String(30),  default="")
+    sponsor_email   = Column(String(200), default="")
+    program_date    = Column(String(10),  default="")   # YYYY-MM-DD
+    total_gifted    = Column(Float,       default=0.0)
+
+    created_at   = Column(String(16),  default="")
+
+    referrals = relationship(
+        "ReferralEntry", back_populates="program", cascade="all, delete-orphan"
+    )
+
+
+class ReferralEntry(Base):
+    """An individual referral within a ReferralProgram."""
+    __tablename__ = "referral_entries"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    program_id   = Column(Integer, ForeignKey("referral_programs.id"), nullable=False, index=True)
+
+    ref_type        = Column(String(50),  default="")
+    benefit         = Column(String(200), default="")
+    notes           = Column(Text,        default="")
+    first_name      = Column(String(100), default="")
+    last_name       = Column(String(100), default="")
+    city            = Column(String(100), default="")
+    province        = Column(String(50),  default="")
+    phone           = Column(String(30),  default="")
+    rel_to_sponsor  = Column(String(100), default="")
+    occupation      = Column(String(200), default="")
+    sig_other       = Column(String(200), default="")
+
+    program = relationship("ReferralProgram", back_populates="referrals")
+
+
 class AuditLog(Base):
     """Tracks sensitive actions: logins, password changes, deletes."""
     __tablename__ = "audit_logs"

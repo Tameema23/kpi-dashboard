@@ -38,7 +38,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -114,6 +114,8 @@ def settings_page(): return FileResponse("frontend/settings.html")
 def planner_page():  return FileResponse("frontend/planner.html")
 @app.get("/quality.html")
 def quality_page():  return FileResponse("frontend/quality.html")
+@app.get("/referrals.html")
+def referrals_page(): return FileResponse("frontend/referrals.html")
 
 @app.get("/manifest.json")
 def manifest():      return FileResponse("frontend/manifest.json", media_type="application/manifest+json")
@@ -783,3 +785,165 @@ def get_audit_log(user: User = Depends(get_current_user),
     return [{"id": e.id, "action": e.action,
              "detail": e.detail, "timestamp": e.timestamp}
             for e in entries]
+
+# ── Referral Programs ─────────────────────────────────────────────────────────
+
+class ReferralEntryPayload(BaseModel):
+    ref_type:       Optional[str] = ""
+    benefit:        Optional[str] = ""
+    notes:          Optional[str] = ""
+    first_name:     Optional[str] = ""
+    last_name:      Optional[str] = ""
+    city:           Optional[str] = ""
+    province:       Optional[str] = ""
+    phone:          Optional[str] = ""
+    rel_to_sponsor: Optional[str] = ""
+    occupation:     Optional[str] = ""
+    sig_other:      Optional[str] = ""
+
+class ReferralProgramPayload(BaseModel):
+    sponsor_first:  Optional[str]   = ""
+    sponsor_last:   Optional[str]   = ""
+    sponsor_org:    Optional[str]   = ""
+    sponsor_phone:  Optional[str]   = ""
+    sponsor_email:  Optional[str]   = ""
+    program_date:   Optional[str]   = ""
+    total_gifted:   Optional[float] = 0.0
+    referrals:      list[ReferralEntryPayload] = []
+
+def _sanitize_referral_entry(d: ReferralEntryPayload) -> dict:
+    return {
+        "ref_type":      sanitize_str(d.ref_type or "", 50),
+        "benefit":       sanitize_str(d.benefit or "", 200),
+        "notes":         sanitize_str(d.notes or "", 1000),
+        "first_name":    sanitize_str(d.first_name or "", 100),
+        "last_name":     sanitize_str(d.last_name or "", 100),
+        "city":          sanitize_str(d.city or "", 100),
+        "province":      sanitize_str(d.province or "", 50),
+        "phone":         re.sub(r"[^\d\s\+\-\(\)ext\.]", "", d.phone or "")[:30],
+        "rel_to_sponsor":sanitize_str(d.rel_to_sponsor or "", 100),
+        "occupation":    sanitize_str(d.occupation or "", 200),
+        "sig_other":     sanitize_str(d.sig_other or "", 200),
+    }
+
+def _program_dict(p: ReferralProgram) -> dict:
+    return {
+        "id":            p.id,
+        "sponsor_first": p.sponsor_first or "",
+        "sponsor_last":  p.sponsor_last or "",
+        "sponsor_org":   p.sponsor_org or "",
+        "sponsor_phone": p.sponsor_phone or "",
+        "sponsor_email": p.sponsor_email or "",
+        "program_date":  p.program_date or "",
+        "total_gifted":  p.total_gifted or 0.0,
+        "created_at":    p.created_at or "",
+        "referrals": [
+            {
+                "id":            r.id,
+                "ref_type":      r.ref_type or "",
+                "benefit":       r.benefit or "",
+                "notes":         r.notes or "",
+                "first_name":    r.first_name or "",
+                "last_name":     r.last_name or "",
+                "city":          r.city or "",
+                "province":      r.province or "",
+                "phone":         r.phone or "",
+                "rel_to_sponsor":r.rel_to_sponsor or "",
+                "occupation":    r.occupation or "",
+                "sig_other":     r.sig_other or "",
+            }
+            for r in p.referrals
+        ]
+    }
+
+@app.post("/referral-programs", status_code=201)
+def create_referral_program(data: ReferralProgramPayload,
+                             user: User = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    _require_admin(user)
+    now = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    prog = ReferralProgram(
+        owner_id=user.id,
+        created_by=user.id,
+        sponsor_first=sanitize_str(data.sponsor_first or "", 100),
+        sponsor_last=sanitize_str(data.sponsor_last or "", 100),
+        sponsor_org=sanitize_str(data.sponsor_org or "", 200),
+        sponsor_phone=re.sub(r"[^\d\s\+\-\(\)ext\.]", "", data.sponsor_phone or "")[:30],
+        sponsor_email=sanitize_str(data.sponsor_email or "", 200),
+        program_date=sanitize_str(data.program_date or "", 10),
+        total_gifted=max(0.0, min(data.total_gifted or 0.0, 9_999_999)),
+        created_at=now,
+    )
+    db.add(prog)
+    db.flush()
+    for ref in data.referrals:
+        db.add(ReferralEntry(program_id=prog.id, **_sanitize_referral_entry(ref)))
+    db.commit()
+    db.refresh(prog)
+    return _program_dict(prog)
+
+@app.get("/referral-programs")
+def get_referral_programs(user: User = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    _require_admin(user)
+    progs = db.query(ReferralProgram).filter(
+        ReferralProgram.owner_id == user.id
+    ).order_by(ReferralProgram.id.desc()).all()
+    return [_program_dict(p) for p in progs]
+
+@app.get("/referral-programs/{prog_id}")
+def get_referral_program(prog_id: int,
+                          user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    _require_admin(user)
+    prog = db.query(ReferralProgram).filter(
+        ReferralProgram.id == prog_id,
+        ReferralProgram.owner_id == user.id
+    ).first()
+    if not prog:
+        raise HTTPException(404, "Referral program not found.")
+    return _program_dict(prog)
+
+@app.put("/referral-programs/{prog_id}")
+def update_referral_program(prog_id: int, data: ReferralProgramPayload,
+                              user: User = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    _require_admin(user)
+    prog = db.query(ReferralProgram).filter(
+        ReferralProgram.id == prog_id,
+        ReferralProgram.owner_id == user.id
+    ).first()
+    if not prog:
+        raise HTTPException(404, "Referral program not found.")
+
+    prog.sponsor_first = sanitize_str(data.sponsor_first or "", 100)
+    prog.sponsor_last  = sanitize_str(data.sponsor_last or "", 100)
+    prog.sponsor_org   = sanitize_str(data.sponsor_org or "", 200)
+    prog.sponsor_phone = re.sub(r"[^\d\s\+\-\(\)ext\.]", "", data.sponsor_phone or "")[:30]
+    prog.sponsor_email = sanitize_str(data.sponsor_email or "", 200)
+    prog.program_date  = sanitize_str(data.program_date or "", 10)
+    prog.total_gifted  = max(0.0, min(data.total_gifted or 0.0, 9_999_999))
+
+    # Replace all referral entries
+    db.query(ReferralEntry).filter(ReferralEntry.program_id == prog.id).delete()
+    for ref in data.referrals:
+        db.add(ReferralEntry(program_id=prog.id, **_sanitize_referral_entry(ref)))
+    db.commit()
+    db.refresh(prog)
+    return _program_dict(prog)
+
+@app.delete("/referral-programs/{prog_id}")
+def delete_referral_program(prog_id: int,
+                              user: User = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    _require_admin(user)
+    prog = db.query(ReferralProgram).filter(
+        ReferralProgram.id == prog_id,
+        ReferralProgram.owner_id == user.id
+    ).first()
+    if not prog:
+        raise HTTPException(404, "Referral program not found.")
+    db.delete(prog)
+    db.commit()
+    audit(db, user.id, "delete_referral_program", f"Deleted program ID {prog_id}")
+    return {"status": "deleted"}

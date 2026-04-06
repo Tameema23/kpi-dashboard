@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="KPI Dashboard">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="api-base" content="https://data-log.onrender.com">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://data-log.onrender.com">
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="/static/style.css">
+  <title>Referral Program</title>
+  <style>
+    /* ── Referral Page Styles ─────────────────────────────────── */
+    .ref-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .ref-header-row h2 { margin: 0; }
+
+    /* ── Program cards list ───────────────────────────────────── */
+    .ref-card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .ref-program-card {
+      background: #fff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 18px 20px;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+    }
+    .ref-program-card:hover {
+      border-color: #3b82f6;
+      box-shadow: 0 4px 16px rgba(59,130,246,0.12);
+      transform: translateY(-1px);
+    }
+    .ref-program-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .ref-sponsor-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .ref-sponsor-org {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .ref-gifted-badge {
+      background: #f0fdf4;
+      color: #16a34a;
+      border: 1.5px solid #bbf7d0;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .ref-program-meta {
+      display: flex;
+      gap: 16px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .ref-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .ref-meta-item svg { width: 13px; height: 13px; flex-shrink: 0; }
+    .ref-delete-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      padding: 6px;
+      border-radius: 8px;
+      transition: color 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+    .ref-delete-btn:hover { color: #dc2626; background: #fef2f2; }
+
+    /* ── Modal overlay ────────────────────────────────────────── */
+    .ref-modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(15,23,42,0.45);
+      backdrop-filter: blur(4px);
+      align-items: flex-start;
+      justify-content: center;
+      padding: 24px 16px 40px;
+      overflow-y: auto;
+    }
+    .ref-modal-overlay.open { display: flex; }
+    .ref-modal {
+      background: #fff;
+      border-radius: 20px;
+      width: 100%;
+      max-width: 820px;
+      box-shadow: 0 24px 64px rgba(15,23,42,0.2);
+      animation: _refIn 0.2s ease;
+      overflow: hidden;
+    }
+    @keyframes _refIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+    .ref-modal-header {
+      background: linear-gradient(135deg, #1e40af, #3b82f6);
+      padding: 22px 26px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .ref-modal-header-title { font-size: 17px; font-weight: 800; color: #fff; }
+    .ref-modal-header-sub { font-size: 13px; color: rgba(255,255,255,0.75); margin-top: 2px; }
+    .ref-modal-close {
+      background: rgba(255,255,255,0.15);
+      border: none;
+      border-radius: 10px;
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      color: #fff;
+      transition: background 0.15s;
+    }
+    .ref-modal-close:hover { background: rgba(255,255,255,0.25); }
+
+    .ref-modal-body { padding: 24px 26px; }
+
+    /* Sponsor section */
+    .ref-section-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin: 0 0 12px 0;
+    }
+    .ref-sponsor-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .ref-sponsor-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .ref-form-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 5px;
+    }
+    .ref-form-field input, .ref-form-field select {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #0f172a;
+      background: #fff;
+      box-sizing: border-box;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .ref-form-field input:focus, .ref-form-field select:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+    }
+
+    /* Total gifted display */
+    .ref-gifted-display {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin: 16px 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .ref-gifted-label { font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; }
+    .ref-gifted-value { font-size: 26px; font-weight: 800; color: #16a34a; }
+    .ref-gifted-sub { font-size: 11px; color: #94a3b8; margin-top: 1px; }
+
+    /* Referral entries */
+    .ref-divider {
+      border: none;
+      border-top: 1.5px solid #f1f5f9;
+      margin: 18px 0;
+    }
+    .ref-entries-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .ref-entry-row {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .ref-entry-row-top {
+      display: grid;
+      grid-template-columns: 130px 1fr 80px;
+      gap: 10px;
+      margin-bottom: 10px;
+      align-items: end;
+    }
+    .ref-entry-row-mid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 80px 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .ref-entry-row-bot {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .ref-remove-entry {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #94a3b8;
+      padding: 6px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s, background 0.15s;
+      align-self: flex-end;
+    }
+    .ref-remove-entry:hover { color: #dc2626; background: #fef2f2; }
+
+    .ref-add-entry-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: none;
+      border: 1.5px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      width: 100%;
+      justify-content: center;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      margin-top: 4px;
+    }
+    .ref-add-entry-btn:hover {
+      border-color: #3b82f6;
+      color: #3b82f6;
+      background: #eff6ff;
+    }
+
+    /* Footer */
+    .ref-modal-footer {
+      padding: 16px 26px 22px;
+      border-top: 1.5px solid #f1f5f9;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .ref-cancel-btn {
+      background: #f1f5f9;
+      color: #475569;
+      border: none;
+      padding: 10px 22px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s;
+    }
+    .ref-cancel-btn:hover { background: #e2e8f0; }
+
+    /* View modal (read-only) */
+    .ref-view-entry {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 10px;
+    }
+    .ref-view-entry-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 6px;
+    }
+    .ref-view-fields {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+    }
+    .ref-view-field {
+      font-size: 12px;
+      color: #64748b;
+    }
+    .ref-view-field strong { color: #0f172a; }
+    .ref-view-notes {
+      font-size: 12px;
+      color: #475569;
+      margin-top: 6px;
+      font-style: italic;
+    }
+    .ref-empty-state {
+      text-align: center;
+      padding: 44px 20px;
+      color: #94a3b8;
+    }
+    .ref-empty-state svg { width: 44px; height: 44px; margin-bottom: 12px; opacity: 0.4; }
+    .ref-empty-state p { font-size: 15px; font-weight: 600; margin: 0 0 4px; color: #64748b; }
+    .ref-empty-state span { font-size: 13px; }
+
+    @media (max-width: 700px) {
+      .ref-sponsor-grid, .ref-sponsor-grid-2 { grid-template-columns: 1fr 1fr; }
+      .ref-entry-row-top { grid-template-columns: 1fr 1fr; }
+      .ref-entry-row-mid { grid-template-columns: 1fr 1fr; }
+      .ref-entry-row-bot { grid-template-columns: 1fr 1fr; }
+      .ref-modal-body { padding: 16px; }
+      .ref-modal-footer { padding: 14px 16px 18px; }
+    }
+    @media (max-width: 480px) {
+      .ref-sponsor-grid, .ref-sponsor-grid-2 { grid-template-columns: 1fr; }
+      .ref-entry-row-top, .ref-entry-row-mid, .ref-entry-row-bot { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      KPI Dashboard
+    </span>
+    <nav class="topbar-nav">
+      <a href="/index.html" class="admin-only">Home</a>
+      <a href="/log.html" class="admin-only">Log Day</a>
+      <a href="/reports.html" class="admin-only">Reports</a>
+      <a href="/history.html" class="admin-only">History</a>
+      <a href="/planner.html" class="admin-only">Planner</a>
+      <a href="/quality.html" class="admin-only">Quality</a>
+      <a href="/referrals.html" class="active admin-only">Referrals</a>
+      <a href="/settings.html" class="assistant-visible">Settings</a>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-user">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span id="username-text"></span>
+    </span>
+    <button class="logout" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<!-- MAIN PAGE -->
+<div class="page">
+  <a class="back" onclick="location.href='/index.html'">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+    Back to Dashboard
+  </a>
+
+  <div class="card">
+    <div class="ref-header-row">
+      <h2>Referral Programs</h2>
+      <button class="btn" onclick="openNewProgramModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Program
+      </button>
+    </div>
+
+    <!-- Skeletons -->
+    <div id="refSkeleton">
+      <div class="skeleton" style="height:80px;border-radius:14px;margin-bottom:12px;"></div>
+      <div class="skeleton" style="height:80px;border-radius:14px;margin-bottom:12px;"></div>
+      <div class="skeleton" style="height:80px;border-radius:14px;"></div>
+    </div>
+
+    <!-- Programs list -->
+    <div class="ref-card-list" id="refList"></div>
+  </div>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <div class="bottom-nav-items">
+    <a href="/index.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home
+    </a>
+    <a href="/planner.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Planner
+    </a>
+    <a href="/quality.html" class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Quality
+    </a>
+    <a href="/referrals.html" class="bottom-nav-item active admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Referrals
+    </a>
+    <a href="/settings.html" class="bottom-nav-item assistant-visible">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings
+    </a>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════════
+     ADD / EDIT PROGRAM MODAL
+══════════════════════════════════════════════════ -->
+<div class="ref-modal-overlay" id="programModal">
+  <div class="ref-modal">
+    <div class="ref-modal-header">
+      <div>
+        <div class="ref-modal-header-title" id="modalTitle">New Referral Program</div>
+        <div class="ref-modal-header-sub">Enter sponsor details and add referrals below</div>
+      </div>
+      <button class="ref-modal-close" onclick="closeModal('programModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="ref-modal-body">
+      <p class="ref-section-label">Sponsored By</p>
+
+      <div class="ref-sponsor-grid">
+        <div class="ref-form-field">
+          <label>First Name</label>
+          <input id="sp_first" placeholder="First name">
+        </div>
+        <div class="ref-form-field">
+          <label>Last Name</label>
+          <input id="sp_last" placeholder="Last name">
+        </div>
+        <div class="ref-form-field">
+          <label>Organization</label>
+          <input id="sp_org" placeholder="Company / union">
+        </div>
+      </div>
+
+      <div class="ref-sponsor-grid-2">
+        <div class="ref-form-field">
+          <label>Phone Number</label>
+          <input id="sp_phone" placeholder="(555) 000-0000" type="tel">
+        </div>
+        <div class="ref-form-field">
+          <label>Email</label>
+          <input id="sp_email" placeholder="email@example.com" type="email">
+        </div>
+        <div class="ref-form-field">
+          <label>Date</label>
+          <input id="sp_date" type="date">
+        </div>
+      </div>
+
+      <!-- Total Gifted -->
+      <div class="ref-gifted-display">
+        <div>
+          <div class="ref-gifted-label">Total Gifted</div>
+          <div class="ref-gifted-sub">Auto-calculated from referral count × $1,000</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="ref-gifted-value" id="giftedDisplay">$0</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+            <label style="font-size:11px;color:#64748b;font-weight:600;">Override:</label>
+            <input id="sp_gifted" type="number" min="0" step="100"
+              placeholder="e.g. 4000"
+              style="width:110px;padding:6px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:inherit;color:#0f172a;"
+              oninput="updateGiftedDisplay()">
+          </div>
+        </div>
+      </div>
+
+      <hr class="ref-divider">
+
+      <!-- Referral entries -->
+      <div class="ref-entries-header">
+        <p class="ref-section-label" style="margin:0;">Referrals <span id="refCountBadge" style="background:#eff6ff;color:#3b82f6;padding:2px 8px;border-radius:20px;font-size:11px;margin-left:6px;">0</span></p>
+      </div>
+
+      <div id="entriesContainer"></div>
+
+      <button class="ref-add-entry-btn" onclick="addEntryRow()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Referral
+      </button>
+    </div>
+
+    <div class="ref-modal-footer">
+      <button class="ref-cancel-btn" onclick="closeModal('programModal')">Cancel</button>
+      <button class="btn" id="saveProgramBtn" onclick="saveProgram()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save Program
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     VIEW PROGRAM MODAL (read-only)
+══════════════════════════════════════════════════ -->
+<div class="ref-modal-overlay" id="viewModal">
+  <div class="ref-modal">
+    <div class="ref-modal-header">
+      <div>
+        <div class="ref-modal-header-title" id="viewModalTitle">Referral Program</div>
+        <div class="ref-modal-header-sub" id="viewModalSub"></div>
+      </div>
+      <button class="ref-modal-close" onclick="closeModal('viewModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="ref-modal-body" id="viewModalBody"></div>
+    <div class="ref-modal-footer">
+      <button class="ref-cancel-btn" onclick="closeModal('viewModal')">Close</button>
+      <button class="btn" id="viewEditBtn" onclick="switchToEdit()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Edit
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const API = document.querySelector('meta[name="api-base"]')?.content || "";
+function authHdr() {
+  return { "Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("token") || "") };
+}
+function esc(s) { return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function fmt$(n) { return "$" + (n || 0).toLocaleString("en-CA", { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+function fmtDate(d) {
+  if (!d) return "";
+  try { return new Date(d + "T12:00").toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" }); }
+  catch { return d; }
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+let programs = [];
+let editingId = null;   // null = new, number = existing
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+(function() {
+  if (localStorage.getItem("role") === "assistant") {
+    document.querySelectorAll(".admin-only").forEach(el => el.style.display = "none");
+    document.querySelectorAll(".assistant-visible").forEach(el => el.style.display = "");
+  }
+  const u = localStorage.getItem("username");
+  if (u) document.getElementById("username-text").innerText = u;
+  loadPrograms();
+})();
+
+// ── Load programs ─────────────────────────────────────────────────────────────
+async function loadPrograms() {
+  document.getElementById("refSkeleton").style.display = "";
+  document.getElementById("refList").innerHTML = "";
+  try {
+    const res = await fetch(API + "/referral-programs", { headers: authHdr() });
+    if (res.status === 401) { logout(); return; }
+    programs = await res.json();
+    renderList();
+  } catch (e) {
+    document.getElementById("refList").innerHTML = `<div style="color:#dc2626;padding:16px;font-size:14px;">Failed to load programs. Please refresh.</div>`;
+  } finally {
+    document.getElementById("refSkeleton").style.display = "none";
+  }
+}
+
+function renderList() {
+  const el = document.getElementById("refList");
+  if (!programs.length) {
+    el.innerHTML = `
+      <div class="ref-empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <p>No referral programs yet</p>
+        <span>Click "New Program" to add your first sponsor</span>
+      </div>`;
+    return;
+  }
+  el.innerHTML = programs.map(p => {
+    const sponsorName = [p.sponsor_first, p.sponsor_last].filter(Boolean).join(" ") || "Unnamed Sponsor";
+    const refCount = p.referrals ? p.referrals.length : 0;
+    return `
+      <div class="ref-program-card" onclick="viewProgram(${p.id})">
+        <div class="ref-program-card-top">
+          <div>
+            <div class="ref-sponsor-name">${esc(sponsorName)}</div>
+            ${p.sponsor_org ? `<div class="ref-sponsor-org">${esc(p.sponsor_org)}</div>` : ""}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="ref-gifted-badge">${fmt$(p.total_gifted)}</div>
+            <button class="ref-delete-btn" onclick="event.stopPropagation();deleteProgram(${p.id})" title="Delete">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="ref-program-meta">
+          ${p.program_date ? `<span class="ref-meta-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${esc(fmtDate(p.program_date))}</span>` : ""}
+          ${p.sponsor_phone ? `<span class="ref-meta-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.59 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.37a16 16 0 0 0 6.29 6.29l.87-.87a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>${esc(p.sponsor_phone)}</span>` : ""}
+          <span class="ref-meta-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>${refCount} referral${refCount !== 1 ? "s" : ""}</span>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+// ── Open "New Program" modal ──────────────────────────────────────────────────
+function openNewProgramModal() {
+  editingId = null;
+  document.getElementById("modalTitle").textContent = "New Referral Program";
+  document.getElementById("sp_first").value = "";
+  document.getElementById("sp_last").value = "";
+  document.getElementById("sp_org").value = "";
+  document.getElementById("sp_phone").value = "";
+  document.getElementById("sp_email").value = "";
+  document.getElementById("sp_date").value = new Date().toLocaleDateString("en-CA", { timeZone: "America/Edmonton" }).split("/").reverse().join("-").replace(/\//g,"-");
+  // Set today's date properly
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
+  // en-CA gives YYYY-MM-DD
+  document.getElementById("sp_date").value = today;
+  document.getElementById("sp_gifted").value = "";
+  document.getElementById("entriesContainer").innerHTML = "";
+  document.getElementById("refCountBadge").textContent = "0";
+  updateGiftedDisplay();
+  openModal("programModal");
+}
+
+// ── Entry rows ────────────────────────────────────────────────────────────────
+function addEntryRow(data) {
+  const d = data || {};
+  const container = document.getElementById("entriesContainer");
+  const div = document.createElement("div");
+  div.className = "ref-entry-row";
+  div.innerHTML = `
+    <div class="ref-entry-row-top">
+      <div class="ref-form-field">
+        <label>Type</label>
+        <select class="entry-type">
+          <option value="" ${!d.ref_type ? "selected" : ""}>Select</option>
+          <option value="Life" ${d.ref_type === "Life" ? "selected" : ""}>Life</option>
+          <option value="Health" ${d.ref_type === "Health" ? "selected" : ""}>Health</option>
+          <option value="A&H" ${d.ref_type === "A&H" ? "selected" : ""}>A&amp;H</option>
+          <option value="Auto" ${d.ref_type === "Auto" ? "selected" : ""}>Auto</option>
+          <option value="Other" ${d.ref_type === "Other" ? "selected" : ""}>Other</option>
+        </select>
+      </div>
+      <div class="ref-form-field">
+        <label>Sponsored Benefit</label>
+        <input class="entry-benefit" placeholder="e.g. All Benfits" value="${esc(d.benefit || "")}">
+      </div>
+      <button class="ref-remove-entry" onclick="removeEntry(this)" title="Remove">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="ref-entry-row-mid">
+      <div class="ref-form-field">
+        <label>First Name</label>
+        <input class="entry-first" placeholder="First" value="${esc(d.first_name || "")}">
+      </div>
+      <div class="ref-form-field">
+        <label>Last Name</label>
+        <input class="entry-last" placeholder="Last" value="${esc(d.last_name || "")}">
+      </div>
+      <div class="ref-form-field">
+        <label>Phone #</label>
+        <input class="entry-phone" placeholder="555-0000" type="tel" value="${esc(d.phone || "")}">
+      </div>
+      <div class="ref-form-field">
+        <label>Rel. to Sponsor</label>
+        <input class="entry-rel" placeholder="e.g. Spouse, Coworker" value="${esc(d.rel_to_sponsor || "")}">
+      </div>
+    </div>
+    <div class="ref-entry-row-bot">
+      <div class="ref-form-field">
+        <label>City</label>
+        <input class="entry-city" placeholder="City" value="${esc(d.city || "")}">
+      </div>
+      <div class="ref-form-field">
+        <label>Occupation</label>
+        <input class="entry-occ" placeholder="Occupation" value="${esc(d.occupation || "")}">
+      </div>
+      <div class="ref-form-field">
+        <label>Significant Other</label>
+        <input class="entry-sig" placeholder="Significant other name" value="${esc(d.sig_other || "")}">
+      </div>
+    </div>
+    <div class="ref-form-field" style="margin-top:10px;">
+      <label>Notes</label>
+      <input class="entry-notes" placeholder="Any notes..." value="${esc(d.notes || "")}">
+    </div>`;
+  container.appendChild(div);
+  updateEntryCount();
+  updateGiftedDisplay();
+  div.querySelector(".entry-first").focus();
+}
+
+function removeEntry(btn) {
+  btn.closest(".ref-entry-row").remove();
+  updateEntryCount();
+  updateGiftedDisplay();
+}
+
+function updateEntryCount() {
+  const count = document.querySelectorAll("#entriesContainer .ref-entry-row").length;
+  document.getElementById("refCountBadge").textContent = count;
+}
+
+function updateGiftedDisplay() {
+  const override = parseFloat(document.getElementById("sp_gifted").value);
+  const count = document.querySelectorAll("#entriesContainer .ref-entry-row").length;
+  const val = !isNaN(override) && override >= 0 ? override : count * 1000;
+  document.getElementById("giftedDisplay").textContent = fmt$(val);
+}
+
+// ── Save program ──────────────────────────────────────────────────────────────
+async function saveProgram() {
+  const btn = document.getElementById("saveProgramBtn");
+  const rows = document.querySelectorAll("#entriesContainer .ref-entry-row");
+
+  const override = parseFloat(document.getElementById("sp_gifted").value);
+  const count = rows.length;
+  const gifted = !isNaN(override) && override >= 0 ? override : count * 1000;
+
+  const payload = {
+    sponsor_first: document.getElementById("sp_first").value.trim(),
+    sponsor_last:  document.getElementById("sp_last").value.trim(),
+    sponsor_org:   document.getElementById("sp_org").value.trim(),
+    sponsor_phone: document.getElementById("sp_phone").value.trim(),
+    sponsor_email: document.getElementById("sp_email").value.trim(),
+    program_date:  document.getElementById("sp_date").value,
+    total_gifted:  gifted,
+    referrals: Array.from(rows).map(row => ({
+      ref_type:       row.querySelector(".entry-type").value,
+      benefit:        row.querySelector(".entry-benefit").value.trim(),
+      notes:          row.querySelector(".entry-notes").value.trim(),
+      first_name:     row.querySelector(".entry-first").value.trim(),
+      last_name:      row.querySelector(".entry-last").value.trim(),
+      city:           row.querySelector(".entry-city").value.trim(),
+      phone:          row.querySelector(".entry-phone").value.trim(),
+      rel_to_sponsor: row.querySelector(".entry-rel").value.trim(),
+      occupation:     row.querySelector(".entry-occ").value.trim(),
+      sig_other:      row.querySelector(".entry-sig").value.trim(),
+    }))
+  };
+
+  if (!payload.sponsor_first && !payload.sponsor_last) {
+    showToast("Please enter at least a sponsor first or last name.", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Saving...";
+
+  try {
+    const url    = editingId ? `${API}/referral-programs/${editingId}` : `${API}/referral-programs`;
+    const method = editingId ? "PUT" : "POST";
+    const res    = await fetch(url, { method, headers: authHdr(), body: JSON.stringify(payload) });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.detail || "Failed to save.", "error");
+      return;
+    }
+    closeModal("programModal");
+    showToast(editingId ? "Program updated." : "Program saved.", "success");
+    await loadPrograms();
+  } catch {
+    showToast("Server error. Please try again.", "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Program`;
+  }
+}
+
+// ── View program modal ────────────────────────────────────────────────────────
+function viewProgram(id) {
+  const p = programs.find(x => x.id === id);
+  if (!p) return;
+  const sponsorName = [p.sponsor_first, p.sponsor_last].filter(Boolean).join(" ") || "Unnamed Sponsor";
+
+  document.getElementById("viewModalTitle").textContent = "Sponsored by " + sponsorName;
+  document.getElementById("viewModalSub").textContent = p.program_date ? fmtDate(p.program_date) : "";
+  document.getElementById("viewEditBtn").dataset.id = id;
+
+  const refCount = p.referrals ? p.referrals.length : 0;
+  let html = `
+    <div class="ref-gifted-display" style="margin-top:0;margin-bottom:20px;">
+      <div>
+        <div class="ref-gifted-label">Total Gifted</div>
+        <div class="ref-gifted-sub">${refCount} referral${refCount !== 1 ? "s" : ""}</div>
+      </div>
+      <div class="ref-gifted-value">${fmt$(p.total_gifted)}</div>
+    </div>`;
+
+  // Sponsor info grid
+  const infoItems = [
+    p.sponsor_org   && ["Organization",   p.sponsor_org],
+    p.sponsor_phone && ["Phone",          p.sponsor_phone],
+    p.sponsor_email && ["Email",          p.sponsor_email],
+    p.program_date  && ["Date",           fmtDate(p.program_date)],
+  ].filter(Boolean);
+  if (infoItems.length) {
+    html += `<div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:18px;">`;
+    infoItems.forEach(([label, val]) => {
+      html += `<div class="ref-view-field"><strong>${label}:</strong> ${esc(val)}</div>`;
+    });
+    html += `</div><hr class="ref-divider">`;
+  }
+
+  if (!p.referrals || !p.referrals.length) {
+    html += `<p style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0;">No referrals in this program.</p>`;
+  } else {
+    html += `<p class="ref-section-label">Referrals (${p.referrals.length})</p>`;
+    p.referrals.forEach((r, i) => {
+      const name = [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unnamed";
+      html += `
+        <div class="ref-view-entry">
+          <div class="ref-view-entry-name">${i + 1}. ${esc(name)}${r.ref_type ? ` <span style="font-size:11px;font-weight:600;background:#eff6ff;color:#3b82f6;padding:2px 7px;border-radius:20px;margin-left:6px;">${esc(r.ref_type)}</span>` : ""}</div>
+          <div class="ref-view-fields">
+            ${r.benefit       ? `<div class="ref-view-field"><strong>Benefit:</strong> ${esc(r.benefit)}</div>` : ""}
+            ${r.phone         ? `<div class="ref-view-field"><strong>Phone:</strong> ${esc(r.phone)}</div>` : ""}
+            ${r.rel_to_sponsor? `<div class="ref-view-field"><strong>Relationship:</strong> ${esc(r.rel_to_sponsor)}</div>` : ""}
+            ${r.city          ? `<div class="ref-view-field"><strong>City:</strong> ${esc(r.city)}</div>` : ""}
+            ${r.occupation    ? `<div class="ref-view-field"><strong>Occupation:</strong> ${esc(r.occupation)}</div>` : ""}
+            ${r.sig_other     ? `<div class="ref-view-field"><strong>Sig. Other:</strong> ${esc(r.sig_other)}</div>` : ""}
+          </div>
+          ${r.notes ? `<div class="ref-view-notes">${esc(r.notes)}</div>` : ""}
+        </div>`;
+    });
+  }
+
+  document.getElementById("viewModalBody").innerHTML = html;
+  openModal("viewModal");
+}
+
+function switchToEdit() {
+  const id = parseInt(document.getElementById("viewEditBtn").dataset.id);
+  closeModal("viewModal");
+  openEditModal(id);
+}
+
+function openEditModal(id) {
+  const p = programs.find(x => x.id === id);
+  if (!p) return;
+  editingId = id;
+  document.getElementById("modalTitle").textContent = "Edit Referral Program";
+  document.getElementById("sp_first").value  = p.sponsor_first  || "";
+  document.getElementById("sp_last").value   = p.sponsor_last   || "";
+  document.getElementById("sp_org").value    = p.sponsor_org    || "";
+  document.getElementById("sp_phone").value  = p.sponsor_phone  || "";
+  document.getElementById("sp_email").value  = p.sponsor_email  || "";
+  document.getElementById("sp_date").value   = p.program_date   || "";
+  document.getElementById("sp_gifted").value = p.total_gifted > 0 ? p.total_gifted : "";
+  document.getElementById("entriesContainer").innerHTML = "";
+  (p.referrals || []).forEach(r => addEntryRow(r));
+  updateGiftedDisplay();
+  openModal("programModal");
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+async function deleteProgram(id) {
+  const p = programs.find(x => x.id === id);
+  const name = p ? [p.sponsor_first, p.sponsor_last].filter(Boolean).join(" ") || "this program" : "this program";
+  if (!confirm(`Delete referral program for "${name}"? This cannot be undone.`)) return;
+  try {
+    const res = await fetch(`${API}/referral-programs/${id}`, { method: "DELETE", headers: authHdr() });
+    if (!res.ok) { showToast("Failed to delete.", "error"); return; }
+    showToast("Program deleted.", "success");
+    await loadPrograms();
+  } catch { showToast("Server error.", "error"); }
+}
+
+// ── Modal helpers ─────────────────────────────────────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.add("open"); document.body.style.overflow = "hidden"; }
+function closeModal(id) { document.getElementById(id).classList.remove("open"); document.body.style.overflow = ""; }
+
+document.querySelectorAll(".ref-modal-overlay").forEach(overlay => {
+  overlay.addEventListener("click", e => { if (e.target === overlay) closeModal(overlay.id); });
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    closeModal("programModal");
+    closeModal("viewModal");
+  }
+});
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, type) {
+  // Use the global showToast from app.js if available, else fallback
+  if (window._showAppToast) { window._showAppToast(msg, type); return; }
+  let t = document.getElementById("_refToast");
+  if (!t) {
+    t = document.createElement("div");
+    t.id = "_refToast";
+    t.style.cssText = "position:fixed;bottom:90px;left:50%;transform:translateX(-50%);padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;transition:opacity 0.3s;";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = type === "error" ? "#dc2626" : "#16a34a";
+  t.style.color = "#fff";
+  t.style.opacity = "1";
+  clearTimeout(t._to);
+  t._to = setTimeout(() => { t.style.opacity = "0"; }, 2500);
+}
+</script>
+</body>
+</html>
