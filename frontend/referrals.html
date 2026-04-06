@@ -561,11 +561,9 @@
 <script src="/static/app.js"></script>
 <script>
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const API = document.querySelector('meta[name="api-base"]')?.content || "";
 function authHdr() {
   return { "Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("token") || "") };
 }
-function esc(s) { return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function fmt$(n) { return "$" + (n || 0).toLocaleString("en-CA", { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function fmtDate(d) {
   if (!d) return "";
