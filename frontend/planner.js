@@ -1,0 +1,992 @@
+/*
+ * planner.js — Weekly Planner page logic
+ *
+ * Depends on app.js (must load first):
+ *   - TOKEN, API          : auth token and API base URL
+ *   - showToast()         : toast notifications
+ *   - showConfirm()       : confirmation dialogs
+ *   - updatePlannerSummary() : appointment count summary bar
+ *   - attachLongPress()   : mobile long-press tooltips
+ *   - initPullToRefresh() : pull-to-refresh on mobile
+ *   - initDragDrop()      : drag-and-drop rescheduling
+ *   - initPlannerAutoRefresh() : background auto-refresh
+ */
+
+(function () {
+
+  // ── Role & UI setup ──────────────────────────────────────────
+  var role = localStorage.getItem("role") || "admin";
+  document.getElementById("username-text").innerText = localStorage.getItem("username") || "";
+
+  if (role === "assistant") {
+    // Hide admin-only nav items
+    document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
+    // Settings always visible — assistants need it for password changes
+    document.querySelectorAll(".assistant-visible").forEach(function(el) { el.style.display = ""; });
+    // Quality if permitted
+    if (localStorage.getItem("can_quality") === "1") {
+      document.querySelectorAll("a[href='/quality.html']").forEach(function(el) { el.style.display = ""; });
+    }
+    // Hide bottom nav items assistants don't have access to
+    document.querySelectorAll("#adminBottomNav .bottom-nav-item").forEach(function(el) {
+      var href = el.getAttribute("href");
+      var keep = ["/settings.html", "/planner.html"];
+      if (localStorage.getItem("can_quality") === "1") keep.push("/quality.html");
+      if (keep.indexOf(href) === -1) el.style.display = "none";
+    });
+  }
+
+  // ── State ────────────────────────────────────────────────────
+  var appointments = [];
+  var editingId    = null;
+  var calYear, calMonth;
+  var currentWeekStart = getWeekStart(new Date());
+
+  // ── Week helpers (Wed–Tue) ───────────────────────────────────
+  function getWeekStart(date) {
+    var d   = new Date(date);
+    var day = d.getDay();
+    var diff = (day >= 3) ? day - 3 : day + 4;
+    d.setDate(d.getDate() - diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function getWeekDays(start) {
+    var days = [];
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(start);
+      d.setDate(start.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  }
+
+  function fmtDate(d) {
+    return d.toLocaleDateString("en-CA");
+  }
+
+  function fmtDisplay(dateStr) {
+    var d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  }
+
+  function fmtTime(t) {
+    if (!t) return "";
+    var parts = t.split(":");
+    var h = parseInt(parts[0]);
+    var m = parts[1];
+    var ampm = h >= 12 ? "PM" : "AM";
+    var h12  = h % 12 || 12;
+    return h12 + ":" + m + " " + ampm;
+  }
+
+  function fmtDateTime(iso) {
+    if (!iso) return "";
+    var parts = iso.split("T");
+    return fmtDisplay(parts[0]) + " at " + fmtTime(parts[1]);
+  }
+
+  // ── Week navigation ──────────────────────────────────────────
+  document.getElementById("prevWeekBtn").addEventListener("click", function () {
+    currentWeekStart = new Date(currentWeekStart);
+    currentWeekStart.setDate(currentWeekStart.getDate() - 7);
+    renderPlanner();
+  });
+
+  document.getElementById("nextWeekBtn").addEventListener("click", function () {
+    currentWeekStart = new Date(currentWeekStart);
+    currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+    renderPlanner();
+  });
+
+  document.getElementById("todayBtn").addEventListener("click", function () {
+    currentWeekStart = getWeekStart(new Date());
+    renderPlanner();
+  });
+
+  document.getElementById("newApptBtn").addEventListener("click", function () {
+    openAddModal(null, null);
+  });
+
+  // ── Load appointments ────────────────────────────────────────
+  async function loadAppointments() {
+    try {
+      var res = await fetch(API + "/appointments", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res.ok) appointments = await res.json();
+    } catch (e) {
+      console.error("Failed to load appointments", e);
+    }
+    renderPlanner();
+  }
+
+  // ── Render grid ──────────────────────────────────────────────
+  var HOURS = [];
+  for (var h = 7; h <= 21; h++) HOURS.push(h);
+
+  function renderPlanner() {
+    var days   = getWeekDays(currentWeekStart);
+    var start  = days[0].toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    var end    = days[6].toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    document.getElementById("weekLabel").innerText = start + " \u2013 " + end;
+
+    var grid = document.getElementById("plannerGrid");
+    grid.innerHTML = "";
+
+    var today = fmtDate(new Date());
+
+    // Header row
+    var headerRow = document.createElement("div");
+    headerRow.className = "pg-header-row";
+
+    var gutterHead = document.createElement("div");
+    gutterHead.className = "pg-gutter-head";
+    headerRow.appendChild(gutterHead);
+
+    days.forEach(function (day) {
+      var cell = document.createElement("div");
+      cell.className = "pg-day-head" + (fmtDate(day) === today ? " pg-day-today" : "");
+      cell.innerHTML =
+        '<span class="pg-dow">' + day.toLocaleDateString("en-US", { weekday: "short" }) + "</span>" +
+        '<span class="pg-dom">' + day.getDate() + "</span>";
+      headerRow.appendChild(cell);
+    });
+    grid.appendChild(headerRow);
+
+    // Hour rows
+    HOURS.forEach(function (hour) {
+      var row = document.createElement("div");
+      row.className = "pg-row";
+
+      var gutter = document.createElement("div");
+      gutter.className = "pg-gutter";
+      gutter.innerText = fmtTime(String(hour).padStart(2, "0") + ":00");
+      row.appendChild(gutter);
+
+      days.forEach(function (day) {
+        var cell = document.createElement("div");
+        cell.className = "pg-cell" + (fmtDate(day) === today ? " pg-cell-today" : "");
+        cell.dataset.date = fmtDate(day);
+        cell.dataset.hour = hour;
+
+        // Click empty area to add
+        cell.addEventListener("click", (function (d, hr) {
+          return function () {
+            openAddModal(fmtDate(d), String(hr).padStart(2, "0") + ":00");
+          };
+        })(day, hour));
+
+        // Appointments in this cell — sorted by time
+        var sortedAppts = appointments.slice().sort(function(a, b) {
+          return (a.scheduled_for || "").localeCompare(b.scheduled_for || "");
+        });
+        sortedAppts.forEach(function (appt) {
+          if (!appt.scheduled_for) return;
+          var parts    = appt.scheduled_for.split("T");
+          var apptDate = parts[0];
+          var apptHour = parseInt((parts[1] || "0").split(":")[0]);
+          if (apptDate !== fmtDate(day) || apptHour !== hour) return;
+
+          var block = document.createElement("div");
+          var isCallback = appt.appt_type === "callback";
+          block.className = "pg-appt-block" + (isCallback ? " pg-appt-callback" : "");
+          block.dataset.apptId = appt.id;
+          block.innerHTML =
+            (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
+            '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
+            '<span class="pg-appt-name">' + appt.lead_name + "</span>";
+
+          block.addEventListener("mouseenter", function (e) { showTooltip(e, appt); });
+          block.addEventListener("mouseleave", hideTooltip);
+          block.addEventListener("click", function (e) {
+            e.stopPropagation();
+            openEditModal(appt);
+          });
+          // #31 Long press for mobile tooltip
+          if (typeof attachLongPress === "function") attachLongPress(block, appt);
+
+          cell.appendChild(block);
+        });
+
+        row.appendChild(cell);
+      });
+
+      grid.appendChild(row);
+    });
+
+    // #22 Update appointment count summary bar after every render
+    updatePlannerSummary(appointments, currentWeekStart);
+  }
+
+
+
+  // ── Tooltip ──────────────────────────────────────────────────
+  function showTooltip(e, appt) {
+    var tip = document.getElementById("apptTooltip");
+    var typeBadge = appt.appt_type === "callback"
+      ? '<div style="display:inline-block;background:#fef3c7;color:#92400e;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;margin-bottom:6px;">&#x260E; CALL BACK</div><br>'
+      : '';
+    tip.innerHTML =
+      typeBadge +
+      '<div class="tip-name">' + appt.lead_name + "</div>" +
+      (function() {
+        var tzLabels = {
+          "America/Edmonton": "MT", "America/Vancouver": "PT", "America/Winnipeg": "CT",
+          "America/Toronto": "ET", "America/Halifax": "AT", "America/St_Johns": "NT"
+        };
+        var btz = appt.booking_tz || "America/Edmonton";
+        var displayLine = "";
+        try {
+          var dtStr = appt.scheduled_for; // stored in Mountain time
+          var mtDate = new Date(dtStr + ":00");
+          // Format in booking timezone (or Mountain if not set)
+          var dispFmt = new Intl.DateTimeFormat("en-US", {
+            timeZone: btz,
+            weekday: "short", month: "short", day: "numeric",
+            hour: "numeric", minute: "2-digit", hour12: true
+          });
+          var dispStr = dispFmt.format(mtDate);
+          var label = tzLabels[btz] || "MT";
+          displayLine = '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + dispStr + " " + label + "</div>";
+        } catch(e) {
+          displayLine = '<div class="tip-row">' + fmtDateTime(appt.scheduled_for) + " MT</div>";
+        }
+        return displayLine;
+      })() +
+      (appt.comments ? (function() {
+        // Reuse parseHistory logic inline for tooltip
+        var raw = appt.comments;
+        var blocks = raw.indexOf("===ENTRY===") !== -1 ? raw.split("===ENTRY===") : [raw];
+        var html = "";
+        blocks.forEach(function(block) {
+          var b = block.trim();
+          if (!b) return;
+          var by = "", date = "", note = "";
+          if (b.indexOf("BY:") === 0) {
+            var byStart   = 3;
+            var dateStart = b.indexOf("DATE:");
+            var noteStart = b.indexOf("NOTE:");
+            by   = (dateStart > -1 ? b.slice(byStart, dateStart) : b.slice(byStart)).trim();
+            date = dateStart > -1 ? (noteStart > -1 ? b.slice(dateStart+5, noteStart) : b.slice(dateStart+5)).trim() : "";
+            note = noteStart > -1 ? b.slice(noteStart+5).trim() : "";
+          } else {
+            note = b;
+          }
+          if (note) {
+            html += '<div class="tip-row tip-comments">' + note + '</div>';
+          }
+          if (date || by) {
+            html += '<div class="tip-row tip-meta">' + (date || "") + (by ? " by " + by : "") + '</div>';
+          }
+        });
+        return html;
+      })() : "") +
+      '<div class="tip-row tip-meta">Booked ' + fmtDateTime(appt.booked_at) + " by " + appt.created_by + "</div>";
+    tip.classList.remove("hidden");
+    positionTooltip(e);
+  }
+
+  function positionTooltip(e) {
+    var tip  = document.getElementById("apptTooltip");
+    var tipW = 260;
+    var x    = e.clientX + 12;
+    var y    = e.clientY - 10;
+    tip.style.left = (x + tipW > window.innerWidth ? x - tipW - 24 : x) + "px";
+    tip.style.top  = y + "px";
+  }
+
+  function hideTooltip() {
+    document.getElementById("apptTooltip").classList.add("hidden");
+  }
+
+  document.addEventListener("mousemove", function (e) {
+    var tip = document.getElementById("apptTooltip");
+    if (!tip.classList.contains("hidden")) positionTooltip(e);
+  });
+
+  // ── Modal: open add ──────────────────────────────────────────
+  function openAddModal(dateStr, timeStr) {
+    editingId = null;
+    document.getElementById("modalTitle").innerText = "New Appointment";
+    document.getElementById("m_lead_name").value = "";
+    document.getElementById("m_comments").value  = "";
+    document.getElementById("m_date").value = dateStr || fmtDate(new Date());
+    document.getElementById("m_time").value = timeStr || "09:00";
+    document.getElementById("modalBookedAt").classList.add("hidden");
+    document.getElementById("modalDeleteBtn").style.display = "none";
+    document.getElementById("modalSaveBtn").innerText = "Save Appointment";
+
+    var d = dateStr ? new Date(dateStr + "T00:00:00") : new Date();
+    calYear  = d.getFullYear();
+    calMonth = d.getMonth();
+    renderMiniCal();
+
+    document.getElementById("m_timezone").value = "America/Edmonton";
+    document.getElementById("tz_preview").style.display = "none";
+    document.getElementById("type_appt").checked = true;
+    document.getElementById("type_cb").checked = false;
+    updateTypeToggle();
+    document.getElementById("m_history_wrap").style.display = "none";
+    document.getElementById("m_comments_label").innerText = "Comments / Notes";
+    document.getElementById("m_comments").placeholder = "Any notes about this lead...";
+    document.getElementById("modalBackdrop").classList.remove("hidden");
+    document.getElementById("m_lead_name").focus();
+  }
+
+  // ── Parse stored comments string into structured history entries ──
+  function parseHistory(raw) {
+    if (!raw || !raw.trim()) return [];
+    // Split into blocks on the entry delimiter
+    var blocks = raw.indexOf("===ENTRY===") !== -1
+      ? raw.split("===ENTRY===")
+      : [raw];
+    return blocks.map(function(block) {
+      var b = block.trim();
+      if (!b) return null;
+      // Check if this block has BY: structure (works with or without newlines)
+      if (b.indexOf("BY:") !== 0) {
+        // Plain legacy text — no metadata
+        return { by: "", date: "", note: b };
+      }
+      // Parse by slicing between known keys: BY: ... DATE: ... NOTE: ...
+      var byStart   = b.indexOf("BY:")   + 3;
+      var dateStart = b.indexOf("DATE:");
+      var noteStart = b.indexOf("NOTE:");
+      var by   = (dateStart > -1 ? b.slice(byStart, dateStart) : b.slice(byStart)).trim();
+      var date = dateStart > -1
+        ? (noteStart > -1 ? b.slice(dateStart + 5, noteStart) : b.slice(dateStart + 5)).trim()
+        : "";
+      var note = noteStart > -1 ? b.slice(noteStart + 5).trim() : "";
+      return { by: by, date: date, note: note };
+    }).filter(Boolean);
+  }
+
+  // ── Render the history list in the modal ─────────────────────
+  function renderHistory(entries) {
+    var wrap = document.getElementById("m_history_entries");
+    wrap.innerHTML = "";
+    var count = entries.length;
+    // Most recent first
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      var isFirst = (i === 0);
+      var div = document.createElement("div");
+      div.style.cssText = [
+        "border-radius:10px",
+        "padding:10px 13px",
+        "border:1.5px solid " + (isFirst ? "#bfdbfe" : "#f1f5f9"),
+        "background:" + (isFirst ? "#eff6ff" : "#fafafa"),
+        "position:relative"
+      ].join(";");
+
+      var meta = "";
+      if (e.by || e.date) {
+        meta = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:' + (e.note ? '6px' : '0') + ';">';
+        if (isFirst) {
+          meta += '<span style="font-size:10px;font-weight:700;background:#2563eb;color:#fff;padding:1px 7px;border-radius:20px;">Latest</span>';
+        }
+        if (e.by) {
+          meta += '<span style="font-size:11px;font-weight:700;color:' + (isFirst ? '#1d4ed8' : '#64748b') + ';">' + escHtml(e.by) + '</span>';
+        }
+        if (e.date) {
+          meta += '<span style="font-size:11px;color:#94a3b8;">' + escHtml(e.date) + '</span>';
+        }
+        meta += '</div>';
+      }
+
+      var noteHtml = e.note
+        ? '<div style="font-size:13px;color:' + (isFirst ? '#1e3a8a' : '#475569') + ';line-height:1.55;white-space:pre-wrap;">' + escHtml(e.note) + '</div>'
+        : '<div style="font-size:12px;color:#94a3b8;font-style:italic;">No note added</div>';
+
+      div.innerHTML = meta + noteHtml;
+      wrap.appendChild(div);
+    }
+    // Reschedule count badge (# of updates = entries - 1 since first is the original booking, but show total updates)
+    var updates = count - 1;
+    var badge = document.getElementById("m_reschedule_count");
+    if (updates > 0) {
+      badge.innerText = updates + (updates === 1 ? " reschedule" : " reschedules");
+      badge.style.display = "inline-block";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // ── Modal: open edit ─────────────────────────────────────────
+  function openEditModal(appt) {
+    editingId = appt.id;
+    // Store original comments on the modal so save can access it
+    document.getElementById("modalBackdrop").dataset.existingComments = appt.comments || "";
+    document.getElementById("modalTitle").innerText = "Edit Appointment";
+    document.getElementById("m_lead_name").value = appt.lead_name;
+
+    // Parse and render history
+    var history = parseHistory(appt.comments || "");
+    if (history.length > 0) {
+      renderHistory(history);
+      document.getElementById("m_history_wrap").style.display = "block";
+      document.getElementById("m_comments_label").innerText = "Add New Note (optional)";
+      document.getElementById("m_comments").placeholder = "What changed? e.g. 'Client rescheduled to next week'";
+    } else {
+      document.getElementById("m_history_wrap").style.display = "none";
+      document.getElementById("m_comments_label").innerText = "Comments / Notes";
+      document.getElementById("m_comments").placeholder = "Any notes about this lead...";
+    }
+    document.getElementById("m_comments").value = "";
+
+    var parts = (appt.scheduled_for || "T").split("T");
+    document.getElementById("m_date").value = parts[0] || "";
+    document.getElementById("m_time").value = parts[1] || "09:00";
+
+    document.getElementById("modalBookedAt").classList.remove("hidden");
+    document.getElementById("modalBookedAtVal").innerText = fmtDateTime(appt.booked_at) + " by " + appt.created_by;
+    document.getElementById("modalDeleteBtn").style.display = "inline-flex";
+    document.getElementById("modalSaveBtn").innerText = "Update";
+
+    var d = parts[0] ? new Date(parts[0] + "T00:00:00") : new Date();
+    calYear  = d.getFullYear();
+    calMonth = d.getMonth();
+    renderMiniCal();
+
+    document.getElementById("m_timezone").value = "America/Edmonton";
+    document.getElementById("tz_preview").style.display = "none";
+    var isCallback = appt.appt_type === "callback";
+    document.getElementById("type_appt").checked = !isCallback;
+    document.getElementById("type_cb").checked   = isCallback;
+    updateTypeToggle();
+    document.getElementById("modalBackdrop").classList.remove("hidden");
+  }
+
+  function closeModal() {
+    document.getElementById("modalBackdrop").classList.add("hidden");
+    hideTooltip();
+  }
+
+  // ── Type toggle styling ───────────────────────────────────────
+  function updateTypeToggle() {
+    var isAppt = document.getElementById("type_appt").checked;
+    var apptL  = document.getElementById("type_appt_label");
+    var cbL    = document.getElementById("type_cb_label");
+    if (isAppt) {
+      apptL.style.borderColor = "#3b82f6"; apptL.style.background = "#eff6ff"; apptL.style.color = "#1d4ed8";
+      cbL.style.borderColor   = "#e2e8f0"; cbL.style.background   = "#fafafa"; cbL.style.color   = "#64748b";
+    } else {
+      cbL.style.borderColor   = "#f59e0b"; cbL.style.background   = "#fffbeb"; cbL.style.color   = "#92400e";
+      apptL.style.borderColor = "#e2e8f0"; apptL.style.background = "#fafafa"; apptL.style.color = "#64748b";
+    }
+  }
+  document.getElementById("type_appt").addEventListener("change", updateTypeToggle);
+  document.getElementById("type_cb").addEventListener("change", updateTypeToggle);
+
+  document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+  document.getElementById("modalCancelBtn").addEventListener("click", closeModal);
+  document.getElementById("modalBackdrop").addEventListener("click", function (e) {
+    if (e.target === this) closeModal();
+  });
+
+  // ── Save ─────────────────────────────────────────────────────
+  document.getElementById("modalSaveBtn").addEventListener("click", async function () {
+    var lead_name = document.getElementById("m_lead_name").value.trim();
+    if (!lead_name) {
+      var inp = document.getElementById("m_lead_name");
+      inp.style.borderColor = "#dc2626";
+      inp.focus();
+      setTimeout(function () { inp.style.borderColor = ""; }, 1500);
+      return;
+    }
+
+    var date     = document.getElementById("m_date").value;
+    var time     = document.getElementById("m_time").value;
+    var tz       = document.getElementById("m_timezone").value;
+    var comments = document.getElementById("m_comments").value.trim();
+
+    if (!date || !time) {
+      showToast("Please select a date and time.", "error");
+      return;
+    }
+
+    // ── Work hours check (7:00 AM – 9:00 PM) ─────────────────
+    var timeParts = time.split(":");
+    var timeMinutes = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1] || 0);
+    var WORK_START = 7  * 60; // 07:00 = 420 min
+    var WORK_END   = 21 * 60; // 21:00 = 1260 min
+    if (timeMinutes < WORK_START || timeMinutes > WORK_END) {
+      var timeEl = document.getElementById("m_time");
+      timeEl.style.borderColor = "#dc2626";
+      setTimeout(function() { timeEl.style.borderColor = ""; }, 2000);
+      showToast("Appointments must be between 7:00 AM and 9:00 PM.", "error");
+      return;
+    }
+
+    // Convert entered time from selected timezone to Mountain (America/Edmonton)
+    var scheduledFor;
+    if (tz === "America/Edmonton") {
+      scheduledFor = date + "T" + time;
+    } else {
+      // Parse the input as a time in the selected timezone, then convert to Mountain
+      var localDT = date + "T" + time + ":00";
+      // Use Intl to find the UTC offset difference and shift the time
+      var inputDate = new Date(localDT);
+      // Get what the clock reads in the selected TZ for that naive datetime
+      var tzFormatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      });
+      var mtFormatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Edmonton",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      });
+      // Find UTC time for the entered date+time in the selected timezone
+      // by iterating: guess UTC, check what timezone thinks it is, adjust
+      var guess = new Date(localDT + "Z"); // treat as UTC to start
+      for (var i = 0; i < 3; i++) {
+        var parts = tzFormatter.formatToParts(guess);
+        var p = {};
+        parts.forEach(function(x) { p[x.type] = x.value; });
+        var tzClock = p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":" + p.second;
+        var diff = new Date(localDT).getTime() - new Date(tzClock).getTime();
+        guess = new Date(guess.getTime() + diff);
+      }
+      // Now convert UTC guess to Mountain time string for storage
+      var mtParts = mtFormatter.formatToParts(guess);
+      var mp = {};
+      mtParts.forEach(function(x) { mp[x.type] = x.value; });
+      var mtHour = mp.hour === "24" ? "00" : mp.hour;
+      scheduledFor = mp.year + "-" + mp.month + "-" + mp.day + "T" + mtHour + ":" + mp.minute;
+    }
+
+    var apptType = document.querySelector('input[name="m_appt_type"]:checked').value;
+
+    // Build the final comments string
+    var finalComments = comments;
+    if (editingId) {
+      var existingRaw = document.getElementById("modalBackdrop").dataset.existingComments || "";
+      // Build a new structured entry for this update
+      var now = new Date();
+      var dateStr = now.toLocaleDateString("en-CA", {
+        timeZone: "America/Edmonton", month: "short", day: "numeric", year: "numeric"
+      });
+      var timeStr = now.toLocaleTimeString("en-CA", {
+        timeZone: "America/Edmonton", hour: "2-digit", minute: "2-digit", hour12: true
+      });
+      var updatedBy = localStorage.getItem("username") || "unknown";
+      var newEntry = "BY:" + updatedBy + "\nDATE:" + dateStr + " at " + timeStr + "\nNOTE:" + (comments || "");
+      if (existingRaw.trim()) {
+        finalComments = newEntry + "\n===ENTRY===\n" + existingRaw.trim();
+      } else {
+        finalComments = newEntry;
+      }
+    }
+
+    var bookingTz = document.getElementById("m_timezone").value || "America/Edmonton";
+    var payload = { lead_name: lead_name, comments: finalComments, scheduled_for: scheduledFor, appt_type: apptType, booking_tz: bookingTz };
+
+    try {
+      var res;
+      if (editingId) {
+        res = await fetch(API + "/appointments/" + editingId, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+          body: JSON.stringify(payload)
+        });
+      } else {
+        res = await fetch(API + "/appointments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if (res.ok) {
+        showToast(editingId ? "Appointment updated!" : "Appointment booked!");
+        closeModal();
+        await loadAppointments();
+      } else {
+        showToast("Failed to save. Please try again.", "error");
+      }
+    } catch (e) {
+      showToast("Server error.", "error");
+    }
+  });
+
+  // ── Delete ───────────────────────────────────────────────────
+  document.getElementById("modalDeleteBtn").addEventListener("click", function () {
+    if (!editingId) return;
+    var idToDelete = editingId;
+    showConfirm("Delete this appointment? This cannot be undone.", async function() {
+      try {
+        var res = await fetch(API + "/appointments/" + idToDelete, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + TOKEN }
+        });
+        if (res.ok) {
+          showToast("Appointment deleted.");
+          closeModal();
+          await loadAppointments();
+        } else {
+          showToast("Delete failed.", "error");
+        }
+      } catch (e) {
+        showToast("Server error.", "error");
+      }
+    });
+  });
+
+  // ── Timezone live preview ───────────────────────────────────────
+  function updateTzPreview() {
+    var date = document.getElementById("m_date").value;
+    var time = document.getElementById("m_time").value;
+    var tz   = document.getElementById("m_timezone").value;
+    var preview = document.getElementById("tz_preview");
+    if (!time || tz === "America/Edmonton") { preview.style.display = "none"; return; }
+    try {
+      var localDT = (date || "2000-01-01") + "T" + time + ":00";
+      var guess = new Date(localDT + "Z");
+      var tzFormatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+      });
+      for (var i = 0; i < 3; i++) {
+        var parts = tzFormatter.formatToParts(guess);
+        var p = {};
+        parts.forEach(function(x) { p[x.type] = x.value; });
+        var tzClock = p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":" + p.second;
+        var diff = new Date(localDT).getTime() - new Date(tzClock).getTime();
+        guess = new Date(guess.getTime() + diff);
+      }
+      var mtStr = guess.toLocaleTimeString("en-CA", {
+        timeZone: "America/Edmonton",
+        hour: "numeric", minute: "2-digit", hour12: true
+      });
+      var tzLabels = {
+        "America/Vancouver": "PT", "America/Winnipeg": "CT",
+        "America/Toronto": "ET", "America/Halifax": "AT", "America/St_Johns": "NT"
+      };
+      preview.style.display = "block";
+      preview.innerHTML = "&#x2192; Saves as <strong>" + mtStr + " Mountain time</strong> (converted from " + (tzLabels[tz] || tz) + ")";
+    } catch(e) { preview.style.display = "none"; }
+  }
+  document.getElementById("m_time").addEventListener("change", updateTzPreview);
+  document.getElementById("m_timezone").addEventListener("change", updateTzPreview);
+
+  // ── Mini calendar ────────────────────────────────────────────
+  var CAL_DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+  function renderMiniCal() {
+    document.getElementById("calMonthLabel").innerText =
+      new Date(calYear, calMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    var grid = document.getElementById("miniCalGrid");
+    grid.innerHTML = "";
+
+    CAL_DAYS.forEach(function (d) {
+      var h = document.createElement("div");
+      h.className = "mc-dow";
+      h.innerText = d;
+      grid.appendChild(h);
+    });
+
+    var firstDay    = new Date(calYear, calMonth, 1).getDay();
+    var daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    var selectedDate = document.getElementById("m_date").value;
+    var todayStr    = fmtDate(new Date());
+
+    for (var i = 0; i < firstDay; i++) {
+      var blank = document.createElement("div");
+      blank.className = "mc-blank";
+      grid.appendChild(blank);
+    }
+
+    for (var day = 1; day <= daysInMonth; day++) {
+      var d = document.createElement("div");
+      var dateStr = calYear + "-" + String(calMonth + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+      d.className = "mc-day";
+      if (dateStr === todayStr)     d.classList.add("mc-today");
+      if (dateStr === selectedDate) d.classList.add("mc-selected");
+      d.innerText = day;
+      d.addEventListener("click", (function (ds) {
+        return function () {
+          document.getElementById("m_date").value = ds;
+          renderMiniCal();
+        };
+      })(dateStr));
+      grid.appendChild(d);
+    }
+  }
+
+  document.getElementById("calPrevBtn").addEventListener("click", function () {
+    calMonth--;
+    if (calMonth < 0) { calMonth = 11; calYear--; }
+    renderMiniCal();
+  });
+
+  document.getElementById("calNextBtn").addEventListener("click", function () {
+    calMonth++;
+    if (calMonth > 11) { calMonth = 0; calYear++; }
+    renderMiniCal();
+  });
+
+  document.getElementById("m_date").addEventListener("change", function () {
+    if (this.value) {
+      var d = new Date(this.value + "T00:00:00");
+      calYear  = d.getFullYear();
+      calMonth = d.getMonth();
+      renderMiniCal();
+    }
+  });
+
+
+  // ── Appointment Search ────────────────────────────────────────
+  // Ctrl+F / Cmd+F style search: type name → dropdown shows matches
+  // → click or press Enter → jump to that person's week
+  (function() {
+    var searchInput   = document.getElementById("apptSearchInput");
+    var searchResults = document.getElementById("apptSearchResults");
+    var searchClear   = document.getElementById("apptSearchClear");
+    var activeIndex   = -1; // for keyboard arrow navigation
+
+    // Normalise text for fuzzy matching
+    function normalise(s) {
+      return (s || "").toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    function doSearch(query) {
+      query = normalise(query);
+      searchClear.style.display = query ? "flex" : "none";
+
+      if (!query) {
+        searchResults.style.display = "none";
+        searchResults.innerHTML = "";
+        activeIndex = -1;
+        return;
+      }
+
+      // Search ALL appointments (not just current week)
+      var matches = appointments.filter(function(a) {
+        return normalise(a.lead_name).indexOf(query) !== -1;
+      }).sort(function(a, b) {
+        // Sort by closest upcoming first, then past
+        var now = new Date().toISOString().slice(0,16);
+        var aFuture = (a.scheduled_for || "") >= now;
+        var bFuture = (b.scheduled_for || "") >= now;
+        if (aFuture !== bFuture) return aFuture ? -1 : 1;
+        return (a.scheduled_for || "").localeCompare(b.scheduled_for || "");
+      });
+
+      if (matches.length === 0) {
+        searchResults.innerHTML =
+          '<div class="search-result-empty">No appointments found for "' + escHtml(query) + '"</div>';
+        searchResults.style.display = "block";
+        activeIndex = -1;
+        return;
+      }
+
+      searchResults.innerHTML = "";
+      activeIndex = -1;
+
+      matches.forEach(function(appt, idx) {
+        var parts    = (appt.scheduled_for || "T").split("T");
+        var dateStr  = parts[0];
+        var timeStr  = parts[1] || "";
+        var isCallback = appt.appt_type === "callback";
+        var isPast = dateStr && dateStr < fmtDate(new Date());
+
+        var row = document.createElement("div");
+        row.className = "search-result-row";
+        row.dataset.idx = idx;
+
+        // Highlight matching text
+        var name = appt.lead_name;
+        var lowerName = name.toLowerCase();
+        var lowerQuery = query.toLowerCase();
+        var matchStart = lowerName.indexOf(lowerQuery);
+        var highlighted = matchStart === -1 ? escHtml(name) :
+          escHtml(name.slice(0, matchStart)) +
+          '<mark style="background:#fef08a;border-radius:2px;padding:0 1px;">' +
+          escHtml(name.slice(matchStart, matchStart + query.length)) + '</mark>' +
+          escHtml(name.slice(matchStart + query.length));
+
+        row.innerHTML =
+          '<div class="search-result-icon ' + (isCallback ? 'search-icon-cb' : 'search-icon-appt') + '">' +
+            (isCallback ? 'CB' : 'AP') +
+          '</div>' +
+          '<div class="search-result-info">' +
+            '<div class="search-result-name">' + highlighted + '</div>' +
+            '<div class="search-result-date ' + (isPast ? 'search-result-past' : '') + '">' +
+              (dateStr ? fmtDisplay(dateStr) + (timeStr ? ' · ' + fmtTime(timeStr) : '') : 'No date') +
+              (isPast ? ' · Past' : '') +
+            '</div>' +
+          '</div>' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2.5" style="flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>';
+
+        row.addEventListener("click", function() {
+          jumpToAppointment(appt);
+          clearSearch();
+        });
+
+        searchResults.appendChild(row);
+      });
+
+      searchResults.style.display = "block";
+    }
+
+    function jumpToAppointment(appt) {
+      if (!appt.scheduled_for) {
+        showToast("This appointment has no date set.", "info");
+        return;
+      }
+
+      // Navigate to the week containing this appointment
+      var apptDate = new Date(appt.scheduled_for.split("T")[0] + "T00:00:00");
+      currentWeekStart = getWeekStart(apptDate);
+      renderPlanner();
+
+      // After render, highlight and scroll to the block
+      setTimeout(function() {
+        var block = document.querySelector('[data-appt-id="' + appt.id + '"]');
+        if (block) {
+          // Smooth scroll into view
+          block.scrollIntoView({ behavior: "smooth", block: "center" });
+
+          // Pulse highlight
+          block.classList.add("search-highlight");
+          setTimeout(function() {
+            block.classList.remove("search-highlight");
+          }, 2500);
+        } else {
+          showToast("Jumped to " + appt.lead_name + "'s week.", "info");
+        }
+      }, 80);
+    }
+
+    function clearSearch() {
+      searchInput.value = "";
+      searchResults.style.display = "none";
+      searchResults.innerHTML = "";
+      searchClear.style.display = "none";
+      activeIndex = -1;
+    }
+
+    // Input listener
+    searchInput.addEventListener("input", function() {
+      doSearch(this.value);
+    });
+
+    // Clear button
+    searchClear.addEventListener("click", function() {
+      clearSearch();
+      searchInput.focus();
+    });
+
+    // Keyboard navigation: up/down/enter/escape
+    searchInput.addEventListener("keydown", function(e) {
+      var rows = searchResults.querySelectorAll(".search-result-row");
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, rows.length - 1);
+        updateActiveRow(rows);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        updateActiveRow(rows);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (activeIndex >= 0 && rows[activeIndex]) {
+          rows[activeIndex].click();
+        } else if (rows.length > 0) {
+          // Enter with no selection = jump to first result
+          rows[0].click();
+        }
+      } else if (e.key === "Escape") {
+        clearSearch();
+      }
+    });
+
+    function updateActiveRow(rows) {
+      rows.forEach(function(r, i) {
+        r.classList.toggle("search-result-active", i === activeIndex);
+        if (i === activeIndex) r.scrollIntoView({ block: "nearest" });
+      });
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener("click", function(e) {
+      if (!e.target.closest("#plannerSearchBar")) {
+        searchResults.style.display = "none";
+        activeIndex = -1;
+      }
+    });
+
+    // Ctrl+F / Cmd+F hijack — focus search instead of browser find
+    document.addEventListener("keydown", function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+    });
+
+  })(); // end search IIFE
+
+  // ── Init ─────────────────────────────────────────────────────
+  loadAppointments().then(function() {
+    updatePlannerSummary(appointments, currentWeekStart);
+    if (typeof initPullToRefresh === "function") initPullToRefresh(loadAppointments);
+
+    // Drag-and-drop rescheduling
+    if (typeof initDragDrop === "function") {
+      var dd = initDragDrop(
+        function() { return appointments; },
+        rescheduleAppointment,
+        renderPlanner
+      );
+      // Wrap renderPlanner to re-attach drag handlers on every render
+      var _basePlannerRender = renderPlanner;
+      renderPlanner = function() {
+        _basePlannerRender();
+        dd.attachDragHandlers();
+      };
+      dd.attachDragHandlers(); // initial attach
+    }
+
+    // Auto-refresh every 30 seconds
+    if (typeof initPlannerAutoRefresh === "function") {
+      initPlannerAutoRefresh(
+        function() { return appointments; },
+        function(fresh) { appointments = fresh; },
+        function() { renderPlanner(); updatePlannerSummary(appointments, currentWeekStart); }
+      );
+    }
+  });
+
+  // Reschedule via API (used by drag-drop)
+  async function rescheduleAppointment(id, changes) {
+    var appt = appointments.find(function(a) { return a.id === id; });
+    if (!appt) return null;
+    try {
+      var res = await fetch(API + "/appointments/" + id, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify({
+          lead_name:     appt.lead_name,
+          comments:      appt.comments || "",
+          scheduled_for: changes.scheduled_for || appt.scheduled_for,
+          appt_type:     appt.appt_type || "appointment",
+          booking_tz:    appt.booking_tz || "America/Edmonton"
+        })
+      });
+      if (res.ok) return await res.json();
+      return null;
+    } catch(e) { return null; }
+  }
+
+})(); // end IIFE
