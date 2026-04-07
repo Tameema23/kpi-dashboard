@@ -15,10 +15,193 @@
   <link rel="preconnect" href="https://data-log.onrender.com">
   <link rel="stylesheet" href="/static/style.css">
   <title>Referral Program</title>
+  <style>
+    /* ── Referral page — self-contained styles ───────────────────────────── */
+
+    .ref-page-header {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px; flex-wrap: wrap; gap: 10px;
+    }
+    .ref-page-header h2 { margin: 0; }
+
+    /* Program cards */
+    .ref-card-list { display: flex; flex-direction: column; gap: 12px; }
+    .ref-program-card {
+      background: #fff; border: 1.5px solid #e2e8f0; border-radius: 14px;
+      padding: 16px 18px; cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+    }
+    .ref-program-card:hover {
+      border-color: #3b82f6; box-shadow: 0 4px 16px rgba(59,130,246,0.12);
+      transform: translateY(-1px);
+    }
+    .ref-card-top {
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 12px;
+    }
+    .ref-card-name  { font-size: 15px; font-weight: 700; color: #0f172a; }
+    .ref-card-org   { font-size: 13px; color: #64748b; margin-top: 2px; }
+    .ref-card-meta  { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+    .ref-meta-chip  { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #64748b; }
+    .ref-meta-chip svg { width: 12px; height: 12px; flex-shrink: 0; }
+    .ref-count-badge {
+      background: #eff6ff; color: #3b82f6; border-radius: 20px;
+      padding: 3px 10px; font-size: 12px; font-weight: 700;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .ref-icon-btn {
+      background: none; border: none; cursor: pointer; color: #94a3b8;
+      padding: 6px; border-radius: 8px; display: flex; align-items: center;
+      justify-content: center; transition: color 0.15s, background 0.15s; flex-shrink: 0;
+    }
+    .ref-icon-btn:hover { color: #dc2626; background: #fef2f2; }
+
+    /* Empty state */
+    .ref-empty { text-align: center; padding: 48px 20px; color: #94a3b8; }
+    .ref-empty svg { width: 42px; height: 42px; margin: 0 auto 12px; display: block; opacity: 0.35; }
+    .ref-empty p    { font-size: 15px; font-weight: 600; color: #64748b; margin: 0 0 4px; }
+    .ref-empty span { font-size: 13px; }
+
+    /* Overlay — CRITICAL: must be display:none by default */
+    .ref-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(15,23,42,0.45);
+      backdrop-filter: blur(4px);
+      align-items: flex-start;
+      justify-content: center;
+      padding: 24px 16px 60px;
+      overflow-y: auto;
+    }
+    .ref-overlay.open { display: flex; }
+
+    .ref-modal {
+      background: #fff; border-radius: 20px; width: 100%; max-width: 680px;
+      box-shadow: 0 24px 64px rgba(15,23,42,0.2); overflow: hidden;
+      animation: refIn 0.18s ease;
+    }
+    @keyframes refIn {
+      from { transform: scale(0.96); opacity: 0; }
+      to   { transform: scale(1);    opacity: 1; }
+    }
+
+    /* Modal header */
+    .ref-modal-head {
+      background: linear-gradient(135deg, #1e40af, #3b82f6);
+      padding: 20px 24px 18px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .ref-modal-head-title { font-size: 16px; font-weight: 800; color: #fff; }
+    .ref-modal-head-sub   { font-size: 12px; color: rgba(255,255,255,0.75); margin-top: 2px; }
+    .ref-modal-close {
+      background: rgba(255,255,255,0.15); border: none; border-radius: 8px;
+      width: 32px; height: 32px; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; color: #fff;
+      transition: background 0.15s; flex-shrink: 0;
+    }
+    .ref-modal-close:hover { background: rgba(255,255,255,0.28); }
+
+    /* Modal body / footer */
+    .ref-modal-body   { padding: 22px 24px; }
+    .ref-modal-footer {
+      padding: 14px 24px 20px; border-top: 1.5px solid #f1f5f9;
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+
+    /* Form elements */
+    .ref-section-label {
+      font-size: 10px; font-weight: 700; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 10px 0;
+    }
+    .ref-grid-3 {
+      display: grid; grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px; margin-bottom: 10px;
+    }
+    .ref-field label {
+      display: block; font-size: 11px; font-weight: 700; color: #64748b;
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px;
+    }
+    .ref-field input, .ref-field select {
+      width: 100%; padding: 9px 11px; border: 1.5px solid #e2e8f0;
+      border-radius: 9px; font-size: 14px; font-family: inherit;
+      color: #0f172a; background: #fff; box-sizing: border-box;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .ref-field input:focus, .ref-field select:focus {
+      outline: none; border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+    }
+    .ref-divider { border: none; border-top: 1.5px solid #f1f5f9; margin: 18px 0; }
+
+    /* Entry rows */
+    .ref-entries-header {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 12px;
+    }
+    .ref-entry-row {
+      background: #f8fafc; border: 1.5px solid #e2e8f0;
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+    }
+    .ref-entry-row-top {
+      display: grid; grid-template-columns: 1fr 1fr auto;
+      gap: 10px; margin-bottom: 10px; align-items: end;
+    }
+    .ref-entry-row-bot {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+    }
+    .ref-remove-btn {
+      background: none; border: none; cursor: pointer; color: #94a3b8;
+      padding: 6px; border-radius: 8px; display: flex; align-items: center;
+      transition: color 0.15s, background 0.15s; align-self: flex-end;
+    }
+    .ref-remove-btn:hover { color: #dc2626; background: #fef2f2; }
+    .ref-add-btn {
+      width: 100%; display: flex; align-items: center; justify-content: center;
+      gap: 6px; background: none; border: 1.5px dashed #cbd5e1;
+      border-radius: 10px; padding: 9px; font-size: 13px; font-weight: 600;
+      color: #64748b; cursor: pointer; font-family: inherit;
+      transition: border-color 0.15s, color 0.15s, background 0.15s; margin-top: 4px;
+    }
+    .ref-add-btn:hover { border-color: #3b82f6; color: #3b82f6; background: #eff6ff; }
+
+    /* Cancel button */
+    .btn-secondary {
+      background: #f1f5f9; color: #475569; border: none; padding: 10px 20px;
+      border-radius: 10px; font-size: 14px; font-weight: 600;
+      cursor: pointer; font-family: inherit; transition: background 0.15s;
+    }
+    .btn-secondary:hover { background: #e2e8f0; }
+
+    /* View modal */
+    .ref-view-entry {
+      background: #f8fafc; border: 1.5px solid #e2e8f0;
+      border-radius: 11px; padding: 11px 14px; margin-bottom: 9px;
+    }
+    .ref-view-entry-name { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 5px; }
+    .ref-view-chips      { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+    .ref-view-chip       { font-size: 12px; color: #64748b; }
+    .ref-view-chip strong { color: #0f172a; }
+    .ref-sponsor-info    { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 16px; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .ref-grid-3         { grid-template-columns: 1fr 1fr; }
+      .ref-entry-row-top  { grid-template-columns: 1fr auto; }
+      .ref-entry-row-bot  { grid-template-columns: 1fr 1fr; }
+      .ref-modal-body     { padding: 16px; }
+      .ref-modal-footer   { padding: 12px 16px 16px; }
+    }
+    @media (max-width: 420px) {
+      .ref-grid-3, .ref-entry-row-bot { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
 
-<!-- ── Top bar ──────────────────────────────────────────── -->
+<!-- ── Top bar ─────────────────────────────────────────── -->
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-brand">
@@ -60,13 +243,11 @@
         New Program
       </button>
     </div>
-
     <div id="refSkeleton">
       <div class="skeleton" style="height:76px;border-radius:12px;margin-bottom:10px;"></div>
       <div class="skeleton" style="height:76px;border-radius:12px;margin-bottom:10px;"></div>
       <div class="skeleton" style="height:76px;border-radius:12px;"></div>
     </div>
-
     <div class="ref-card-list" id="refList"></div>
   </div>
 </div>
@@ -92,12 +273,9 @@
   </div>
 </nav>
 
-<!-- ══════════════════════════════════════════════════════
-     ADD / EDIT PROGRAM MODAL
-══════════════════════════════════════════════════════ -->
+<!-- ══════════ ADD / EDIT MODAL ══════════ -->
 <div class="ref-overlay" id="refProgramOverlay">
   <div class="ref-modal">
-
     <div class="ref-modal-head">
       <div>
         <div class="ref-modal-head-title" id="refModalTitle">New Referral Program</div>
@@ -107,39 +285,30 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-
     <div class="ref-modal-body">
-
       <p class="ref-section-label">Sponsor</p>
       <div class="ref-grid-3">
         <div class="ref-field"><label>First Name</label><input id="sp_first" placeholder="First name"></div>
-        <div class="ref-field"><label>Last Name</label> <input id="sp_last"  placeholder="Last name"></div>
+        <div class="ref-field"><label>Last Name</label><input id="sp_last" placeholder="Last name"></div>
         <div class="ref-field"><label>Organization</label><input id="sp_org" placeholder="Company / union"></div>
       </div>
       <div class="ref-grid-3">
         <div class="ref-field"><label>Phone</label><input id="sp_phone" placeholder="(555) 000-0000" type="tel"></div>
         <div class="ref-field"><label>Email</label><input id="sp_email" placeholder="email@example.com" type="email"></div>
-        <div class="ref-field"><label>Date</label> <input id="sp_date"  type="date"></div>
+        <div class="ref-field"><label>Date</label><input id="sp_date" type="date"></div>
       </div>
-
       <hr class="ref-divider">
-
       <div class="ref-entries-header">
         <p class="ref-section-label" style="margin:0;">
-          Referrals
-          <span class="ref-count-badge" id="refCountBadge" style="margin-left:6px;">0</span>
+          Referrals <span class="ref-count-badge" id="refCountBadge" style="margin-left:6px;">0</span>
         </p>
       </div>
-
       <div id="refEntriesContainer"></div>
-
       <button class="ref-add-btn" onclick="refAddEntry()">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Add Referral
       </button>
-
     </div>
-
     <div class="ref-modal-footer">
       <button class="btn-secondary" onclick="refCloseOverlay('refProgramOverlay')">Cancel</button>
       <button class="btn" id="refSaveBtn" onclick="refSaveProgram()">
@@ -147,16 +316,12 @@
         Save Program
       </button>
     </div>
-
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-     VIEW PROGRAM MODAL
-══════════════════════════════════════════════════════ -->
+<!-- ══════════ VIEW MODAL ══════════ -->
 <div class="ref-overlay" id="refViewOverlay">
   <div class="ref-modal">
-
     <div class="ref-modal-head">
       <div>
         <div class="ref-modal-head-title" id="refViewTitle"></div>
@@ -166,14 +331,12 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-
     <div class="ref-modal-body">
       <p class="ref-section-label">Sponsor Info</p>
       <div class="ref-sponsor-info" id="refViewSponsorInfo"></div>
       <hr class="ref-divider">
       <div id="refViewReferrals"></div>
     </div>
-
     <div class="ref-modal-footer">
       <button class="btn-secondary" onclick="refCloseOverlay('refViewOverlay')">Close</button>
       <button class="btn" id="refViewEditBtn" onclick="refSwitchToEdit()">
@@ -181,18 +344,264 @@
         Edit
       </button>
     </div>
-
   </div>
 </div>
 
 <script src="/static/app.js"></script>
 <script>
+  /* ── Role-based nav & username ─── */
   if (localStorage.getItem("role") === "assistant") {
-    document.querySelectorAll(".admin-only").forEach(function(el)   { el.style.display = "none"; });
+    document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
     document.querySelectorAll(".assistant-visible").forEach(function(el) { el.style.display = ""; });
   }
-  var u = localStorage.getItem("username");
-  if (u) document.getElementById("username-text").innerText = u;
+  var _u = localStorage.getItem("username");
+  if (_u) document.getElementById("username-text").innerText = _u;
+
+  /* ══════════════════════════════════════════════════════════
+     REFERRAL PROGRAM — all logic self-contained in this page
+  ══════════════════════════════════════════════════════════ */
+  (function () {
+    var programs  = [];
+    var editingId = null;
+
+    function rEsc(s) { return String(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+    function rDate(d) {
+      if (!d) return "";
+      try { return new Date(d+"T12:00").toLocaleDateString("en-CA",{month:"short",day:"numeric",year:"numeric"}); }
+      catch(e) { return d; }
+    }
+    function rHdr() {
+      return {"Content-Type":"application/json","Authorization":"Bearer "+TOKEN};
+    }
+
+    function openOverlay(id)  { document.getElementById(id).classList.add("open");    document.body.style.overflow="hidden"; }
+    function closeOverlay(id) { document.getElementById(id).classList.remove("open"); document.body.style.overflow=""; }
+    window.refCloseOverlay = closeOverlay;
+
+    /* ── Load ── */
+    async function loadPrograms() {
+      document.getElementById("refSkeleton").style.display = "";
+      document.getElementById("refList").innerHTML = "";
+      try {
+        var res = await fetch(API+"/referral-programs", {headers:rHdr()});
+        if (res.status===401) { logout(); return; }
+        programs = await res.json();
+        renderList();
+      } catch(e) {
+        document.getElementById("refList").innerHTML =
+          '<p style="color:#dc2626;font-size:14px;padding:8px 0;">Failed to load. Please refresh.</p>';
+      } finally {
+        document.getElementById("refSkeleton").style.display = "none";
+      }
+    }
+
+    function renderList() {
+      var el = document.getElementById("refList");
+      if (!programs.length) {
+        el.innerHTML =
+          '<div class="ref-empty">'+
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">'+
+          '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>'+
+          '<circle cx="9" cy="7" r="4"/>'+
+          '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/>'+
+          '<path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'+
+          '<p>No referral programs yet</p>'+
+          '<span>Click \u201cNew Program\u201d to add the first sponsor</span></div>';
+        return;
+      }
+      el.innerHTML = programs.map(function(p) {
+        var name  = [p.sponsor_first,p.sponsor_last].filter(Boolean).join(" ")||"Unnamed Sponsor";
+        var count = p.referrals ? p.referrals.length : 0;
+        return '<div class="ref-program-card" onclick="refViewProgram('+p.id+')">'+
+          '<div class="ref-card-top">'+
+            '<div>'+
+              '<div class="ref-card-name">'+rEsc(name)+'</div>'+
+              (p.sponsor_org?'<div class="ref-card-org">'+rEsc(p.sponsor_org)+'</div>':'')+
+            '</div>'+
+            '<div style="display:flex;align-items:center;gap:8px;">'+
+              '<span class="ref-count-badge">'+count+' referral'+(count!==1?'s':'')+'</span>'+
+              '<button class="ref-icon-btn" onclick="event.stopPropagation();refDeleteProgram('+p.id+')" title="Delete">'+
+                '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">'+
+                '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>'+
+                '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>'+
+              '</button>'+
+            '</div>'+
+          '</div>'+
+          '<div class="ref-card-meta">'+
+            (p.program_date?'<span class="ref-meta-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'+rEsc(rDate(p.program_date))+'</span>':'')+
+            (p.sponsor_phone?'<span class="ref-meta-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.59 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.37a16 16 0 0 0 6.29 6.29l.87-.87a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>'+rEsc(p.sponsor_phone)+'</span>':'')+
+          '</div>'+
+        '</div>';
+      }).join("");
+    }
+
+    /* ── Open new ── */
+    window.refOpenNew = function() {
+      editingId = null;
+      document.getElementById("refModalTitle").textContent = "New Referral Program";
+      ["sp_first","sp_last","sp_org","sp_phone","sp_email"].forEach(function(id){
+        document.getElementById(id).value = "";
+      });
+      document.getElementById("sp_date").value =
+        new Date().toLocaleDateString("en-CA",{timeZone:"America/Edmonton"});
+      document.getElementById("refEntriesContainer").innerHTML = "";
+      document.getElementById("refCountBadge").textContent = "0";
+      openOverlay("refProgramOverlay");
+      document.getElementById("sp_first").focus();
+    };
+
+    /* ── Add entry row ── */
+    window.refAddEntry = function(data) {
+      data = data||{};
+      var c = document.getElementById("refEntriesContainer");
+      var d = document.createElement("div");
+      d.className = "ref-entry-row";
+      d.innerHTML =
+        '<div class="ref-entry-row-top">'+
+          '<div class="ref-field"><label>First Name</label>'+
+            '<input class="ef_first" placeholder="First name" value="'+rEsc(data.first_name||"")+'"></div>'+
+          '<div class="ref-field"><label>Last Name</label>'+
+            '<input class="ef_last" placeholder="Last name" value="'+rEsc(data.last_name||"")+'"></div>'+
+          '<button class="ref-remove-btn" onclick="this.closest(\'.ref-entry-row\').remove();refUpdateCount()" title="Remove">'+
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">'+
+            '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>'+
+        '</div>'+
+        '<div class="ref-entry-row-bot">'+
+          '<div class="ref-field"><label>Phone</label>'+
+            '<input class="ef_phone" placeholder="555-0000" type="tel" value="'+rEsc(data.phone||"")+'"></div>'+
+          '<div class="ref-field"><label>Relationship to Sponsor</label>'+
+            '<input class="ef_rel" placeholder="e.g. Spouse, Coworker" value="'+rEsc(data.rel_to_sponsor||"")+'"></div>'+
+          '<div class="ref-field"><label>City</label>'+
+            '<input class="ef_city" placeholder="City" value="'+rEsc(data.city||"")+'"></div>'+
+        '</div>';
+      c.appendChild(d);
+      refUpdateCount();
+      d.querySelector(".ef_first").focus();
+    };
+
+    window.refUpdateCount = function() {
+      document.getElementById("refCountBadge").textContent =
+        document.querySelectorAll("#refEntriesContainer .ref-entry-row").length;
+    };
+
+    /* ── Save ── */
+    window.refSaveProgram = async function() {
+      var btn  = document.getElementById("refSaveBtn");
+      var rows = document.querySelectorAll("#refEntriesContainer .ref-entry-row");
+      var payload = {
+        sponsor_first: document.getElementById("sp_first").value.trim(),
+        sponsor_last:  document.getElementById("sp_last").value.trim(),
+        sponsor_org:   document.getElementById("sp_org").value.trim(),
+        sponsor_phone: document.getElementById("sp_phone").value.trim(),
+        sponsor_email: document.getElementById("sp_email").value.trim(),
+        program_date:  document.getElementById("sp_date").value,
+        total_gifted:  0,
+        referrals: Array.from(rows).map(function(r){
+          return {
+            first_name:     r.querySelector(".ef_first").value.trim(),
+            last_name:      r.querySelector(".ef_last").value.trim(),
+            phone:          r.querySelector(".ef_phone").value.trim(),
+            rel_to_sponsor: r.querySelector(".ef_rel").value.trim(),
+            city:           r.querySelector(".ef_city").value.trim()
+          };
+        })
+      };
+      if (!payload.sponsor_first && !payload.sponsor_last) {
+        showToast("Please enter at least a sponsor first or last name.","error"); return;
+      }
+      btn.disabled = true; btn.textContent = "Saving\u2026";
+      try {
+        var url    = editingId ? API+"/referral-programs/"+editingId : API+"/referral-programs";
+        var method = editingId ? "PUT" : "POST";
+        var res    = await fetch(url,{method:method,headers:rHdr(),body:JSON.stringify(payload)});
+        if (!res.ok) {
+          var err = await res.json().catch(function(){return{};});
+          showToast(err.detail||"Failed to save.","error"); return;
+        }
+        closeOverlay("refProgramOverlay");
+        showToast(editingId?"Program updated.":"Program saved.","success");
+        await loadPrograms();
+      } catch(e) { showToast("Server error. Please try again.","error"); }
+      finally { btn.disabled=false; btn.textContent="Save Program"; }
+    };
+
+    /* ── View ── */
+    window.refViewProgram = function(id) {
+      var p = programs.find(function(x){return x.id===id;});
+      if (!p) return;
+      var name = [p.sponsor_first,p.sponsor_last].filter(Boolean).join(" ")||"Unnamed Sponsor";
+      document.getElementById("refViewTitle").textContent = name;
+      document.getElementById("refViewSub").textContent   = p.program_date ? rDate(p.program_date) : "";
+      document.getElementById("refViewEditBtn").dataset.id = id;
+      var info = "";
+      if (p.sponsor_org)   info += '<span class="ref-view-chip"><strong>Organization:</strong> '+rEsc(p.sponsor_org)+'</span>';
+      if (p.sponsor_phone) info += '<span class="ref-view-chip"><strong>Phone:</strong> '+rEsc(p.sponsor_phone)+'</span>';
+      if (p.sponsor_email) info += '<span class="ref-view-chip"><strong>Email:</strong> '+rEsc(p.sponsor_email)+'</span>';
+      if (p.program_date)  info += '<span class="ref-view-chip"><strong>Date:</strong> '+rEsc(rDate(p.program_date))+'</span>';
+      document.getElementById("refViewSponsorInfo").innerHTML = info;
+      var refs = p.referrals||[];
+      var html = refs.length
+        ? '<p class="ref-section-label">Referrals ('+refs.length+')</p>'
+        : '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:16px 0;">No referrals added.</p>';
+      refs.forEach(function(r,i){
+        var rname = [r.first_name,r.last_name].filter(Boolean).join(" ")||"Unnamed";
+        html += '<div class="ref-view-entry">'+
+          '<div class="ref-view-entry-name">'+(i+1)+'. '+rEsc(rname)+'</div>'+
+          '<div class="ref-view-chips">'+
+            (r.rel_to_sponsor?'<span class="ref-view-chip"><strong>Relationship:</strong> '+rEsc(r.rel_to_sponsor)+'</span>':'')+
+            (r.phone?'<span class="ref-view-chip"><strong>Phone:</strong> '+rEsc(r.phone)+'</span>':'')+
+            (r.city?'<span class="ref-view-chip"><strong>City:</strong> '+rEsc(r.city)+'</span>':'')+
+          '</div></div>';
+      });
+      document.getElementById("refViewReferrals").innerHTML = html;
+      openOverlay("refViewOverlay");
+    };
+
+    window.refSwitchToEdit = function() {
+      var id = parseInt(document.getElementById("refViewEditBtn").dataset.id);
+      closeOverlay("refViewOverlay");
+      var p = programs.find(function(x){return x.id===id;});
+      if (!p) return;
+      editingId = id;
+      document.getElementById("refModalTitle").textContent = "Edit Referral Program";
+      document.getElementById("sp_first").value  = p.sponsor_first  ||"";
+      document.getElementById("sp_last").value   = p.sponsor_last   ||"";
+      document.getElementById("sp_org").value    = p.sponsor_org    ||"";
+      document.getElementById("sp_phone").value  = p.sponsor_phone  ||"";
+      document.getElementById("sp_email").value  = p.sponsor_email  ||"";
+      document.getElementById("sp_date").value   = p.program_date   ||"";
+      document.getElementById("refEntriesContainer").innerHTML = "";
+      (p.referrals||[]).forEach(function(r){refAddEntry(r);});
+      openOverlay("refProgramOverlay");
+    };
+
+    /* ── Delete ── */
+    window.refDeleteProgram = async function(id) {
+      var p    = programs.find(function(x){return x.id===id;});
+      var name = p?([p.sponsor_first,p.sponsor_last].filter(Boolean).join(" ")||"this program"):"this program";
+      if (!confirm('Delete referral program for "'+name+'"? This cannot be undone.')) return;
+      try {
+        var res = await fetch(API+"/referral-programs/"+id,{method:"DELETE",headers:rHdr()});
+        if (!res.ok) { showToast("Failed to delete.","error"); return; }
+        showToast("Program deleted.","success");
+        await loadPrograms();
+      } catch(e) { showToast("Server error.","error"); }
+    };
+
+    /* ── Backdrop & Escape ── */
+    ["refProgramOverlay","refViewOverlay"].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.addEventListener("click",function(e){if(e.target===el)closeOverlay(id);});
+    });
+    document.addEventListener("keydown",function(e){
+      if (e.key!=="Escape") return;
+      closeOverlay("refProgramOverlay");
+      closeOverlay("refViewOverlay");
+    });
+
+    /* ── Boot ── */
+    loadPrograms();
+  })();
 </script>
 </body>
 </html>
