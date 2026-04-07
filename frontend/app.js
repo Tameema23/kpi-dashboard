@@ -2009,3 +2009,290 @@ var _apiCache = {
     };
   }
 })();
+
+/* ═══════════════════════════════════════════════════════
+   REFERRAL PROGRAM — referrals.html
+   ═══════════════════════════════════════════════════════ */
+
+(function () {
+  if (!document.getElementById("refList")) return; // only run on referrals page
+
+  /* ── State ───────────────────────────────────────────── */
+  var programs  = [];
+  var editingId = null;
+
+  /* ── Helpers ─────────────────────────────────────────── */
+  function refEsc(s) {
+    return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function fmtDate(d) {
+    if (!d) return "";
+    try { return new Date(d + "T12:00").toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" }); }
+    catch (e) { return d; }
+  }
+  function refHdr() {
+    return { "Content-Type": "application/json", "Authorization": "Bearer " + TOKEN };
+  }
+  function openOverlay(id)  { document.getElementById(id).classList.add("open");    document.body.style.overflow = "hidden"; }
+  function closeOverlay(id) { document.getElementById(id).classList.remove("open"); document.body.style.overflow = ""; }
+
+  /* ── Load & render ───────────────────────────────────── */
+  async function loadPrograms() {
+    document.getElementById("refSkeleton").style.display = "";
+    document.getElementById("refList").innerHTML = "";
+    try {
+      var res = await fetch(API + "/referral-programs", { headers: refHdr() });
+      if (res.status === 401) { logout(); return; }
+      programs = await res.json();
+      renderList();
+    } catch (e) {
+      document.getElementById("refList").innerHTML =
+        '<p style="color:#dc2626;font-size:14px;padding:8px 0;">Failed to load. Please refresh.</p>';
+    } finally {
+      document.getElementById("refSkeleton").style.display = "none";
+    }
+  }
+
+  function renderList() {
+    var el = document.getElementById("refList");
+    if (!programs.length) {
+      el.innerHTML = '<div class="ref-empty">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+        '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>' +
+        '<path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' +
+        '<p>No referral programs yet</p><span>Click \u201cNew Program\u201d to add the first sponsor</span></div>';
+      return;
+    }
+    el.innerHTML = programs.map(function (p) {
+      var name = [p.sponsor_first, p.sponsor_last].filter(Boolean).join(" ") || "Unnamed Sponsor";
+      var count = p.referrals ? p.referrals.length : 0;
+      return '<div class="ref-program-card" onclick="refViewProgram(' + p.id + ')">' +
+        '<div class="ref-card-top">' +
+          '<div>' +
+            '<div class="ref-card-name">' + refEsc(name) + '</div>' +
+            (p.sponsor_org ? '<div class="ref-card-org">' + refEsc(p.sponsor_org) + '</div>' : '') +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<span class="ref-count-badge">' + count + ' referral' + (count !== 1 ? 's' : '') + '</span>' +
+            '<button class="ref-icon-btn" onclick="event.stopPropagation();refDeleteProgram(' + p.id + ')" title="Delete">' +
+              '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+              '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>' +
+              '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>' +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ref-card-meta">' +
+          (p.program_date ? '<span class="ref-meta-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' + refEsc(fmtDate(p.program_date)) + '</span>' : '') +
+          (p.sponsor_phone ? '<span class="ref-meta-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.59 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.37a16 16 0 0 0 6.29 6.29l.87-.87a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>' + refEsc(p.sponsor_phone) + '</span>' : '') +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  /* ── New program modal ───────────────────────────────── */
+  window.refOpenNew = function () {
+    editingId = null;
+    document.getElementById("refModalTitle").textContent = "New Referral Program";
+    document.getElementById("sp_first").value  = "";
+    document.getElementById("sp_last").value   = "";
+    document.getElementById("sp_org").value    = "";
+    document.getElementById("sp_phone").value  = "";
+    document.getElementById("sp_email").value  = "";
+    // Default to today (Mountain time)
+    document.getElementById("sp_date").value = new Date().toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
+    document.getElementById("refEntriesContainer").innerHTML = "";
+    updateRefCount();
+    openOverlay("refProgramOverlay");
+    document.getElementById("sp_first").focus();
+  };
+
+  /* ── Entry rows ──────────────────────────────────────── */
+  window.refAddEntry = function (data) {
+    data = data || {};
+    var container = document.getElementById("refEntriesContainer");
+    var div = document.createElement("div");
+    div.className = "ref-entry-row";
+    div.innerHTML =
+      '<div class="ref-entry-row-top">' +
+        '<div class="ref-field">' +
+          '<label>First Name</label>' +
+          '<input class="ef_first" placeholder="First name" value="' + refEsc(data.first_name || "") + '">' +
+        '</div>' +
+        '<div class="ref-field">' +
+          '<label>Last Name</label>' +
+          '<input class="ef_last" placeholder="Last name" value="' + refEsc(data.last_name || "") + '">' +
+        '</div>' +
+        '<button class="ref-remove-btn" onclick="this.closest(\'.ref-entry-row\').remove();refUpdateCount()" title="Remove">' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+          '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+        '</button>' +
+      '</div>' +
+      '<div class="ref-entry-row-bot">' +
+        '<div class="ref-field">' +
+          '<label>Phone</label>' +
+          '<input class="ef_phone" placeholder="555-0000" type="tel" value="' + refEsc(data.phone || "") + '">' +
+        '</div>' +
+        '<div class="ref-field">' +
+          '<label>Relationship to Sponsor</label>' +
+          '<input class="ef_rel" placeholder="e.g. Spouse, Coworker" value="' + refEsc(data.rel_to_sponsor || "") + '">' +
+        '</div>' +
+        '<div class="ref-field">' +
+          '<label>City</label>' +
+          '<input class="ef_city" placeholder="City" value="' + refEsc(data.city || "") + '">' +
+        '</div>' +
+      '</div>';
+    container.appendChild(div);
+    updateRefCount();
+    div.querySelector(".ef_first").focus();
+  };
+
+  window.refUpdateCount = function () { updateRefCount(); };
+
+  function updateRefCount() {
+    var count = document.querySelectorAll("#refEntriesContainer .ref-entry-row").length;
+    document.getElementById("refCountBadge").textContent = count;
+  }
+
+  /* ── Save program ────────────────────────────────────── */
+  window.refSaveProgram = async function () {
+    var btn  = document.getElementById("refSaveBtn");
+    var rows = document.querySelectorAll("#refEntriesContainer .ref-entry-row");
+
+    var payload = {
+      sponsor_first: document.getElementById("sp_first").value.trim(),
+      sponsor_last:  document.getElementById("sp_last").value.trim(),
+      sponsor_org:   document.getElementById("sp_org").value.trim(),
+      sponsor_phone: document.getElementById("sp_phone").value.trim(),
+      sponsor_email: document.getElementById("sp_email").value.trim(),
+      program_date:  document.getElementById("sp_date").value,
+      total_gifted:  0,
+      referrals: Array.from(rows).map(function (row) {
+        return {
+          first_name:     row.querySelector(".ef_first").value.trim(),
+          last_name:      row.querySelector(".ef_last").value.trim(),
+          phone:          row.querySelector(".ef_phone").value.trim(),
+          rel_to_sponsor: row.querySelector(".ef_rel").value.trim(),
+          city:           row.querySelector(".ef_city").value.trim(),
+        };
+      })
+    };
+
+    if (!payload.sponsor_first && !payload.sponsor_last) {
+      showToast("Please enter at least a sponsor first or last name.", "error");
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Saving\u2026";
+
+    try {
+      var url    = editingId ? API + "/referral-programs/" + editingId : API + "/referral-programs";
+      var method = editingId ? "PUT" : "POST";
+      var res    = await fetch(url, { method: method, headers: refHdr(), body: JSON.stringify(payload) });
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        showToast(err.detail || "Failed to save.", "error");
+        return;
+      }
+      closeOverlay("refProgramOverlay");
+      showToast(editingId ? "Program updated." : "Program saved.", "success");
+      await loadPrograms();
+    } catch (e) {
+      showToast("Server error. Please try again.", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Save Program";
+    }
+  };
+
+  /* ── View modal ──────────────────────────────────────── */
+  window.refViewProgram = function (id) {
+    var p = programs.find(function (x) { return x.id === id; });
+    if (!p) return;
+
+    var name = [p.sponsor_first, p.sponsor_last].filter(Boolean).join(" ") || "Unnamed Sponsor";
+    document.getElementById("refViewTitle").textContent = name;
+    document.getElementById("refViewSub").textContent   = p.program_date ? fmtDate(p.program_date) : "";
+    document.getElementById("refViewEditBtn").dataset.id = id;
+
+    var info = "";
+    if (p.sponsor_org)   info += '<span class="ref-view-chip"><strong>Organization:</strong> ' + refEsc(p.sponsor_org) + '</span>';
+    if (p.sponsor_phone) info += '<span class="ref-view-chip"><strong>Phone:</strong> ' + refEsc(p.sponsor_phone) + '</span>';
+    if (p.sponsor_email) info += '<span class="ref-view-chip"><strong>Email:</strong> ' + refEsc(p.sponsor_email) + '</span>';
+    if (p.program_date)  info += '<span class="ref-view-chip"><strong>Date:</strong> ' + refEsc(fmtDate(p.program_date)) + '</span>';
+    document.getElementById("refViewSponsorInfo").innerHTML = info;
+
+    var refs = p.referrals || [];
+    var refsHtml = "";
+    if (!refs.length) {
+      refsHtml = '<p style="color:#94a3b8;font-size:13px;text-align:center;padding:16px 0;">No referrals added.</p>';
+    } else {
+      refsHtml = '<p class="ref-section-label">Referrals (' + refs.length + ')</p>';
+      refs.forEach(function (r, i) {
+        var rname = [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unnamed";
+        refsHtml += '<div class="ref-view-entry">' +
+          '<div class="ref-view-entry-name">' + (i + 1) + '. ' + refEsc(rname) + '</div>' +
+          '<div class="ref-view-chips">' +
+            (r.rel_to_sponsor ? '<span class="ref-view-chip"><strong>Relationship:</strong> ' + refEsc(r.rel_to_sponsor) + '</span>' : '') +
+            (r.phone          ? '<span class="ref-view-chip"><strong>Phone:</strong> '        + refEsc(r.phone)          + '</span>' : '') +
+            (r.city           ? '<span class="ref-view-chip"><strong>City:</strong> '         + refEsc(r.city)           + '</span>' : '') +
+          '</div>' +
+        '</div>';
+      });
+    }
+    document.getElementById("refViewReferrals").innerHTML = refsHtml;
+    openOverlay("refViewOverlay");
+  };
+
+  window.refSwitchToEdit = function () {
+    var id = parseInt(document.getElementById("refViewEditBtn").dataset.id);
+    closeOverlay("refViewOverlay");
+    var p = programs.find(function (x) { return x.id === id; });
+    if (!p) return;
+    editingId = id;
+    document.getElementById("refModalTitle").textContent = "Edit Referral Program";
+    document.getElementById("sp_first").value  = p.sponsor_first  || "";
+    document.getElementById("sp_last").value   = p.sponsor_last   || "";
+    document.getElementById("sp_org").value    = p.sponsor_org    || "";
+    document.getElementById("sp_phone").value  = p.sponsor_phone  || "";
+    document.getElementById("sp_email").value  = p.sponsor_email  || "";
+    document.getElementById("sp_date").value   = p.program_date   || "";
+    document.getElementById("refEntriesContainer").innerHTML = "";
+    (p.referrals || []).forEach(function (r) { refAddEntry(r); });
+    openOverlay("refProgramOverlay");
+  };
+
+  /* ── Delete ──────────────────────────────────────────── */
+  window.refDeleteProgram = async function (id) {
+    var p    = programs.find(function (x) { return x.id === id; });
+    var name = p ? ([p.sponsor_first, p.sponsor_last].filter(Boolean).join(" ") || "this program") : "this program";
+    if (!confirm('Delete referral program for "' + name + '"? This cannot be undone.')) return;
+    try {
+      var res = await fetch(API + "/referral-programs/" + id, { method: "DELETE", headers: refHdr() });
+      if (!res.ok) { showToast("Failed to delete.", "error"); return; }
+      showToast("Program deleted.", "success");
+      await loadPrograms();
+    } catch (e) {
+      showToast("Server error.", "error");
+    }
+  };
+
+  /* ── Close on backdrop click / Escape ────────────────── */
+  ["refProgramOverlay", "refViewOverlay"].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("click", function (e) { if (e.target === el) closeOverlay(id); });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    closeOverlay("refProgramOverlay");
+    closeOverlay("refViewOverlay");
+  });
+
+  /* ── Init ────────────────────────────────────────────── */
+  loadPrograms();
+
+  /* Expose closeOverlay for inline onclick on modal close buttons */
+  window.refCloseOverlay = closeOverlay;
+
+})();
