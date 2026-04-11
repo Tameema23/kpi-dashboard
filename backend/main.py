@@ -802,13 +802,17 @@ class ReferralEntryPayload(BaseModel):
     sig_other:      Optional[str] = ""
 
 class ReferralProgramPayload(BaseModel):
-    sponsor_first:  Optional[str]   = ""
-    sponsor_last:   Optional[str]   = ""
-    sponsor_org:    Optional[str]   = ""
-    sponsor_phone:  Optional[str]   = ""
-    sponsor_email:  Optional[str]   = ""
-    program_date:   Optional[str]   = ""
-    total_gifted:   Optional[float] = 0.0
+    sponsor_first:      Optional[str]   = ""
+    sponsor_last:       Optional[str]   = ""
+    sponsor_org:        Optional[str]   = ""
+    sponsor_phone:      Optional[str]   = ""
+    sponsor_email:      Optional[str]   = ""
+    sponsor_city:       Optional[str]   = ""
+    sponsor_province:   Optional[str]   = ""
+    sponsor_occupation: Optional[str]   = ""
+    sponsor_notes:      Optional[str]   = ""
+    program_date:       Optional[str]   = ""
+    total_gifted:       Optional[float] = 0.0
     referrals:      list[ReferralEntryPayload] = []
 
 def _sanitize_referral_entry(d: ReferralEntryPayload) -> dict:
@@ -829,13 +833,17 @@ def _sanitize_referral_entry(d: ReferralEntryPayload) -> dict:
 def _program_dict(p: ReferralProgram) -> dict:
     return {
         "id":            p.id,
-        "sponsor_first": p.sponsor_first or "",
-        "sponsor_last":  p.sponsor_last or "",
-        "sponsor_org":   p.sponsor_org or "",
-        "sponsor_phone": p.sponsor_phone or "",
-        "sponsor_email": p.sponsor_email or "",
-        "program_date":  p.program_date or "",
-        "total_gifted":  p.total_gifted or 0.0,
+        "sponsor_first":      p.sponsor_first or "",
+        "sponsor_last":       p.sponsor_last or "",
+        "sponsor_org":        p.sponsor_org or "",
+        "sponsor_phone":      p.sponsor_phone or "",
+        "sponsor_email":      p.sponsor_email or "",
+        "sponsor_city":       getattr(p, "sponsor_city", "") or "",
+        "sponsor_province":   getattr(p, "sponsor_province", "") or "",
+        "sponsor_occupation": getattr(p, "sponsor_occupation", "") or "",
+        "sponsor_notes":      getattr(p, "sponsor_notes", "") or "",
+        "program_date":       p.program_date or "",
+        "total_gifted":       p.total_gifted or 0.0,
         "created_at":    p.created_at or "",
         "referrals": [
             {
@@ -870,6 +878,10 @@ def create_referral_program(data: ReferralProgramPayload,
         sponsor_org=sanitize_str(data.sponsor_org or "", 200),
         sponsor_phone=re.sub(r"[^\d\s\+\-\(\)ext\.]", "", data.sponsor_phone or "")[:30],
         sponsor_email=sanitize_str(data.sponsor_email or "", 200),
+        sponsor_city=sanitize_str(data.sponsor_city or "", 100),
+        sponsor_province=sanitize_str(data.sponsor_province or "", 100),
+        sponsor_occupation=sanitize_str(data.sponsor_occupation or "", 200),
+        sponsor_notes=sanitize_str(data.sponsor_notes or "", 1000),
         program_date=sanitize_str(data.program_date or "", 10),
         total_gifted=max(0.0, min(data.total_gifted or 0.0, 9_999_999)),
         created_at=now,
@@ -916,13 +928,17 @@ def update_referral_program(prog_id: int, data: ReferralProgramPayload,
     if not prog:
         raise HTTPException(404, "Referral program not found.")
 
-    prog.sponsor_first = sanitize_str(data.sponsor_first or "", 100)
-    prog.sponsor_last  = sanitize_str(data.sponsor_last or "", 100)
-    prog.sponsor_org   = sanitize_str(data.sponsor_org or "", 200)
-    prog.sponsor_phone = re.sub(r"[^\d\s\+\-\(\)ext\.]", "", data.sponsor_phone or "")[:30]
-    prog.sponsor_email = sanitize_str(data.sponsor_email or "", 200)
-    prog.program_date  = sanitize_str(data.program_date or "", 10)
-    prog.total_gifted  = max(0.0, min(data.total_gifted or 0.0, 9_999_999))
+    prog.sponsor_first      = sanitize_str(data.sponsor_first or "", 100)
+    prog.sponsor_last       = sanitize_str(data.sponsor_last or "", 100)
+    prog.sponsor_org        = sanitize_str(data.sponsor_org or "", 200)
+    prog.sponsor_phone      = re.sub(r"[^\d\s\+\-\(\)ext\.]", "", data.sponsor_phone or "")[:30]
+    prog.sponsor_email      = sanitize_str(data.sponsor_email or "", 200)
+    prog.sponsor_city       = sanitize_str(data.sponsor_city or "", 100)
+    prog.sponsor_province   = sanitize_str(data.sponsor_province or "", 100)
+    prog.sponsor_occupation = sanitize_str(data.sponsor_occupation or "", 200)
+    prog.sponsor_notes      = sanitize_str(data.sponsor_notes or "", 1000)
+    prog.program_date       = sanitize_str(data.program_date or "", 10)
+    prog.total_gifted       = max(0.0, min(data.total_gifted or 0.0, 9_999_999))
 
     # Replace all referral entries
     db.query(ReferralEntry).filter(ReferralEntry.program_id == prog.id).delete()

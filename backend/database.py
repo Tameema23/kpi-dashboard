@@ -121,13 +121,17 @@ class ReferralProgram(Base):
     created_by   = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     # Sponsor (the person giving the referrals)
-    sponsor_first   = Column(String(100), default="")
-    sponsor_last    = Column(String(100), default="")
-    sponsor_org     = Column(String(200), default="")
-    sponsor_phone   = Column(String(30),  default="")
-    sponsor_email   = Column(String(200), default="")
-    program_date    = Column(String(10),  default="")   # YYYY-MM-DD
-    total_gifted    = Column(Float,       default=0.0)
+    sponsor_first      = Column(String(100), default="")
+    sponsor_last       = Column(String(100), default="")
+    sponsor_org        = Column(String(200), default="")
+    sponsor_phone      = Column(String(30),  default="")
+    sponsor_email      = Column(String(200), default="")
+    sponsor_city       = Column(String(100), default="")
+    sponsor_province   = Column(String(100), default="")
+    sponsor_occupation = Column(String(200), default="")
+    sponsor_notes      = Column(Text,        default="")
+    program_date       = Column(String(10),  default="")   # YYYY-MM-DD
+    total_gifted       = Column(Float,       default=0.0)
 
     created_at   = Column(String(16),  default="")
 
