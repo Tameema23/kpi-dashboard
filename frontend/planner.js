@@ -64,10 +64,9 @@
   var DAY_FULL  = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   function renderDaysOffPanel() {
+    // Old panel hidden — day blocking is now done by clicking column headers
     var panel = document.getElementById("daysOffPanel");
-    if (!panel) return;
-    // Always hide the old panel — we now use inline header controls
-    panel.style.display = "none";
+    if (panel) panel.style.display = "none";
   }
 
   function getWeekStart(date) {
@@ -186,34 +185,28 @@
 
       cell.innerHTML =
         '<span class="pg-dow">' + dayName + '</span>' +
-        '<span class="pg-dom">' + dayNum  + '</span>' +
-        (isBlocked
-          ? '<span class="pg-block-badge">' +
-              '<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
-              'Blocked</span>'
-          : (role === "admin"
-              ? '<span class="pg-unblock-hint">Click to block</span>'
-              : ''));
+        '<span class="pg-dom">' + dayNum + '</span>' +
+        (isBlocked ? '<span class="pg-block-badge">Blocked</span>' : "");
 
-      // Admin: click header to toggle block
+      // Admin only: click header to toggle block
       if (role === "admin") {
-        cell.style.cursor = "pointer";
+        cell.classList.add("pg-day-head-admin");
         cell.title = isBlocked
           ? "Click to unblock every " + DAY_FULL[dow]
           : "Click to block every " + DAY_FULL[dow];
-        cell.addEventListener("click", (function(d) {
+        cell.addEventListener("click", (function(d, blocked) {
           return function() {
             if (blockedDays.has(d)) {
               blockedDays.delete(d);
-              showToast("Every " + DAY_FULL[d] + " is now open.", "info");
+              showToast(DAY_FULL[d] + "s unblocked.", "info");
             } else {
               blockedDays.add(d);
-              showToast("Every " + DAY_FULL[d] + " is now blocked.", "info");
+              showToast(DAY_FULL[d] + "s blocked.", "info");
             }
             saveBlockedDays();
             renderPlanner();
           };
-        })(dow));
+        })(dow, isBlocked));
       }
 
       headerRow.appendChild(cell);
@@ -794,28 +787,24 @@
 
     for (var day = 1; day <= daysInMonth; day++) {
       var d = document.createElement("div");
-      var dateStr = calYear + "-" + String(calMonth + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
-      var dayDow  = new Date(dateStr + "T00:00:00").getDay();
-      var isDayBlocked = blockedDays.has(dayDow);
-      d.className = "mc-day";
-      if (isDayBlocked)             d.classList.add("mc-blocked");
-      if (dateStr === todayStr)     d.classList.add("mc-today");
-      if (dateStr === selectedDate) d.classList.add("mc-selected");
+      var dateStr  = calYear + "-" + String(calMonth + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+      var calDow   = new Date(dateStr + "T00:00:00").getDay();
+      var isDayBlocked = blockedDays.has(calDow);
+      d.className = "mc-day" + (isDayBlocked ? " mc-blocked" : "");
+      if (dateStr === todayStr && !isDayBlocked) d.classList.add("mc-today");
+      if (dateStr === selectedDate)              d.classList.add("mc-selected");
       d.innerText = day;
       d.addEventListener("click", (function (ds, isBlocked, dow) {
         return function () {
           if (isBlocked) {
             showToast(DAY_FULL[dow] + "s are blocked. Choose a different day.", "error");
-            var dateInp = document.getElementById("m_date");
-            dateInp.style.borderColor = "#dc2626";
-            setTimeout(function() { dateInp.style.borderColor = ""; }, 2500);
-            return; // don't select it
+            return;
           }
           document.getElementById("m_date").value = ds;
           renderMiniCal();
           updateTzPreview();
         };
-      })(dateStr, isDayBlocked, dayDow));
+      })(dateStr, isDayBlocked, calDow));
       grid.appendChild(d);
     }
   }
@@ -1043,7 +1032,7 @@
 
   // ── Init ─────────────────────────────────────────────────────
   renderDaysOffPanel();
-  // Show the admin hint bar (click header to block)
+  // Show admin hint bar (click column header to block/unblock)
   if (role === "admin") {
     var hint = document.getElementById("adminBlockHint");
     if (hint) hint.style.display = "flex";

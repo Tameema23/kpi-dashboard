@@ -1201,22 +1201,32 @@ h2 { margin-top: 0; }
   padding: 10px 6px;
   border-right: 1px solid #f1f5f9;
   gap: 2px;
-  transition: background 0.15s;
-  user-select: none;
 }
 
 .pg-day-head:last-child { border-right: none; }
 
-/* Non-blocked header hover (admin only — cursor set via JS) */
-.pg-day-head:not(.pg-day-blocked-head):hover {
+/* Admin block hint bar */
+.admin-block-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
   background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 14px;
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+@media (max-width: 768px) {
+  .admin-block-hint { font-size: 10px; padding: 5px 10px; }
 }
 
 .pg-day-head.pg-day-today {
   background: #eff6ff;
-}
-.pg-day-head.pg-day-today:not(.pg-day-blocked-head):hover {
-  background: #dbeafe;
 }
 
 .pg-dow {
@@ -1286,88 +1296,65 @@ h2 { margin-top: 0; }
 
 /* ── Blocked day column ───────────────────────────────────── */
 /* Blocked header cell */
-/* ── Blocked day column — header ─────────────────────────── */
+/* ── Blocked day header ──────────────────────────────────── */
 .pg-day-blocked-head {
-  background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%) !important;
+  background: #fef2f2 !important;
   position: relative;
-  transition: background 0.2s;
+  transition: background 0.15s;
 }
 .pg-day-blocked-head:hover {
-  background: linear-gradient(180deg, #fee2e2 0%, #fecaca 100%) !important;
+  background: #fee2e2 !important;
 }
 .pg-day-blocked-head .pg-dow {
-  color: #ef4444 !important;
+  color: #f87171 !important;
 }
 .pg-day-blocked-head .pg-dom {
   color: #dc2626 !important;
-  text-shadow: none;
 }
 
-/* "Blocked" badge in header */
+/* "Blocked" pill badge */
 .pg-block-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 6px;
+  display: inline-block;
+  margin-top: 5px;
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   background: #dc2626;
   color: #fff;
-  padding: 3px 8px;
+  padding: 2px 8px;
   border-radius: 20px;
   white-space: nowrap;
-  box-shadow: 0 1px 4px rgba(220,38,38,0.35);
 }
 
-/* Hint shown on open (non-blocked) days when admin hovers */
-.pg-unblock-hint {
-  display: none;
-  font-size: 9px;
-  font-weight: 600;
-  color: #94a3b8;
-  margin-top: 4px;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
+/* Admin headers are clickable */
+.pg-day-head-admin {
+  cursor: pointer !important;
 }
-.pg-day-head:hover .pg-unblock-hint { display: block; }
+.pg-day-head-admin:not(.pg-day-blocked-head):hover {
+  background: #f1f5f9;
+}
+.pg-day-head-admin:not(.pg-day-blocked-head):hover .pg-dow {
+  color: #475569;
+}
 
-/* Blocked cell — clean solid red wash, no harsh hatching */
+/* Blocked cell — clean soft red wash, no harsh stripes */
 .pg-cell-blocked {
-  background: rgba(254, 226, 226, 0.55) !important;
+  background: rgba(254, 226, 226, 0.45) !important;
   cursor: not-allowed !important;
-  position: relative;
-}
-.pg-cell-blocked::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    -55deg,
-    transparent,
-    transparent 8px,
-    rgba(252, 165, 165, 0.18) 8px,
-    rgba(252, 165, 165, 0.18) 9px
-  );
-  pointer-events: none;
 }
 .pg-cell-blocked:hover {
-  background: rgba(254, 202, 202, 0.65) !important;
+  background: rgba(254, 202, 202, 0.6) !important;
 }
 .pg-cell-blocked .pg-appt-block {
   cursor: pointer !important;
-  opacity: 0.8;
+  opacity: 0.85;
   position: relative;
   z-index: 1;
 }
 
-/* ── Days Off Panel (hidden — controls are now in the grid header) ── */
+/* ── Days Off Panel — hidden, controls moved to grid headers ── */
 .days-off-panel { display: none !important; }
-
-/* Legacy classes kept for compatibility but unstyled */
-.days-off-btn, .dob-day, .dob-status, .dob-on, .dob-off,
-.days-off-label, .days-off-toggles, .days-off-hint {}
 
 /* ---- Appointment Blocks ---- */
 .pg-appt-block {
@@ -1614,21 +1601,23 @@ h2 { margin-top: 0; }
   border-radius: 6px;
 }
 
-/* Blocked days in the mini calendar */
+/* Mini-cal: blocked day-of-week column header */
 .mc-dow-blocked {
   color: #fca5a5 !important;
   font-weight: 800;
 }
+
+/* Mini-cal: individual blocked dates */
 .mc-blocked {
-  color: #fca5a5 !important;
-  text-decoration: line-through;
-  cursor: not-allowed !important;
-  background: rgba(254, 226, 226, 0.5) !important;
+  color: #ef4444 !important;
+  background: rgba(254, 226, 226, 0.6) !important;
   border-radius: 4px;
+  cursor: not-allowed !important;
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 .mc-blocked:hover {
-  background: rgba(254, 202, 202, 0.7) !important;
-  color: #ef4444 !important;
+  background: rgba(254, 202, 202, 0.8) !important;
 }
 
 /* =============================================
@@ -1812,29 +1801,6 @@ textarea:focus {
 .planner-summary-badge.cb      { background: #fffbeb; color: #d97706; }
 .planner-summary-badge.today   { background: #dcfce7; color: #166534; }
 .planner-summary-badge.empty   { color: #94a3b8; font-weight: 500; }
-
-/* ── Admin "click to block" hint bar ──────────────────────── */
-.admin-block-hint {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #94a3b8;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 7px 14px;
-  margin-bottom: 8px;
-  letter-spacing: 0.01em;
-}
-.admin-block-hint svg {
-  flex-shrink: 0;
-  color: #94a3b8;
-}
-@media (max-width: 768px) {
-  .admin-block-hint { font-size: 10px; padding: 6px 10px; }
-}
 
 /* =============================================
    #24 QUALITY ANALYTICS SUMMARY CARD

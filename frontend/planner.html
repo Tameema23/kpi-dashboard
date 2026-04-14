@@ -90,13 +90,12 @@
     <span class="planner-summary-label">Loading...</span>
   </div>
 
-  <!-- Days Off: admin clicks column headers to block/unblock days -->
-  <!-- The panel div is kept for backward-compat but hidden via CSS -->
-  <div id="daysOffPanel" class="days-off-panel" style="display:none;"></div>
-  <!-- Admin hint — shown only to admins via JS -->
+  <!-- Days Off panel hidden — day blocking done by clicking column headers -->
+  <div id="daysOffPanel" style="display:none;"></div>
+  <!-- Admin hint bar: only shown to admin role via JS -->
   <div id="adminBlockHint" class="admin-block-hint" style="display:none;">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-    Click any day column header to block or unblock that day every week
+    Click any day column to block it every week &mdash; click again to unblock
   </div>
 
   <div class="planner-wrap">
