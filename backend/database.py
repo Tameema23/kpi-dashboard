@@ -163,6 +163,20 @@ class ReferralEntry(Base):
     program = relationship("ReferralProgram", back_populates="referrals")
 
 
+class BlockedDay(Base):
+    """
+    A recurring day-of-week that an admin has marked as unavailable.
+    day_of_week: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat.
+    Persists until the admin removes it. Applies to every week.
+    Assistants see these and cannot book on these days either.
+    """
+    __tablename__ = "blocked_days"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    owner_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    day_of_week = Column(Integer, nullable=False)  # 0–6
+
+
 class AuditLog(Base):
     """Tracks sensitive actions: logins, password changes, deletes."""
     __tablename__ = "audit_logs"

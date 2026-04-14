@@ -38,7 +38,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -552,8 +552,19 @@ def create_appointment(data: AppointmentPayload,
     lead_name = sanitize_str(data.lead_name, 200)
     if not lead_name:
         raise HTTPException(400, "Lead name is required.")
-    now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    # ── Blocked-day enforcement ──────────────────────────────
     owner = get_owner_id(user)
+    sched = validate_datetime(data.scheduled_for)
+    sched_date = datetime.strptime(sched[:10], "%Y-%m-%d")
+    sched_dow  = sched_date.weekday()            # Mon=0 … Sun=6
+    sched_dow  = (sched_dow + 1) % 7             # convert to JS style: Sun=0 … Sat=6
+    blocked = db.query(BlockedDay).filter(
+        BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
+    ).first()
+    if blocked:
+        DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+        raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be scheduled on this day.")
+    now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     appt  = Appointment(
         created_by=user.id, owner_id=owner,
         lead_name=lead_name,
@@ -585,6 +596,16 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         Appointment.id == appt_id, Appointment.owner_id == owner
     ).first()
     if not appt: raise HTTPException(404, "Appointment not found.")
+    # ── Blocked-day enforcement ──────────────────────────────
+    sched = validate_datetime(data.scheduled_for)
+    sched_date = datetime.strptime(sched[:10], "%Y-%m-%d")
+    sched_dow  = (sched_date.weekday() + 1) % 7  # JS style: Sun=0 … Sat=6
+    blocked = db.query(BlockedDay).filter(
+        BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
+    ).first()
+    if blocked:
+        DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+        raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be rescheduled to this day.")
     appt.lead_name     = sanitize_str(data.lead_name, 200)
     appt.comments      = sanitize_str(data.comments or "", 2000)
     appt.scheduled_for = validate_datetime(data.scheduled_for)
@@ -614,6 +635,60 @@ def _appt_dict(appt, db):
             "created_by": creator.username if creator else "unknown",
             "appt_type": appt.appt_type or "appointment",
             "booking_tz": appt.booking_tz or "America/Edmonton"}
+
+# ── Blocked Days (Unavailable Days) ────────────────────────────────────────────
+
+class BlockedDayPayload(BaseModel):
+    day_of_week: int  # 0=Sun … 6=Sat
+
+@app.get("/blocked-days")
+def get_blocked_days(user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Return the list of blocked day-of-week numbers for this admin/owner."""
+    _check_planner_access(user)
+    owner = get_owner_id(user)
+    rows = db.query(BlockedDay).filter(BlockedDay.owner_id == owner).all()
+    return [r.day_of_week for r in rows]
+
+@app.post("/blocked-days", status_code=201)
+def add_blocked_day(data: BlockedDayPayload,
+                    user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """Admin-only: mark a day-of-week as unavailable."""
+    _require_admin(user)
+    dow = data.day_of_week
+    if dow < 0 or dow > 6:
+        raise HTTPException(400, "day_of_week must be 0–6 (Sun–Sat).")
+    owner = user.id
+    existing = db.query(BlockedDay).filter(
+        BlockedDay.owner_id == owner, BlockedDay.day_of_week == dow
+    ).first()
+    if existing:
+        return {"status": "already blocked"}
+    db.add(BlockedDay(owner_id=owner, day_of_week=dow))
+    db.commit()
+    DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+    audit(db, user.id, "block_day", f"Blocked {DAY_NAMES[dow]}")
+    return {"status": "blocked"}
+
+@app.delete("/blocked-days/{dow}")
+def remove_blocked_day(dow: int,
+                       user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """Admin-only: unblock a day-of-week."""
+    _require_admin(user)
+    if dow < 0 or dow > 6:
+        raise HTTPException(400, "day_of_week must be 0–6 (Sun–Sat).")
+    owner = user.id
+    row = db.query(BlockedDay).filter(
+        BlockedDay.owner_id == owner, BlockedDay.day_of_week == dow
+    ).first()
+    if row:
+        db.delete(row)
+        db.commit()
+        DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+        audit(db, user.id, "unblock_day", f"Unblocked {DAY_NAMES[dow]}")
+    return {"status": "unblocked"}
 
 # ── Quality ────────────────────────────────────────────────────────────────────
 

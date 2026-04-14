@@ -43,30 +43,87 @@
   var currentWeekStart = getWeekStart(new Date());
 
   // ── Blocked days ─────────────────────────────────────────────────
-  // Set of day-of-week numbers (0=Sun…6=Sat), persisted per-admin in localStorage
-  function loadBlockedDays() {
+  // Set of day-of-week numbers (0=Sun…6=Sat), persisted in the database via API.
+  // Both admins and assistants fetch from the same owner's data.
+  var blockedDays = new Set();
+
+  async function loadBlockedDays() {
     try {
-      var key = "planner_blocked_days_" + (localStorage.getItem("username") || "admin");
-      var raw = localStorage.getItem(key);
-      return raw ? new Set(JSON.parse(raw)) : new Set();
-    } catch(e) { return new Set(); }
+      var res = await fetch(API + "/blocked-days", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res.ok) {
+        var days = await res.json();
+        blockedDays = new Set(days);
+      }
+    } catch(e) { console.error("Failed to load blocked days", e); }
   }
-  function saveBlockedDays() {
-    var key = "planner_blocked_days_" + (localStorage.getItem("username") || "admin");
-    localStorage.setItem(key, JSON.stringify(Array.from(blockedDays)));
+
+  async function toggleBlockedDay(dow) {
+    var isCurrentlyBlocked = blockedDays.has(dow);
+    try {
+      var res;
+      if (isCurrentlyBlocked) {
+        res = await fetch(API + "/blocked-days/" + dow, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + TOKEN }
+        });
+      } else {
+        res = await fetch(API + "/blocked-days", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+          body: JSON.stringify({ day_of_week: dow })
+        });
+      }
+      if (res.ok) {
+        if (isCurrentlyBlocked) {
+          blockedDays.delete(dow);
+          showToast(DAY_FULL[dow] + " is now available.", "info");
+        } else {
+          blockedDays.add(dow);
+          showToast(DAY_FULL[dow] + " marked as unavailable.", "info");
+        }
+        renderDaysOffPanel();
+        renderPlanner();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.detail || "Failed to update.", "error");
+      }
+    } catch(e) {
+      showToast("Server error.", "error");
+    }
   }
-  var blockedDays = loadBlockedDays();
 
   // ── Week helpers (Wed–Tue) ───────────────────────────────────
 
-  // ── Days Off panel (admin only) ─────────────────────────────────────
+  // ── Days Off panel (admin only — assistants see blocked status on the grid) ──
   var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var DAY_FULL  = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   function renderDaysOffPanel() {
-    // Old panel hidden — day blocking is now done by clicking column headers
     var panel = document.getElementById("daysOffPanel");
-    if (panel) panel.style.display = "none";
+    if (!panel) return;
+    if (role !== "admin") { panel.style.display = "none"; return; }
+    panel.style.display = "flex";
+    var container = document.getElementById("daysOffToggles");
+    container.innerHTML = "";
+    for (var d = 0; d < 7; d++) {
+      (function(dow) {
+        var isOff = blockedDays.has(dow);
+        var btn   = document.createElement("button");
+        btn.className = "days-off-btn" + (isOff ? " days-off-btn-blocked" : "");
+        btn.title = isOff ? "Mark " + DAY_FULL[dow] + " as available" : "Mark " + DAY_FULL[dow] + " as unavailable";
+        btn.innerHTML =
+          '<span class="dob-day">' + DAY_NAMES[dow] + '</span>' +
+          (isOff
+            ? '<span class="dob-status dob-off"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>OFF</span>'
+            : '<span class="dob-status dob-on"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>ON</span>');
+        btn.addEventListener("click", function() {
+          toggleBlockedDay(dow);
+        });
+        container.appendChild(btn);
+      })(d);
+    }
   }
 
   function getWeekStart(date) {
@@ -174,41 +231,23 @@
     days.forEach(function (day) {
       var dow       = day.getDay();
       var isBlocked = blockedDays.has(dow);
-      var isToday   = fmtDate(day) === today;
       var cell = document.createElement("div");
       cell.className = "pg-day-head" +
-        (isToday   ? " pg-day-today"        : "") +
+        (fmtDate(day) === today ? " pg-day-today" : "") +
         (isBlocked ? " pg-day-blocked-head" : "");
 
       var dayName = day.toLocaleDateString("en-US", { weekday: "short" });
       var dayNum  = day.getDate();
 
+      // Simple header — just show day name, date, and OFF badge if blocked
       cell.innerHTML =
         '<span class="pg-dow">' + dayName + '</span>' +
-        '<span class="pg-dom">' + dayNum + '</span>' +
-        (isBlocked ? '<span class="pg-block-badge">Off</span>' : "");
-
-      // Admin only: click header to toggle block
-      if (role === "admin") {
-        cell.classList.add("pg-day-head-admin");
-        cell.title = isBlocked
-          ? "Click to make " + DAY_FULL[dow] + " available"
-          : "Click to mark " + DAY_FULL[dow] + " as day off";
-        cell.addEventListener("click", (function(d, blocked) {
-          return function() {
-            if (blockedDays.has(d)) {
-              blockedDays.delete(d);
-              showToast(DAY_FULL[d] + " is now available.", "info");
-            } else {
-              blockedDays.add(d);
-              showToast(DAY_FULL[d] + " marked as day off.", "info");
-            }
-            saveBlockedDays();
-            renderPlanner();
-          };
-        })(dow, isBlocked));
-      }
-
+        '<span class="pg-dom">' + dayNum  + '</span>' +
+        (isBlocked
+          ? '<span class="pg-block-badge">' +
+              '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+              'UNAVAILABLE</span>'
+          : "");
       headerRow.appendChild(cell);
     });
     grid.appendChild(headerRow);
@@ -233,17 +272,14 @@
         cell.dataset.date = fmtDate(day);
         cell.dataset.hour = hour;
 
-        // Blocked cells get a data attribute for CSS fallback (browsers without :has())
-        if (isBlocked) cell.dataset.blocked = "1";
-
         // Click empty area — blocked days are not bookable
         cell.addEventListener("click", (function (d, hr, blocked) {
           return function () {
             if (blocked) {
               if (role === "admin") {
-                showToast(DAY_FULL[d.getDay()] + " is a day off. Click the column header to change this.", "error");
+                showToast("This day is unavailable. Use the Availability panel above to change it.", "error");
               } else {
-                showToast("This day is unavailable. No appointments can be booked.", "error");
+                showToast("This day is unavailable. No appointments can be scheduled.", "error");
               }
               return;
             }
@@ -282,11 +318,6 @@
 
           cell.appendChild(block);
         });
-
-        // Mark blocked cells that have appointments (CSS :has() fallback)
-        if (isBlocked && cell.querySelector(".pg-appt-block")) {
-          cell.classList.add("pg-cell-has-appt");
-        }
 
         row.appendChild(cell);
       });
@@ -589,6 +620,17 @@
       return;
     }
 
+    // ── Blocked-day check (client-side, backed by server enforcement) ──
+    var selectedDate = new Date(date + "T00:00:00");
+    var selectedDow  = selectedDate.getDay(); // 0=Sun … 6=Sat
+    if (blockedDays.has(selectedDow)) {
+      var dateEl = document.getElementById("m_date");
+      dateEl.style.borderColor = "#dc2626";
+      setTimeout(function() { dateEl.style.borderColor = ""; }, 2000);
+      showToast(DAY_FULL[selectedDow] + " is unavailable. Please choose a different day.", "error");
+      return;
+    }
+
     // ── Work hours check (7:00 AM – 9:00 PM) ─────────────────
     var timeParts = time.split(":");
     var timeMinutes = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1] || 0);
@@ -599,16 +641,6 @@
       timeEl.style.borderColor = "#dc2626";
       setTimeout(function() { timeEl.style.borderColor = ""; }, 2000);
       showToast("Appointments must be between 7:00 AM and 9:00 PM.", "error");
-      return;
-    }
-
-    // ── Blocked day check ─────────────────────────────────────
-    var selectedDow = new Date(date + "T00:00:00").getDay(); // 0=Sun … 6=Sat
-    if (blockedDays.has(selectedDow)) {
-      var dateEl = document.getElementById("m_date");
-      dateEl.style.borderColor = "#dc2626";
-      setTimeout(function() { dateEl.style.borderColor = ""; }, 2500);
-      showToast(DAY_FULL[selectedDow] + "s is a day off. Choose a different day.", "error");
       return;
     }
 
@@ -776,9 +808,9 @@
     var grid = document.getElementById("miniCalGrid");
     grid.innerHTML = "";
 
-    CAL_DAYS.forEach(function (d, dowIdx) {
+    CAL_DAYS.forEach(function (d, idx) {
       var h = document.createElement("div");
-      h.className = "mc-dow" + (blockedDays.has(dowIdx) ? " mc-dow-blocked" : "");
+      h.className = "mc-dow" + (blockedDays.has(idx) ? " mc-dow-blocked" : "");
       h.innerText = d;
       grid.appendChild(h);
     });
@@ -796,24 +828,25 @@
 
     for (var day = 1; day <= daysInMonth; day++) {
       var d = document.createElement("div");
-      var dateStr  = calYear + "-" + String(calMonth + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
-      var calDow   = new Date(dateStr + "T00:00:00").getDay();
-      var isDayBlocked = blockedDays.has(calDow);
-      d.className = "mc-day" + (isDayBlocked ? " mc-blocked" : "");
-      if (dateStr === todayStr && !isDayBlocked) d.classList.add("mc-today");
-      if (dateStr === selectedDate)              d.classList.add("mc-selected");
+      var dateStr = calYear + "-" + String(calMonth + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+      var dayDow = new Date(calYear, calMonth, day).getDay();
+      var isDayBlocked = blockedDays.has(dayDow);
+      d.className = "mc-day";
+      if (dateStr === todayStr)     d.classList.add("mc-today");
+      if (dateStr === selectedDate) d.classList.add("mc-selected");
+      if (isDayBlocked)             d.classList.add("mc-blocked");
       d.innerText = day;
-      d.addEventListener("click", (function (ds, isBlocked, dow) {
-        return function () {
-          if (isBlocked) {
-            showToast(DAY_FULL[dow] + "s is a day off. Choose a different day.", "error");
-            return;
-          }
-          document.getElementById("m_date").value = ds;
-          renderMiniCal();
-          updateTzPreview();
-        };
-      })(dateStr, isDayBlocked, calDow));
+      if (isDayBlocked) {
+        d.title = DAY_FULL[dayDow] + " — unavailable";
+        d.addEventListener("click", function(e) { e.preventDefault(); });
+      } else {
+        d.addEventListener("click", (function (ds) {
+          return function () {
+            document.getElementById("m_date").value = ds;
+            renderMiniCal();
+          };
+        })(dateStr));
+      }
       grid.appendChild(d);
     }
   }
@@ -836,13 +869,6 @@
       calYear  = d.getFullYear();
       calMonth = d.getMonth();
       renderMiniCal();
-      // Warn immediately if this day is blocked
-      if (blockedDays.has(d.getDay())) {
-        var inp = this;
-        showToast(DAY_FULL[d.getDay()] + "s is a day off. Choose a different day.", "error");
-        inp.style.borderColor = "#dc2626";
-        setTimeout(function() { inp.style.borderColor = ""; }, 2500);
-      }
     }
   });
 
@@ -1040,13 +1066,11 @@
   })(); // end search IIFE
 
   // ── Init ─────────────────────────────────────────────────────
-  renderDaysOffPanel();
-  // Show admin hint bar (click column header to block/unblock)
-  if (role === "admin") {
-    var hint = document.getElementById("adminBlockHint");
-    if (hint) hint.style.display = "flex";
-  }
-  loadAppointments().then(function() {
+  // Load blocked days from API first, then appointments
+  loadBlockedDays().then(function() {
+    renderDaysOffPanel();
+    return loadAppointments();
+  }).then(function() {
     updatePlannerSummary(appointments, currentWeekStart);
     if (typeof initPullToRefresh === "function") initPullToRefresh(loadAppointments);
 
@@ -1080,6 +1104,15 @@
   async function rescheduleAppointment(id, changes) {
     var appt = appointments.find(function(a) { return a.id === id; });
     if (!appt) return null;
+    // ── Blocked-day enforcement for drag-drop ──
+    if (changes.scheduled_for) {
+      var dropDate = new Date(changes.scheduled_for.split("T")[0] + "T00:00:00");
+      var dropDow = dropDate.getDay();
+      if (blockedDays.has(dropDow)) {
+        showToast(DAY_FULL[dropDow] + " is unavailable. Cannot reschedule to this day.", "error");
+        return null;
+      }
+    }
     try {
       var res = await fetch(API + "/appointments/" + id, {
         method: "PUT",

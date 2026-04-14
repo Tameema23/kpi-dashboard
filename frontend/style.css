@@ -1198,16 +1198,12 @@ h2 { margin-top: 0; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 12px 6px;
+  padding: 10px 6px;
   border-right: 1px solid #f1f5f9;
-  gap: 3px;
-  transition: background 0.15s;
-  user-select: none;
+  gap: 2px;
 }
 
 .pg-day-head:last-child { border-right: none; }
-
-
 
 .pg-day-head.pg-day-today {
   background: #eff6ff;
@@ -1278,7 +1274,180 @@ h2 { margin-top: 0; }
 .pg-cell.pg-cell-today { background: #fafcff; }
 .pg-cell.pg-cell-today:hover { background: #eff6ff; }
 
+/* ── Blocked day column ───────────────────────────────────── */
+/* Blocked header cell */
+/* ── Blocked Day — Header (red gradient) ───────────────── */
+.pg-day-blocked-head {
+  background: linear-gradient(135deg, #fee2e2, #fecaca) !important;
+  color: #991b1b !important;
+  position: relative;
+  border-bottom: 3px solid #dc2626 !important;
+}
+.pg-day-blocked-head .pg-dow { color: #b91c1c !important; font-weight: 800 !important; }
+.pg-day-blocked-head .pg-dom { color: #991b1b !important; }
 
+/* UNAVAILABLE badge shown in header */
+.pg-block-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: #dc2626;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.pg-day-blocked-head .pg-block-badge {
+  background: #dc2626;
+  color: #fff;
+}
+
+/* ── Blocked Cell — red tinted with diagonal stripes ──── */
+.pg-cell-blocked {
+  background: #fef2f2 !important;
+  cursor: not-allowed !important;
+  position: relative;
+}
+.pg-cell-blocked::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 5px,
+    rgba(220, 38, 38, 0.06) 5px,
+    rgba(220, 38, 38, 0.06) 10px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+.pg-cell-blocked:hover {
+  background: #fee2e2 !important;
+}
+.pg-cell-blocked .pg-appt-block {
+  cursor: pointer !important;
+  opacity: 0.65;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Mini Calendar — blocked day highlights ──────────── */
+.mc-dow-blocked {
+  color: #dc2626 !important;
+  font-weight: 800 !important;
+}
+.mc-blocked {
+  background: #fee2e2 !important;
+  color: #991b1b !important;
+  cursor: not-allowed !important;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.mc-blocked.mc-today {
+  background: #dc2626 !important;
+  color: #fff !important;
+}
+
+/* ── Days Off Panel ───────────────────────────────────────── */
+.days-off-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.days-off-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.days-off-toggles {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.days-off-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 46px;
+  font-family: inherit;
+}
+.days-off-btn:hover {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+  transform: translateY(-1px);
+}
+.days-off-btn-blocked {
+  border-color: #fca5a5 !important;
+  background: #fff1f2 !important;
+}
+.days-off-btn-blocked:hover {
+  border-color: #f87171 !important;
+  background: #ffe4e6 !important;
+}
+.dob-day {
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.days-off-btn-blocked .dob-day { color: #b91c1c; }
+.dob-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border-radius: 20px;
+  padding: 1px 5px;
+}
+.dob-on {
+  background: #dcfce7;
+  color: #15803d;
+}
+.dob-off {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.days-off-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  font-style: italic;
+  margin-left: auto;
+  white-space: nowrap;
+}
+@media (max-width: 768px) {
+  .days-off-hint { display: none; }
+  .days-off-panel { gap: 8px; padding: 8px 12px; }
+  .days-off-btn { min-width: 38px; padding: 6px 8px; }
+}
 
 /* ---- Appointment Blocks ---- */
 .pg-appt-block {
@@ -1524,9 +1693,6 @@ h2 { margin-top: 0; }
   color: #fff !important;
   border-radius: 6px;
 }
-
-/* Mini-cal: blocked day-of-week column header */
-
 
 /* =============================================
    TOOLTIP
@@ -2292,199 +2458,4 @@ mark.q-highlight {
 
 @media (max-width: 768px) {
   .quality-search-bar { max-width: 100%; }
-}
-
-
-/* ============================================================
-   BLOCKED DAY SYSTEM — OVERRIDES (must stay at bottom of file)
-   These rules override all earlier planner base styles.
-   ============================================================ */
-
-/* ── Admin hint bar ────────────────────────────────────────── */
-.admin-block-hint {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 8px 14px;
-  margin-bottom: 10px;
-  user-select: none;
-}
-.admin-block-hint svg { color: #94a3b8; flex-shrink: 0; }
-@media (max-width: 768px) {
-  .admin-block-hint { font-size: 11px; padding: 6px 12px; gap: 6px; }
-}
-
-/* ── Blocked column header ─────────────────────────────────── */
-.pg-day-blocked-head {
-  background: #f8fafc !important;
-  border-right-color: #e2e8f0 !important;
-  position: relative;
-  transition: background 0.15s;
-}
-.pg-day-blocked-head:hover {
-  background: #f1f5f9 !important;
-}
-
-/* Day name label — muted */
-.pg-day-blocked-head .pg-dow {
-  color: #cbd5e1 !important;
-  font-weight: 700 !important;
-}
-
-/* Date number — muted */
-.pg-day-blocked-head .pg-dom {
-  color: #cbd5e1 !important;
-  background: none !important;
-  border-radius: 0 !important;
-  width: auto !important;
-  height: auto !important;
-  display: block !important;
-  font-size: 20px !important;
-  line-height: 1 !important;
-}
-
-/* "Off" badge — subtle, pill-shaped */
-.pg-block-badge {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0 !important;
-  margin-top: 4px !important;
-  padding: 2px 10px !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.04em !important;
-  text-transform: uppercase !important;
-  border-radius: 20px !important;
-  background: #f1f5f9 !important;
-  color: #94a3b8 !important;
-  box-shadow: none !important;
-  white-space: nowrap !important;
-}
-
-/* Admin headers are clickable */
-.pg-day-head-admin {
-  cursor: pointer !important;
-  transition: background 0.15s !important;
-  user-select: none !important;
-}
-.pg-day-head-admin:not(.pg-day-blocked-head):hover {
-  background: #f1f5f9 !important;
-}
-
-/* ── Today + Blocked: muted blue circle ──────────────────── */
-.pg-day-blocked-head.pg-day-today .pg-dom {
-  background: #cbd5e1 !important;
-  color: #fff !important;
-  border-radius: 50% !important;
-  width: 30px !important;
-  height: 30px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  font-size: 16px !important;
-}
-.pg-day-blocked-head.pg-day-today .pg-dow {
-  color: #94a3b8 !important;
-}
-
-/* ── Blocked grid cells — subtle muted column ─────────────── */
-.pg-cell-blocked {
-  background: #fafbfc !important;
-  cursor: not-allowed !important;
-  position: relative !important;
-}
-
-/* Very subtle diagonal lines via ::before */
-.pg-cell-blocked::before {
-  content: "" !important;
-  position: absolute !important;
-  inset: 0 !important;
-  background: repeating-linear-gradient(
-    -45deg,
-    transparent,
-    transparent 8px,
-    rgba(148, 163, 184, 0.06) 8px,
-    rgba(148, 163, 184, 0.06) 16px
-  ) !important;
-  pointer-events: none !important;
-  z-index: 0 !important;
-}
-
-/* Hover — barely changes */
-.pg-cell-blocked:hover {
-  background: #f5f6f8 !important;
-}
-
-/* Soft "Off" watermark on empty cells via ::after */
-.pg-cell-blocked::after {
-  content: "" !important;
-  display: none !important;
-}
-
-/* Hide watermark when cell has an appointment */
-.pg-cell-blocked:has(.pg-appt-block)::after,
-.pg-cell-blocked.pg-cell-has-appt::after {
-  display: none !important;
-}
-
-/* Appointments in blocked cells still show clearly */
-.pg-cell-blocked .pg-appt-block {
-  position: relative !important;
-  z-index: 2 !important;
-  cursor: pointer !important;
-  opacity: 0.7 !important;
-}
-
-/* Today + blocked cell */
-.pg-cell-blocked.pg-cell-today {
-  background: #f5f6f8 !important;
-}
-.pg-cell-blocked.pg-cell-today:hover {
-  background: #f1f2f4 !important;
-}
-
-/* ── Days Off panel hidden (controls are in grid headers) ──── */
-.days-off-panel { display: none !important; }
-
-/* ── Mini-calendar: blocked day columns ───────────────────── */
-/* Day-of-week column headers */
-.mc-dow-blocked {
-  color: #94a3b8 !important;
-  font-weight: 700 !important;
-  text-decoration: line-through;
-  text-decoration-color: rgba(148, 163, 184, 0.5);
-}
-
-/* Individual blocked date cells */
-.mc-blocked {
-  color: #94a3b8 !important;
-  background: #f8fafc !important;
-  border-radius: 4px !important;
-  cursor: not-allowed !important;
-  text-decoration: line-through !important;
-  text-decoration-color: rgba(148, 163, 184, 0.5) !important;
-  opacity: 0.6 !important;
-}
-.mc-blocked:hover {
-  background: #f1f5f9 !important;
-  opacity: 0.8 !important;
-}
-/* Keep selected styling clear */
-.mc-blocked.mc-selected {
-  background: #94a3b8 !important;
-  color: #fff !important;
-  text-decoration: none !important;
-  opacity: 1 !important;
-}
-/* Today + blocked: muted */
-.mc-blocked.mc-today {
-  background: #f1f5f9 !important;
-  color: #94a3b8 !important;
 }
