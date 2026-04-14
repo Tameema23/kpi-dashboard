@@ -274,8 +274,14 @@ async function loadWeekly() {
     ? (ytdRefSales / ytdRefPres) * 100
     : 0;
 
-  const ytdRefSalesRatio = ytdSales
-    ? (ytdRefSales / ytdSales) * 100
+  const ytdRefConvRatio = ytdRefs
+    ? (ytdRefSales / ytdRefs) * 100
+    : 0;
+
+  const ytdTotalSales = ytdSales + ytdRefSales;
+
+  const ytdRefSalesRatio = ytdTotalSales
+    ? (ytdRefSales / ytdTotalSales) * 100
     : 0;
 
   /* ================= KPI CARDS (LATEST WEEK) ================= */
@@ -288,12 +294,16 @@ async function loadWeekly() {
   // Reveal real KPI grid, hide skeletons
   const skelGrid = document.getElementById("kpi-skeleton-grid");
   const realGrid = document.getElementById("kpi-real-grid");
+  const refSkelGrid = document.getElementById("kpi-ref-skeleton");
+  const refRealGrid = document.getElementById("kpi-ref-grid");
   const chartsSkel = document.getElementById("charts-skeleton");
   const chartsReal = document.getElementById("charts-real");
-  if (skelGrid) skelGrid.classList.add("hidden");
-  if (realGrid) realGrid.classList.remove("hidden");
-  if (chartsSkel) chartsSkel.classList.add("hidden");
-  if (chartsReal) chartsReal.classList.remove("hidden");
+  if (skelGrid)    skelGrid.classList.add("hidden");
+  if (realGrid)    realGrid.classList.remove("hidden");
+  if (refSkelGrid) refSkelGrid.classList.add("hidden");
+  if (refRealGrid) refRealGrid.classList.remove("hidden");
+  if (chartsSkel)  chartsSkel.classList.add("hidden");
+  if (chartsReal)  chartsReal.classList.remove("hidden");
 
   // Count-up animation helper
   function countUp(id, target, prefix = "", suffix = "", decimals = 0) {
@@ -319,10 +329,14 @@ async function loadWeekly() {
   countUp("wk_alp", ytdAlpPerSale, "$", "", 0);
   countUp("wk_conv", ytdConvRatio, "", "%");
   countUp("wk_bad_lead", ytdBadLeadRatio, "", "%");
-  countUp("wk_refs", ytdRefsPerPres, "", "", 2);
-  countUp("wk_ref_sales", ytdRefSales);
-  countUp("wk_ref_close", ytdRefClosingRatio, "", "%");
-  countUp("wk_ref_sales_ratio", ytdRefSalesRatio, "", "%");
+  // New referral KPIs
+  countUp("wk_ref_collected",   ytdRefs);
+  countUp("wk_ref_pres",        ytdRefPres);
+  countUp("wk_ref_sales_total", ytdRefSales);
+  countUp("wk_ref_close_ratio", ytdRefClosingRatio, "", "%");
+  countUp("wk_ref_conv_ratio",  ytdRefConvRatio,    "", "%");
+  countUp("wk_total_sales",     ytdTotalSales);
+  countUp("wk_ref_sales_pct",   ytdRefSalesRatio,   "", "%");
 
   // Color-code ratios
   setTimeout(() => {
@@ -338,11 +352,14 @@ async function loadWeekly() {
     const badEl = document.getElementById("wk_bad_lead");
     if (badEl) badEl.className = ytdBadLeadRatio <= 30 ? "good" : ytdBadLeadRatio <= 55 ? "warn" : "bad";
 
-    const refCloseEl = document.getElementById("wk_ref_close");
+    const refCloseEl = document.getElementById("wk_ref_close_ratio");
     if (refCloseEl) refCloseEl.className = ytdRefClosingRatio >= 75 ? "good" : ytdRefClosingRatio >= 50 ? "warn" : "bad";
 
-    const refSalesRatioEl = document.getElementById("wk_ref_sales_ratio");
-    if (refSalesRatioEl) refSalesRatioEl.className = ytdRefSalesRatio >= 30 ? "good" : ytdRefSalesRatio >= 15 ? "warn" : "bad";
+    const refConvEl = document.getElementById("wk_ref_conv_ratio");
+    if (refConvEl) refConvEl.className = ytdRefConvRatio >= 30 ? "good" : ytdRefConvRatio >= 15 ? "warn" : "bad";
+
+    const refSalesPctEl = document.getElementById("wk_ref_sales_pct");
+    if (refSalesPctEl) refSalesPctEl.className = ytdRefSalesRatio >= 30 ? "good" : ytdRefSalesRatio >= 15 ? "warn" : "bad";
   }, 950);
 
   // Homepage snapshot KPIs (no-ops on other pages)

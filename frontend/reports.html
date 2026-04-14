@@ -17,6 +17,21 @@
   <link rel="stylesheet" href="/static/style.css">
   <title>Weekly Reports</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    .kpi-section-header {
+      display: flex; align-items: center;
+      margin: 22px 0 12px 0;
+    }
+    .kpi-section-title {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 11px; font-weight: 800; color: #64748b;
+      text-transform: uppercase; letter-spacing: 0.09em;
+      padding: 5px 12px 5px 0;
+      border-bottom: 2px solid #e2e8f0;
+      width: 100%;
+    }
+    .kpi-section-title svg { flex-shrink: 0; color: #94a3b8; }
+  </style>
 </head>
 <body>
 
@@ -60,13 +75,18 @@
     </button>
   </div>
 
-  <!-- KPI CARDS -->
+  <!-- ── KPI SECTION ─────────────────────────────────────── -->
+
+  <!-- Section header: Production -->
+  <div class="kpi-section-header">
+    <span class="kpi-section-title">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      Production
+    </span>
+  </div>
+
+  <!-- Production skeletons -->
   <div class="kpi-grid-3" id="kpi-skeleton-grid">
-    <!-- Skeletons shown while loading -->
-    <div class="kpi-card skeleton skeleton-kpi"></div>
-    <div class="kpi-card skeleton skeleton-kpi"></div>
-    <div class="kpi-card skeleton skeleton-kpi"></div>
-    <div class="kpi-card skeleton skeleton-kpi"></div>
     <div class="kpi-card skeleton skeleton-kpi"></div>
     <div class="kpi-card skeleton skeleton-kpi"></div>
     <div class="kpi-card skeleton skeleton-kpi"></div>
@@ -77,6 +97,7 @@
     <div class="kpi-card skeleton skeleton-kpi"></div>
   </div>
 
+  <!-- Production KPIs -->
   <div class="kpi-grid-3 hidden" id="kpi-real-grid">
     <div class="kpi-card">
       <div class="kpi-icon icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
@@ -84,7 +105,11 @@
     </div>
     <div class="kpi-card">
       <div class="kpi-icon icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></div>
-      <div class="kpi-text"><span class="kpi-label">Sales</span><b id="wk_sales">—</b></div>
+      <div class="kpi-text"><span class="kpi-label">Direct Sales</span><b id="wk_sales">—</b></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></div>
+      <div class="kpi-text"><span class="kpi-label">Total Sales</span><b id="wk_total_sales">—</b></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-icon icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
@@ -110,21 +135,52 @@
       <div class="kpi-icon icon-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
       <div class="kpi-text"><span class="kpi-label">Bad Lead Ratio</span><b id="wk_bad_lead">—</b></div>
     </div>
+  </div>
+
+  <!-- Section header: Referrals -->
+  <div class="kpi-section-header" style="margin-top:10px;">
+    <span class="kpi-section-title">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Referrals
+    </span>
+  </div>
+
+  <!-- Referral skeletons -->
+  <div class="kpi-grid-3" id="kpi-ref-skeleton">
+    <div class="kpi-card skeleton skeleton-kpi"></div>
+    <div class="kpi-card skeleton skeleton-kpi"></div>
+    <div class="kpi-card skeleton skeleton-kpi"></div>
+    <div class="kpi-card skeleton skeleton-kpi"></div>
+    <div class="kpi-card skeleton skeleton-kpi"></div>
+    <div class="kpi-card skeleton skeleton-kpi"></div>
+    <div class="kpi-card skeleton skeleton-kpi"></div>
+  </div>
+
+  <!-- Referral KPIs -->
+  <div class="kpi-grid-3 hidden" id="kpi-ref-grid">
     <div class="kpi-card">
-      <div class="kpi-icon icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-      <div class="kpi-text"><span class="kpi-label">Refs / Pres</span><b id="wk_refs">—</b></div>
+      <div class="kpi-icon icon-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+      <div class="kpi-text"><span class="kpi-label">Refs Collected</span><b id="wk_ref_collected">—</b></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+      <div class="kpi-text"><span class="kpi-label">Ref Presentations</span><b id="wk_ref_pres">—</b></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-icon icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></div>
-      <div class="kpi-text"><span class="kpi-label">Referral Sales</span><b id="wk_ref_sales">—</b></div>
+      <div class="kpi-text"><span class="kpi-label">Ref Sales</span><b id="wk_ref_sales_total">—</b></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-icon icon-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
-      <div class="kpi-text"><span class="kpi-label">Ref Closing Ratio</span><b id="wk_ref_close">—</b></div>
+      <div class="kpi-text"><span class="kpi-label">Ref Closing Ratio</span><b id="wk_ref_close_ratio">—</b></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon icon-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
+      <div class="kpi-text"><span class="kpi-label">Ref Conversion Ratio</span><b id="wk_ref_conv_ratio">—</b></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-icon icon-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
-      <div class="kpi-text"><span class="kpi-label">Ref Sales / Total Sales</span><b id="wk_ref_sales_ratio">—</b></div>
+      <div class="kpi-text"><span class="kpi-label">Ref Sales / Total Sales</span><b id="wk_ref_sales_pct">—</b></div>
     </div>
   </div>
 
