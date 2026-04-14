@@ -58,6 +58,46 @@
   var blockedDays = loadBlockedDays();
 
   // ── Week helpers (Wed–Tue) ───────────────────────────────────
+
+  // ── Days Off panel (admin only) ─────────────────────────────────────
+  var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var DAY_FULL  = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  function renderDaysOffPanel() {
+    var panel = document.getElementById("daysOffPanel");
+    if (!panel) return;
+    if (role !== "admin") { panel.style.display = "none"; return; }
+    panel.style.display = "flex";
+    var container = document.getElementById("daysOffToggles");
+    container.innerHTML = "";
+    for (var d = 0; d < 7; d++) {
+      (function(dow) {
+        var isOff = blockedDays.has(dow);
+        var btn   = document.createElement("button");
+        btn.className = "days-off-btn" + (isOff ? " days-off-btn-blocked" : "");
+        btn.title = isOff ? "Unblock every " + DAY_FULL[dow] : "Block every " + DAY_FULL[dow];
+        btn.innerHTML =
+          '<span class="dob-day">' + DAY_NAMES[dow] + '</span>' +
+          (isOff
+            ? '<span class="dob-status dob-off"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>OFF</span>'
+            : '<span class="dob-status dob-on"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>ON</span>');
+        btn.addEventListener("click", function() {
+          if (blockedDays.has(dow)) {
+            blockedDays.delete(dow);
+            showToast("Every " + DAY_FULL[dow] + " unblocked.", "info");
+          } else {
+            blockedDays.add(dow);
+            showToast("Every " + DAY_FULL[dow] + " blocked — assistants cannot book.", "info");
+          }
+          saveBlockedDays();
+          renderDaysOffPanel();
+          renderPlanner();
+        });
+        container.appendChild(btn);
+      })(d);
+    }
+  }
+
   function getWeekStart(date) {
     var d   = new Date(date);
     var day = d.getDay();
@@ -171,46 +211,15 @@
       var dayName = day.toLocaleDateString("en-US", { weekday: "short" });
       var dayNum  = day.getDate();
 
-      if (role === "admin") {
-        // Admin: clicking the header toggles the block
-        cell.setAttribute("title", isBlocked
-          ? "Click to unblock — assistants will be able to book"
-          : "Click to block this day off");
-        cell.style.cursor = "pointer";
-        cell.innerHTML =
-          '<span class="pg-dow">' + dayName + '</span>' +
-          '<span class="pg-dom">' + dayNum  + '</span>' +
-          (isBlocked
-            ? '<span class="pg-block-badge">' +
-                '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
-                'OFF</span>'
-            : '<span class="pg-block-hint">block</span>');
-        cell.addEventListener("click", (function(d) {
-          return function() {
-            var d_dow = d.getDay();
-            var dName = d.toLocaleDateString("en-US", { weekday: "long" });
-            if (blockedDays.has(d_dow)) {
-              blockedDays.delete(d_dow);
-              showToast(dName + " unblocked — assistants can now book this day.", "info");
-            } else {
-              blockedDays.add(d_dow);
-              showToast(dName + " blocked — no new appointments can be booked.", "info");
-            }
-            saveBlockedDays();
-            renderPlanner();
-          };
-        })(day));
-      } else {
-        // Assistant: read-only view, blocked days show a clear indicator
-        cell.innerHTML =
-          '<span class="pg-dow">' + dayName + '</span>' +
-          '<span class="pg-dom">' + dayNum  + '</span>' +
-          (isBlocked
-            ? '<span class="pg-block-badge">' +
-                '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
-                'OFF</span>'
-            : "");
-      }
+      // Simple header — just show day name, date, and OFF badge if blocked
+      cell.innerHTML =
+        '<span class="pg-dow">' + dayName + '</span>' +
+        '<span class="pg-dom">' + dayNum  + '</span>' +
+        (isBlocked
+          ? '<span class="pg-block-badge">' +
+              '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+              'OFF</span>'
+          : "");
       headerRow.appendChild(cell);
     });
     grid.appendChild(headerRow);
@@ -1009,6 +1018,7 @@
   })(); // end search IIFE
 
   // ── Init ─────────────────────────────────────────────────────
+  renderDaysOffPanel();
   loadAppointments().then(function() {
     updatePlannerSummary(appointments, currentWeekStart);
     if (typeof initPullToRefresh === "function") initPullToRefresh(loadAppointments);

@@ -90,6 +90,16 @@
     <span class="planner-summary-label">Loading...</span>
   </div>
 
+  <!-- Days Off manager — admin only, hidden for assistants via JS -->
+  <div id="daysOffPanel" class="days-off-panel" style="display:none;">
+    <div class="days-off-label">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Days Off
+    </div>
+    <div class="days-off-toggles" id="daysOffToggles"></div>
+    <div class="days-off-hint">Click a day to block it every week. Click again to unblock.</div>
+  </div>
+
   <div class="planner-wrap">
     <div class="planner-grid" id="plannerGrid"></div>
   </div>
