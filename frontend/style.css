@@ -1276,38 +1276,114 @@ h2 { margin-top: 0; }
 
 /* ── Blocked day column ───────────────────────────────────── */
 /* Blocked header cell */
-/* ── Blocked Day — Header (red gradient) ───────────────── */
+/* ── Blocked Day — Header ──────────────────────────────── */
 .pg-day-blocked-head {
-  background: linear-gradient(135deg, #fee2e2, #fecaca) !important;
-  color: #991b1b !important;
+  background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%) !important;
   position: relative;
-  border-bottom: 3px solid #dc2626 !important;
+  border-bottom: 2.5px solid #ef4444 !important;
 }
-.pg-day-blocked-head .pg-dow { color: #b91c1c !important; font-weight: 800 !important; }
-.pg-day-blocked-head .pg-dom { color: #991b1b !important; }
+.pg-day-blocked-head .pg-dow {
+  color: #b91c1c !important;
+  font-weight: 800 !important;
+}
+.pg-day-blocked-head .pg-dom {
+  color: #dc2626 !important;
+  opacity: 0.6;
+}
 
-/* UNAVAILABLE badge shown in header */
+/* Unavailable badge — elegant pill */
 .pg-block-badge {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  margin-top: 4px;
+  gap: 0;
+  margin-top: 3px;
   font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  background: #dc2626;
+  background: #ef4444;
   color: #fff;
-  padding: 2px 8px;
-  border-radius: 20px;
+  padding: 2px 7px;
+  border-radius: 4px;
   white-space: nowrap;
-}
-.pg-day-blocked-head .pg-block-badge {
-  background: #dc2626;
-  color: #fff;
+  line-height: 1.4;
 }
 
-/* ── Blocked Cell — red tinted with diagonal stripes ──── */
+/* ── Hover Popover for block/unblock (admin) ─────────── */
+.pg-block-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+  padding: 10px 12px;
+  min-width: 160px;
+  animation: pgPopIn 0.12s ease-out;
+}
+.pg-block-popover::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+  border-left: 1px solid #e2e8f0;
+}
+@keyframes pgPopIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.pg-popover-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+  text-align: center;
+}
+.pg-popover-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.pg-popover-block {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1.5px solid #fecaca;
+}
+.pg-popover-block:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+.pg-popover-unblock {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1.5px solid #bbf7d0;
+}
+.pg-popover-unblock:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+}
+
+/* ── Blocked Cell — subtle red tint + stripes ────────── */
 .pg-cell-blocked {
   background: #fef2f2 !important;
   cursor: not-allowed !important;
@@ -1320,9 +1396,9 @@ h2 { margin-top: 0; }
   background: repeating-linear-gradient(
     -45deg,
     transparent,
-    transparent 5px,
-    rgba(220, 38, 38, 0.06) 5px,
-    rgba(220, 38, 38, 0.06) 10px
+    transparent 6px,
+    rgba(239, 68, 68, 0.04) 6px,
+    rgba(239, 68, 68, 0.04) 12px
   );
   pointer-events: none;
   z-index: 0;
@@ -1332,7 +1408,7 @@ h2 { margin-top: 0; }
 }
 .pg-cell-blocked .pg-appt-block {
   cursor: pointer !important;
-  opacity: 0.65;
+  opacity: 0.55;
   position: relative;
   z-index: 1;
 }
@@ -1354,99 +1430,9 @@ h2 { margin-top: 0; }
   color: #fff !important;
 }
 
-/* ── Days Off Panel ───────────────────────────────────────── */
-.days-off-panel {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: #fff;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 10px 16px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-.days-off-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 800;
-  color: #64748b;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.days-off-toggles {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.days-off-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 7px 11px;
-  border-radius: 10px;
-  border: 1.5px solid #e2e8f0;
-  background: #f8fafc;
-  cursor: pointer;
-  transition: all 0.15s;
-  min-width: 46px;
-  font-family: inherit;
-}
-.days-off-btn:hover {
-  border-color: #94a3b8;
-  background: #f1f5f9;
-  transform: translateY(-1px);
-}
-.days-off-btn-blocked {
-  border-color: #fca5a5 !important;
-  background: #fff1f2 !important;
-}
-.days-off-btn-blocked:hover {
-  border-color: #f87171 !important;
-  background: #ffe4e6 !important;
-}
-.dob-day {
-  font-size: 11px;
-  font-weight: 800;
-  color: #0f172a;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.days-off-btn-blocked .dob-day { color: #b91c1c; }
-.dob-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  border-radius: 20px;
-  padding: 1px 5px;
-}
-.dob-on {
-  background: #dcfce7;
-  color: #15803d;
-}
-.dob-off {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-.days-off-hint {
-  font-size: 11px;
-  color: #94a3b8;
-  font-style: italic;
-  margin-left: auto;
-  white-space: nowrap;
-}
 @media (max-width: 768px) {
-  .days-off-hint { display: none; }
-  .days-off-panel { gap: 8px; padding: 8px 12px; }
-  .days-off-btn { min-width: 38px; padding: 6px 8px; }
+  .pg-block-popover { min-width: 140px; padding: 8px 10px; }
+  .pg-popover-btn { padding: 7px 10px; font-size: 11px; }
 }
 
 /* ---- Appointment Blocks ---- */

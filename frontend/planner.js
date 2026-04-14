@@ -96,35 +96,12 @@
 
   // ── Week helpers (Wed–Tue) ───────────────────────────────────
 
-  // ── Days Off panel (admin only — assistants see blocked status on the grid) ──
+  // ── Days Off — hover popover on day headers (admin only) ─────
   var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var DAY_FULL  = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-  function renderDaysOffPanel() {
-    var panel = document.getElementById("daysOffPanel");
-    if (!panel) return;
-    if (role !== "admin") { panel.style.display = "none"; return; }
-    panel.style.display = "flex";
-    var container = document.getElementById("daysOffToggles");
-    container.innerHTML = "";
-    for (var d = 0; d < 7; d++) {
-      (function(dow) {
-        var isOff = blockedDays.has(dow);
-        var btn   = document.createElement("button");
-        btn.className = "days-off-btn" + (isOff ? " days-off-btn-blocked" : "");
-        btn.title = isOff ? "Mark " + DAY_FULL[dow] + " as available" : "Mark " + DAY_FULL[dow] + " as unavailable";
-        btn.innerHTML =
-          '<span class="dob-day">' + DAY_NAMES[dow] + '</span>' +
-          (isOff
-            ? '<span class="dob-status dob-off"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>OFF</span>'
-            : '<span class="dob-status dob-on"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>ON</span>');
-        btn.addEventListener("click", function() {
-          toggleBlockedDay(dow);
-        });
-        container.appendChild(btn);
-      })(d);
-    }
-  }
+  // No panel needed — blocking is done via hover on day headers
+  function renderDaysOffPanel() { /* no-op — replaced by header popovers */ }
 
   function getWeekStart(date) {
     var d   = new Date(date);
@@ -235,19 +212,69 @@
       cell.className = "pg-day-head" +
         (fmtDate(day) === today ? " pg-day-today" : "") +
         (isBlocked ? " pg-day-blocked-head" : "");
+      cell.style.position = "relative";
 
       var dayName = day.toLocaleDateString("en-US", { weekday: "short" });
       var dayNum  = day.getDate();
 
-      // Simple header — just show day name, date, and OFF badge if blocked
-      cell.innerHTML =
+      // Build header content
+      var html =
         '<span class="pg-dow">' + dayName + '</span>' +
-        '<span class="pg-dom">' + dayNum  + '</span>' +
-        (isBlocked
-          ? '<span class="pg-block-badge">' +
-              '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
-              'UNAVAILABLE</span>'
-          : "");
+        '<span class="pg-dom">' + dayNum  + '</span>';
+
+      if (isBlocked) {
+        html += '<span class="pg-block-badge">Unavailable</span>';
+      }
+
+      cell.innerHTML = html;
+
+      // Admin hover popover for toggling blocked status
+      if (role === "admin") {
+        (function(cellEl, dayOfWeek, blocked) {
+          var popover = null;
+          var hideTimeout = null;
+
+          function showPopover() {
+            if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+            if (popover) return;
+            popover = document.createElement("div");
+            popover.className = "pg-block-popover";
+            var actionLabel = blocked
+              ? "Mark as available"
+              : "Mark as unavailable";
+            var actionIcon = blocked
+              ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>'
+              : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+            var btnClass = blocked ? "pg-popover-btn pg-popover-unblock" : "pg-popover-btn pg-popover-block";
+            popover.innerHTML =
+              '<div class="pg-popover-title">' + DAY_FULL[dayOfWeek] + '</div>' +
+              '<button class="' + btnClass + '">' + actionIcon + actionLabel + '</button>';
+            popover.querySelector("button").addEventListener("click", function(e) {
+              e.stopPropagation();
+              removePopover();
+              toggleBlockedDay(dayOfWeek);
+            });
+            popover.addEventListener("mouseenter", function() {
+              if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
+            });
+            popover.addEventListener("mouseleave", function() {
+              hideTimeout = setTimeout(removePopover, 200);
+            });
+            cellEl.appendChild(popover);
+          }
+
+          function removePopover() {
+            if (popover && popover.parentNode) popover.parentNode.removeChild(popover);
+            popover = null;
+          }
+
+          cellEl.addEventListener("mouseenter", showPopover);
+          cellEl.addEventListener("mouseleave", function() {
+            hideTimeout = setTimeout(removePopover, 250);
+          });
+        })(cell, dow, isBlocked);
+      }
+
       headerRow.appendChild(cell);
     });
     grid.appendChild(headerRow);
