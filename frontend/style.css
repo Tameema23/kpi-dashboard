@@ -1207,26 +1207,7 @@ h2 { margin-top: 0; }
 
 .pg-day-head:last-child { border-right: none; }
 
-/* Admin block hint bar */
-.admin-block-hint {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
-  padding: 7px 14px;
-  margin-bottom: 10px;
-  letter-spacing: 0.01em;
-  user-select: none;
-}
-.admin-block-hint svg { color: #94a3b8; flex-shrink: 0; }
-@media (max-width: 768px) {
-  .admin-block-hint { font-size: 10px; padding: 6px 10px; gap: 6px; }
-}
+
 
 .pg-day-head.pg-day-today {
   background: #eff6ff;
@@ -1297,175 +1278,7 @@ h2 { margin-top: 0; }
 .pg-cell.pg-cell-today { background: #fafcff; }
 .pg-cell.pg-cell-today:hover { background: #eff6ff; }
 
-/* ═══════════════════════════════════════════════════════════
-   BLOCKED DAY SYSTEM — Premium SaaS styling
-   ═══════════════════════════════════════════════════════════ */
 
-/* ── Blocked column header ─────────────────────────────────── */
-.pg-day-blocked-head {
-  background: linear-gradient(160deg, #fef2f2 0%, #fde8e8 100%) !important;
-  border-right-color: #fca5a5 !important;
-  position: relative;
-  transition: background 0.15s;
-}
-.pg-day-blocked-head:hover {
-  background: linear-gradient(160deg, #fee2e2 0%, #fecaca 100%) !important;
-}
-
-/* Day-name label turns red */
-.pg-day-blocked-head .pg-dow {
-  color: #f87171 !important;
-  letter-spacing: 0.08em;
-}
-
-/* Date number — dark red, no blue circle override */
-.pg-day-blocked-head .pg-dom {
-  color: #dc2626 !important;
-  background: none !important;
-  border-radius: 0 !important;
-  width: auto !important;
-  height: auto !important;
-  display: block !important;
-  font-size: 20px !important;
-}
-
-/* "BLOCKED" pill badge beneath the date */
-.pg-block-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  background: #dc2626;
-  color: #fff;
-  padding: 2px 9px 2px 7px;
-  border-radius: 20px;
-  white-space: nowrap;
-  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.35);
-}
-
-/* Lock icon inside badge */
-.pg-block-badge::before {
-  content: "";
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E");
-  background-size: contain;
-  background-repeat: no-repeat;
-  flex-shrink: 0;
-}
-
-/* ── Admin clickable headers ────────────────────────────────── */
-.pg-day-head-admin {
-  cursor: pointer !important;
-}
-/* Open day — show subtle hover to indicate it's clickable */
-.pg-day-head-admin:not(.pg-day-blocked-head):hover {
-  background: #f1f5f9 !important;
-}
-.pg-day-head-admin:not(.pg-day-blocked-head):hover .pg-dow {
-  color: #475569 !important;
-}
-/* Blocked day — deeper red on hover (indicates it can be unblocked) */
-.pg-day-blocked-head.pg-day-head-admin:hover .pg-block-badge {
-  background: #b91c1c;
-}
-
-/* ── Blocked grid cells ─────────────────────────────────────── */
-.pg-cell-blocked {
-  background:
-    repeating-linear-gradient(
-      -45deg,
-      rgba(254, 202, 202, 0.25) 0px,
-      rgba(254, 202, 202, 0.25) 1px,
-      transparent 1px,
-      transparent 12px
-    ),
-    rgba(255, 241, 241, 0.85) !important;
-  cursor: not-allowed !important;
-  position: relative;
-}
-.pg-cell-blocked:hover {
-  background:
-    repeating-linear-gradient(
-      -45deg,
-      rgba(254, 202, 202, 0.4) 0px,
-      rgba(254, 202, 202, 0.4) 1px,
-      transparent 1px,
-      transparent 12px
-    ),
-    rgba(254, 226, 226, 0.9) !important;
-}
-
-/* "Unavailable" watermark text on empty blocked cells */
-.pg-cell-blocked::after {
-  content: "Unavailable";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(220, 38, 38, 0.28);
-  white-space: nowrap;
-  pointer-events: none;
-  user-select: none;
-}
-
-/* Hide watermark if cell has an appointment block */
-/* :has() support (modern browsers) */
-.pg-cell-blocked:has(.pg-appt-block)::after {
-  display: none;
-}
-/* JS-set class fallback (older browsers) */
-.pg-cell-blocked.pg-cell-has-appt::after {
-  display: none;
-}
-
-/* Appointments on blocked days still show but slightly muted */
-.pg-cell-blocked .pg-appt-block {
-  cursor: pointer !important;
-  opacity: 0.82;
-  position: relative;
-  z-index: 1;
-}
-
-/* ── Today + Blocked conflict ───────────────────────────────── */
-/* When today is also blocked, keep the today circle but tint it red */
-.pg-day-blocked-head.pg-day-today .pg-dom {
-  background: #dc2626 !important;
-  color: #fff !important;
-  border-radius: 50% !important;
-  width: 30px !important;
-  height: 30px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  font-size: 16px !important;
-}
-.pg-day-blocked-head.pg-day-today .pg-dow {
-  color: #f87171 !important;
-}
-.pg-cell-blocked.pg-cell-today {
-  background:
-    repeating-linear-gradient(
-      -45deg,
-      rgba(254, 202, 202, 0.3) 0px,
-      rgba(254, 202, 202, 0.3) 1px,
-      transparent 1px,
-      transparent 12px
-    ),
-    rgba(255, 238, 238, 0.9) !important;
-}
-
-/* ── Days Off Panel — hidden, controls are in grid headers ── */
-.days-off-panel { display: none !important; }
 
 /* ---- Appointment Blocks ---- */
 .pg-appt-block {
@@ -1713,34 +1526,7 @@ h2 { margin-top: 0; }
 }
 
 /* Mini-cal: blocked day-of-week column header */
-/* ── Mini-calendar blocked day-of-week column headers ───────── */
-.mc-dow-blocked {
-  color: #f87171 !important;
-  font-weight: 800;
-  position: relative;
-}
 
-/* ── Mini-calendar: individual blocked date cells ────────────── */
-.mc-blocked {
-  color: #b91c1c !important;
-  background: rgba(254, 226, 226, 0.75) !important;
-  border-radius: 4px;
-  cursor: not-allowed !important;
-  text-decoration: line-through;
-  text-decoration-color: rgba(185, 28, 28, 0.5);
-  opacity: 0.75;
-  position: relative;
-}
-.mc-blocked:hover {
-  background: rgba(254, 202, 202, 0.9) !important;
-  opacity: 0.9;
-}
-/* Selected blocked day should stay red not blue */
-.mc-blocked.mc-selected {
-  background: #dc2626 !important;
-  color: #fff !important;
-  text-decoration: none;
-}
 
 /* =============================================
    TOOLTIP
@@ -2506,4 +2292,214 @@ mark.q-highlight {
 
 @media (max-width: 768px) {
   .quality-search-bar { max-width: 100%; }
+}
+
+
+/* ============================================================
+   BLOCKED DAY SYSTEM — OVERRIDES (must stay at bottom of file)
+   These rules override all earlier planner base styles.
+   ============================================================ */
+
+/* ── Admin hint bar ────────────────────────────────────────── */
+.admin-block-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 14px;
+  margin-bottom: 10px;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+.admin-block-hint svg { color: #94a3b8; flex-shrink: 0; }
+@media (max-width: 768px) {
+  .admin-block-hint { font-size: 10px; padding: 6px 10px; gap: 6px; }
+}
+
+/* ── Blocked column header ─────────────────────────────────── */
+.pg-day-blocked-head {
+  background: linear-gradient(180deg, #fee2e2, #fecaca) !important;
+  border-bottom: 3px solid #dc2626 !important;
+  border-right-color: #fca5a5 !important;
+  box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.15);
+  position: relative;
+  transition: background 0.15s;
+}
+.pg-day-blocked-head:hover {
+  background: linear-gradient(180deg, #fecaca, #fca5a5) !important;
+}
+
+/* Day name label — strong dark red */
+.pg-day-blocked-head .pg-dow {
+  color: #991b1b !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+}
+
+/* Date number — dark red, remove today's blue circle override */
+.pg-day-blocked-head .pg-dom {
+  color: #991b1b !important;
+  background: none !important;
+  border-radius: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  display: block !important;
+  font-size: 20px !important;
+  line-height: 1 !important;
+}
+
+/* "BLOCKED" badge */
+.pg-block-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  margin-top: 6px !important;
+  padding: 4px 10px !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  border-radius: 999px !important;
+  background: #dc2626 !important;
+  color: #fff !important;
+  box-shadow: 0 1px 3px rgba(185, 28, 28, 0.4) !important;
+  white-space: nowrap !important;
+}
+
+/* Admin headers are clickable */
+.pg-day-head-admin {
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+  user-select: none !important;
+}
+.pg-day-head-admin:not(.pg-day-blocked-head):hover {
+  background: #f1f5f9 !important;
+}
+
+/* ── Today + Blocked conflict: keep red circle ─────────────── */
+.pg-day-blocked-head.pg-day-today .pg-dom {
+  background: #dc2626 !important;
+  color: #fff !important;
+  border-radius: 50% !important;
+  width: 30px !important;
+  height: 30px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 16px !important;
+}
+.pg-day-blocked-head.pg-day-today .pg-dow {
+  color: #991b1b !important;
+}
+
+/* ── Blocked grid cells — FULL COLUMN ──────────────────────── */
+.pg-cell-blocked {
+  background: #fef2f2 !important;
+  cursor: not-allowed !important;
+  position: relative !important;
+}
+
+/* Diagonal stripe overlay via ::before */
+.pg-cell-blocked::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(220, 38, 38, 0.06),
+    rgba(220, 38, 38, 0.06) 10px,
+    transparent 10px,
+    transparent 20px
+  ) !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
+}
+
+/* Hover — slightly darker */
+.pg-cell-blocked:hover {
+  background: #fee2e2 !important;
+}
+
+/* "Blocked" watermark on empty cells via ::after */
+.pg-cell-blocked::after {
+  content: "Blocked" !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  color: rgba(185, 28, 28, 0.35) !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  z-index: 0 !important;
+}
+
+/* Hide watermark when cell has an appointment */
+.pg-cell-blocked:has(.pg-appt-block)::after,
+.pg-cell-blocked.pg-cell-has-appt::after {
+  display: none !important;
+}
+
+/* Appointments in blocked cells still show clearly */
+.pg-cell-blocked .pg-appt-block {
+  position: relative !important;
+  z-index: 2 !important;
+  cursor: pointer !important;
+  opacity: 0.88 !important;
+}
+
+/* Today + blocked cell */
+.pg-cell-blocked.pg-cell-today {
+  background: #fef2f2 !important;
+}
+.pg-cell-blocked.pg-cell-today:hover {
+  background: #fee2e2 !important;
+}
+
+/* ── Days Off panel hidden (controls are in grid headers) ──── */
+.days-off-panel { display: none !important; }
+
+/* ── Mini-calendar: blocked day columns ───────────────────── */
+/* Day-of-week column headers */
+.mc-dow-blocked {
+  color: #dc2626 !important;
+  font-weight: 800 !important;
+  opacity: 0.8;
+}
+
+/* Individual blocked date cells */
+.mc-blocked {
+  color: #b91c1c !important;
+  background: #fee2e2 !important;
+  border-radius: 4px !important;
+  cursor: not-allowed !important;
+  text-decoration: line-through !important;
+  text-decoration-color: rgba(185, 28, 28, 0.55) !important;
+  opacity: 0.75 !important;
+}
+.mc-blocked:hover {
+  background: #fecaca !important;
+  opacity: 0.9 !important;
+}
+/* Keep red when selected */
+.mc-blocked.mc-selected {
+  background: #dc2626 !important;
+  color: #fff !important;
+  text-decoration: none !important;
+  opacity: 1 !important;
+}
+/* Today + blocked: show as red */
+.mc-blocked.mc-today {
+  background: #fee2e2 !important;
+  color: #991b1b !important;
 }
