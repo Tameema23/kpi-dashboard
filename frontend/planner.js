@@ -198,10 +198,10 @@
           return function() {
             if (blockedDays.has(d)) {
               blockedDays.delete(d);
-              showToast(DAY_FULL[d] + "s unblocked.", "info");
+              showToast(DAY_FULL[d] + " is now available every week.", "info");
             } else {
               blockedDays.add(d);
-              showToast(DAY_FULL[d] + "s blocked.", "info");
+              showToast(DAY_FULL[d] + " is now unavailable every week.", "info");
             }
             saveBlockedDays();
             renderPlanner();
@@ -233,14 +233,18 @@
         cell.dataset.date = fmtDate(day);
         cell.dataset.hour = hour;
 
+        // Blocked cells get a data attribute for CSS fallback (browsers without :has())
+        if (isBlocked) cell.dataset.blocked = "1";
+
         // Click empty area — blocked days are not bookable
         cell.addEventListener("click", (function (d, hr, blocked) {
           return function () {
             if (blocked) {
               if (role === "admin") {
-                showToast("This day is blocked. Click the day header to unblock it.", "error");
+                showToast(DAY_FULL[d.getDay()] + " is blocked. Click the column header to unblock.", "error");
+              } else {
+                showToast("This day is unavailable. No appointments can be booked.", "error");
               }
-              // assistants: silently do nothing (the visual makes it clear)
               return;
             }
             openAddModal(fmtDate(d), String(hr).padStart(2, "0") + ":00");
@@ -278,6 +282,11 @@
 
           cell.appendChild(block);
         });
+
+        // Mark blocked cells that have appointments (CSS :has() fallback)
+        if (isBlocked && cell.querySelector(".pg-appt-block")) {
+          cell.classList.add("pg-cell-has-appt");
+        }
 
         row.appendChild(cell);
       });
