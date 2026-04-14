@@ -42,6 +42,21 @@
   var calYear, calMonth;
   var currentWeekStart = getWeekStart(new Date());
 
+  // ── Blocked days ─────────────────────────────────────────────────
+  // Set of day-of-week numbers (0=Sun…6=Sat), persisted per-admin in localStorage
+  function loadBlockedDays() {
+    try {
+      var key = "planner_blocked_days_" + (localStorage.getItem("username") || "admin");
+      var raw = localStorage.getItem(key);
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch(e) { return new Set(); }
+  }
+  function saveBlockedDays() {
+    var key = "planner_blocked_days_" + (localStorage.getItem("username") || "admin");
+    localStorage.setItem(key, JSON.stringify(Array.from(blockedDays)));
+  }
+  var blockedDays = loadBlockedDays();
+
   // ── Week helpers (Wed–Tue) ───────────────────────────────────
   function getWeekStart(date) {
     var d   = new Date(date);
@@ -146,11 +161,56 @@
     headerRow.appendChild(gutterHead);
 
     days.forEach(function (day) {
+      var dow       = day.getDay();
+      var isBlocked = blockedDays.has(dow);
       var cell = document.createElement("div");
-      cell.className = "pg-day-head" + (fmtDate(day) === today ? " pg-day-today" : "");
-      cell.innerHTML =
-        '<span class="pg-dow">' + day.toLocaleDateString("en-US", { weekday: "short" }) + "</span>" +
-        '<span class="pg-dom">' + day.getDate() + "</span>";
+      cell.className = "pg-day-head" +
+        (fmtDate(day) === today ? " pg-day-today" : "") +
+        (isBlocked ? " pg-day-blocked-head" : "");
+
+      var dayName = day.toLocaleDateString("en-US", { weekday: "short" });
+      var dayNum  = day.getDate();
+
+      if (role === "admin") {
+        // Admin: clicking the header toggles the block
+        cell.setAttribute("title", isBlocked
+          ? "Click to unblock — assistants will be able to book"
+          : "Click to block this day off");
+        cell.style.cursor = "pointer";
+        cell.innerHTML =
+          '<span class="pg-dow">' + dayName + '</span>' +
+          '<span class="pg-dom">' + dayNum  + '</span>' +
+          (isBlocked
+            ? '<span class="pg-block-badge">' +
+                '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+                'OFF</span>'
+            : '<span class="pg-block-hint">block</span>');
+        cell.addEventListener("click", (function(d) {
+          return function() {
+            var d_dow = d.getDay();
+            var dName = d.toLocaleDateString("en-US", { weekday: "long" });
+            if (blockedDays.has(d_dow)) {
+              blockedDays.delete(d_dow);
+              showToast(dName + " unblocked — assistants can now book this day.", "info");
+            } else {
+              blockedDays.add(d_dow);
+              showToast(dName + " blocked — no new appointments can be booked.", "info");
+            }
+            saveBlockedDays();
+            renderPlanner();
+          };
+        })(day));
+      } else {
+        // Assistant: read-only view, blocked days show a clear indicator
+        cell.innerHTML =
+          '<span class="pg-dow">' + dayName + '</span>' +
+          '<span class="pg-dom">' + dayNum  + '</span>' +
+          (isBlocked
+            ? '<span class="pg-block-badge">' +
+                '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+                'OFF</span>'
+            : "");
+      }
       headerRow.appendChild(cell);
     });
     grid.appendChild(headerRow);
@@ -166,17 +226,28 @@
       row.appendChild(gutter);
 
       days.forEach(function (day) {
+        var dow_cell  = day.getDay();
+        var isBlocked = blockedDays.has(dow_cell);
         var cell = document.createElement("div");
-        cell.className = "pg-cell" + (fmtDate(day) === today ? " pg-cell-today" : "");
+        cell.className = "pg-cell" +
+          (fmtDate(day) === today ? " pg-cell-today" : "") +
+          (isBlocked ? " pg-cell-blocked" : "");
         cell.dataset.date = fmtDate(day);
         cell.dataset.hour = hour;
 
-        // Click empty area to add
-        cell.addEventListener("click", (function (d, hr) {
+        // Click empty area — blocked days are not bookable
+        cell.addEventListener("click", (function (d, hr, blocked) {
           return function () {
+            if (blocked) {
+              if (role === "admin") {
+                showToast("This day is blocked. Click the day header to unblock it.", "error");
+              }
+              // assistants: silently do nothing (the visual makes it clear)
+              return;
+            }
             openAddModal(fmtDate(d), String(hr).padStart(2, "0") + ":00");
           };
-        })(day, hour));
+        })(day, hour, isBlocked));
 
         // Appointments in this cell — sorted by time
         var sortedAppts = appointments.slice().sort(function(a, b) {

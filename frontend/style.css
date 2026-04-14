@@ -1274,6 +1274,77 @@ h2 { margin-top: 0; }
 .pg-cell.pg-cell-today { background: #fafcff; }
 .pg-cell.pg-cell-today:hover { background: #eff6ff; }
 
+/* ── Blocked day column ───────────────────────────────────── */
+/* Blocked header cell */
+.pg-day-blocked-head {
+  background: #f1f5f9 !important;
+  color: #94a3b8 !important;
+  position: relative;
+}
+.pg-day-blocked-head .pg-dow { color: #94a3b8; }
+.pg-day-blocked-head .pg-dom { color: #94a3b8; }
+
+/* OFF badge shown in both header and on hover hint */
+.pg-block-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  background: #e2e8f0;
+  color: #64748b;
+  padding: 2px 6px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.pg-day-blocked-head .pg-block-badge {
+  background: #cbd5e1;
+  color: #475569;
+}
+
+/* Subtle "block" hint visible on admin hover of unblocked day */
+.pg-block-hint {
+  display: none;
+  margin-top: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.pg-day-head:hover .pg-block-hint { display: inline-block; }
+
+/* Blocked cell — hatched pattern, no hover effect, not-allowed cursor */
+.pg-cell-blocked {
+  background: repeating-linear-gradient(
+    -45deg,
+    #f8fafc,
+    #f8fafc 4px,
+    #f1f5f9 4px,
+    #f1f5f9 8px
+  ) !important;
+  cursor: not-allowed !important;
+  pointer-events: auto;
+  position: relative;
+}
+.pg-cell-blocked:hover { background: repeating-linear-gradient(
+    -45deg,
+    #f8fafc,
+    #f8fafc 4px,
+    #f1f5f9 4px,
+    #f1f5f9 8px
+  ) !important; }
+
+/* Appointments that already exist on a blocked day still show normally */
+.pg-cell-blocked .pg-appt-block {
+  cursor: pointer !important;
+  pointer-events: auto;
+  opacity: 0.75;
+}
+
 /* ---- Appointment Blocks ---- */
 .pg-appt-block {
   background: linear-gradient(135deg, #2563eb, #3b82f6);
