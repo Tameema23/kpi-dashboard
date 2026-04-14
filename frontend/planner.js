@@ -865,7 +865,12 @@
       d.innerText = day;
       if (isDayBlocked) {
         d.title = DAY_FULL[dayDow] + " — unavailable";
-        d.addEventListener("click", function(e) { e.preventDefault(); });
+        d.addEventListener("click", (function(dowName) {
+          return function(e) {
+            e.preventDefault();
+            showToast(dowName + " is unavailable. Please choose a different day.", "error");
+          };
+        })(DAY_FULL[dayDow]));
       } else {
         d.addEventListener("click", (function (ds) {
           return function () {
