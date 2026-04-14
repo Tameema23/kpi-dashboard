@@ -367,6 +367,15 @@ async function loadWeekly() {
   countUp("home_sales", ytdSales);
   countUp("home_close", ytdClosingRatio, "",  "%");
   countUp("home_pres",  ytdPres);
+  countUp("home_refs",  ytdRefs);
+  countUp("home_ref_close", ytdRefClosingRatio, "", "%");
+  // YTD Snapshot panel
+  countUp("home_appt_start",   ytdApptStart);
+  countUp("home_show_ratio",   ytdShowRatio,    "", "%");
+  countUp("home_alp_per_sale", ytdAlpPerSale,   "$", "", 0);
+  countUp("home_leads",        ytdAssignedLeads);
+  countUp("home_bad_ratio",    ytdBadLeadRatio, "", "%");
+  countUp("home_ref_sales",    ytdRefSales);
   loadUpcomingAppointments();
 
   /* ================= WEEKLY TREND CHARTS ================= */
