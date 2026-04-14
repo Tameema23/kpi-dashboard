@@ -186,22 +186,22 @@
       cell.innerHTML =
         '<span class="pg-dow">' + dayName + '</span>' +
         '<span class="pg-dom">' + dayNum + '</span>' +
-        (isBlocked ? '<span class="pg-block-badge">Blocked</span>' : "");
+        (isBlocked ? '<span class="pg-block-badge">Off</span>' : "");
 
       // Admin only: click header to toggle block
       if (role === "admin") {
         cell.classList.add("pg-day-head-admin");
         cell.title = isBlocked
-          ? "Click to unblock every " + DAY_FULL[dow]
-          : "Click to block every " + DAY_FULL[dow];
+          ? "Click to make " + DAY_FULL[dow] + " available"
+          : "Click to mark " + DAY_FULL[dow] + " as day off";
         cell.addEventListener("click", (function(d, blocked) {
           return function() {
             if (blockedDays.has(d)) {
               blockedDays.delete(d);
-              showToast(DAY_FULL[d] + " is now available every week.", "info");
+              showToast(DAY_FULL[d] + " is now available.", "info");
             } else {
               blockedDays.add(d);
-              showToast(DAY_FULL[d] + " is now unavailable every week.", "info");
+              showToast(DAY_FULL[d] + " marked as day off.", "info");
             }
             saveBlockedDays();
             renderPlanner();
@@ -241,7 +241,7 @@
           return function () {
             if (blocked) {
               if (role === "admin") {
-                showToast(DAY_FULL[d.getDay()] + " is blocked. Click the column header to unblock.", "error");
+                showToast(DAY_FULL[d.getDay()] + " is a day off. Click the column header to change this.", "error");
               } else {
                 showToast("This day is unavailable. No appointments can be booked.", "error");
               }
@@ -608,7 +608,7 @@
       var dateEl = document.getElementById("m_date");
       dateEl.style.borderColor = "#dc2626";
       setTimeout(function() { dateEl.style.borderColor = ""; }, 2500);
-      showToast(DAY_FULL[selectedDow] + "s are blocked. Choose a different day.", "error");
+      showToast(DAY_FULL[selectedDow] + "s is a day off. Choose a different day.", "error");
       return;
     }
 
@@ -806,7 +806,7 @@
       d.addEventListener("click", (function (ds, isBlocked, dow) {
         return function () {
           if (isBlocked) {
-            showToast(DAY_FULL[dow] + "s are blocked. Choose a different day.", "error");
+            showToast(DAY_FULL[dow] + "s is a day off. Choose a different day.", "error");
             return;
           }
           document.getElementById("m_date").value = ds;
@@ -839,7 +839,7 @@
       // Warn immediately if this day is blocked
       if (blockedDays.has(d.getDay())) {
         var inp = this;
-        showToast(DAY_FULL[d.getDay()] + "s are blocked. Choose a different day.", "error");
+        showToast(DAY_FULL[d.getDay()] + "s is a day off. Choose a different day.", "error");
         inp.style.borderColor = "#dc2626";
         setTimeout(function() { inp.style.borderColor = ""; }, 2500);
       }
