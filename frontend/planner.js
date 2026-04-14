@@ -1066,8 +1066,11 @@
   })(); // end search IIFE
 
   // ── Init ─────────────────────────────────────────────────────
-  // Load blocked days from API first, then appointments
-  loadBlockedDays().then(function() {
+  // Load blocked days from API first, then appointments.
+  // If blocked days fails (e.g. network), still load appointments.
+  loadBlockedDays().catch(function(e) {
+    console.warn("Could not load blocked days:", e);
+  }).then(function() {
     renderDaysOffPanel();
     return loadAppointments();
   }).then(function() {
