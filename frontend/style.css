@@ -1277,52 +1277,51 @@ h2 { margin-top: 0; }
 /* ── Blocked day column ───────────────────────────────────── */
 /* Blocked header cell */
 .pg-day-blocked-head {
-  background: #f1f5f9 !important;
-  color: #94a3b8 !important;
+  background: #fef2f2 !important;
   position: relative;
 }
-.pg-day-blocked-head .pg-dow { color: #94a3b8; }
-.pg-day-blocked-head .pg-dom { color: #94a3b8; }
+.pg-day-blocked-head .pg-dow { color: #ef4444 !important; }
+.pg-day-blocked-head .pg-dom { color: #b91c1c !important; }
 
 /* OFF badge shown in header */
 .pg-block-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-top: 4px;
-  font-size: 9px;
+  margin-top: 5px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  background: #e2e8f0;
-  color: #64748b;
-  padding: 2px 6px;
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 3px 8px;
   border-radius: 20px;
   white-space: nowrap;
-}
-.pg-day-blocked-head .pg-block-badge {
-  background: #cbd5e1;
-  color: #475569;
+  border: 1px solid #fca5a5;
 }
 
-/* Blocked cell — hatched pattern */
+/* Blocked cell — red-tinted hatched pattern */
 .pg-cell-blocked {
   background: repeating-linear-gradient(
     -45deg,
-    #f8fafc,
-    #f8fafc 4px,
-    #f1f5f9 4px,
-    #f1f5f9 8px
+    #fff5f5,
+    #fff5f5 5px,
+    #fee2e2 5px,
+    #fee2e2 10px
   ) !important;
   cursor: not-allowed !important;
+  opacity: 0.85;
 }
-.pg-cell-blocked:hover { background: repeating-linear-gradient(
+.pg-cell-blocked:hover {
+  background: repeating-linear-gradient(
     -45deg,
-    #f8fafc,
-    #f8fafc 4px,
-    #f1f5f9 4px,
-    #f1f5f9 8px
-  ) !important; }
+    #fff5f5,
+    #fff5f5 5px,
+    #fecaca 5px,
+    #fecaca 10px
+  ) !important;
+}
 .pg-cell-blocked .pg-appt-block {
   cursor: pointer !important;
   opacity: 0.75;
@@ -1361,14 +1360,14 @@ h2 { margin-top: 0; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 7px 11px;
+  gap: 4px;
+  padding: 8px 12px;
   border-radius: 10px;
   border: 1.5px solid #e2e8f0;
   background: #f8fafc;
   cursor: pointer;
   transition: all 0.15s;
-  min-width: 46px;
+  min-width: 52px;
   font-family: inherit;
 }
 .days-off-btn:hover {
@@ -1376,31 +1375,32 @@ h2 { margin-top: 0; }
   background: #f1f5f9;
   transform: translateY(-1px);
 }
+/* Blocked state: red border + red tint */
 .days-off-btn-blocked {
-  border-color: #fca5a5 !important;
-  background: #fff1f2 !important;
+  border-color: #f87171 !important;
+  background: #fef2f2 !important;
 }
 .days-off-btn-blocked:hover {
-  border-color: #f87171 !important;
-  background: #ffe4e6 !important;
+  border-color: #ef4444 !important;
+  background: #fee2e2 !important;
 }
 .dob-day {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   color: #0f172a;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.days-off-btn-blocked .dob-day { color: #b91c1c; }
+.days-off-btn-blocked .dob-day { color: #dc2626; }
 .dob-status {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   border-radius: 20px;
-  padding: 1px 5px;
+  padding: 2px 6px;
 }
 .dob-on {
   background: #dcfce7;
@@ -1419,8 +1419,8 @@ h2 { margin-top: 0; }
 }
 @media (max-width: 768px) {
   .days-off-hint { display: none; }
-  .days-off-panel { gap: 8px; padding: 8px 12px; }
-  .days-off-btn { min-width: 38px; padding: 6px 8px; }
+  .days-off-panel { gap: 6px; padding: 8px 12px; }
+  .days-off-btn { min-width: 40px; padding: 6px 8px; }
 }
 
 /* ---- Appointment Blocks ---- */

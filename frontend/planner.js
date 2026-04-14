@@ -604,6 +604,16 @@
       return;
     }
 
+    // ── Blocked day check ─────────────────────────────────────
+    var selectedDow = new Date(date + "T00:00:00").getDay(); // 0=Sun … 6=Sat
+    if (blockedDays.has(selectedDow)) {
+      var dateEl = document.getElementById("m_date");
+      dateEl.style.borderColor = "#dc2626";
+      setTimeout(function() { dateEl.style.borderColor = ""; }, 2500);
+      showToast(DAY_FULL[selectedDow] + "s are blocked. Choose a different day.", "error");
+      return;
+    }
+
     // Convert entered time from selected timezone to Mountain (America/Edmonton)
     var scheduledFor;
     if (tz === "America/Edmonton") {
@@ -797,6 +807,15 @@
         return function () {
           document.getElementById("m_date").value = ds;
           renderMiniCal();
+          updateTzPreview();
+          // Warn if this day is blocked
+          var picked = new Date(ds + "T00:00:00");
+          if (blockedDays.has(picked.getDay())) {
+            showToast(DAY_FULL[picked.getDay()] + "s are blocked. Choose a different day.", "error");
+            var dateInp = document.getElementById("m_date");
+            dateInp.style.borderColor = "#dc2626";
+            setTimeout(function() { dateInp.style.borderColor = ""; }, 2500);
+          }
         };
       })(dateStr));
       grid.appendChild(d);
@@ -821,6 +840,13 @@
       calYear  = d.getFullYear();
       calMonth = d.getMonth();
       renderMiniCal();
+      // Warn immediately if this day is blocked
+      if (blockedDays.has(d.getDay())) {
+        var inp = this;
+        showToast(DAY_FULL[d.getDay()] + "s are blocked. Choose a different day.", "error");
+        inp.style.borderColor = "#dc2626";
+        setTimeout(function() { inp.style.borderColor = ""; }, 2500);
+      }
     }
   });
 
