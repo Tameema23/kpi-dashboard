@@ -800,6 +800,7 @@ class ReferralEntryPayload(BaseModel):
     rel_to_sponsor: Optional[str] = ""
     occupation:     Optional[str] = ""
     sig_other:      Optional[str] = ""
+    status:         Optional[str] = ""  # "met" | "pending" | "skip" | ""
 
 class ReferralProgramPayload(BaseModel):
     sponsor_first:      Optional[str]   = ""
@@ -827,6 +828,7 @@ def _sanitize_referral_entry(d: ReferralEntryPayload) -> dict:
         "phone":         re.sub(r"[^\d\s\+\-\(\)ext\.]", "", d.phone or "")[:30],
         "rel_to_sponsor":sanitize_str(d.rel_to_sponsor or "", 100),
         "occupation":    sanitize_str(d.occupation or "", 200),
+        "status":        d.status if d.status in ("met", "pending", "skip") else "",
         "sig_other":     sanitize_str(d.sig_other or "", 200),
     }
 
@@ -858,6 +860,7 @@ def _program_dict(p: ReferralProgram) -> dict:
                 "phone":         r.phone or "",
                 "rel_to_sponsor":r.rel_to_sponsor or "",
                 "occupation":    r.occupation or "",
+                "status":        getattr(r, "status", "") or "",
                 "sig_other":     r.sig_other or "",
             }
             for r in p.referrals
@@ -963,3 +966,28 @@ def delete_referral_program(prog_id: int,
     db.commit()
     audit(db, user.id, "delete_referral_program", f"Deleted program ID {prog_id}")
     return {"status": "deleted"}
+
+
+class ReferralEntryStatusPayload(BaseModel):
+    status: str = ""  # "met" | "pending" | "skip" | ""
+
+@app.patch("/referral-entries/{entry_id}/status")
+def update_referral_entry_status(entry_id: int,
+                                  data: ReferralEntryStatusPayload,
+                                  user: User = Depends(get_current_user),
+                                  db: Session = Depends(get_db)):
+    """Update only the status of a single referral entry."""
+    _require_admin(user)
+    entry = db.query(ReferralEntry).join(
+        ReferralProgram, ReferralEntry.program_id == ReferralProgram.id
+    ).filter(
+        ReferralEntry.id == entry_id,
+        ReferralProgram.owner_id == user.id
+    ).first()
+    if not entry:
+        raise HTTPException(404, "Referral entry not found.")
+    if data.status not in ("met", "pending", "skip", ""):
+        raise HTTPException(422, "Invalid status value.")
+    entry.status = data.status
+    db.commit()
+    return {"id": entry_id, "status": entry.status}

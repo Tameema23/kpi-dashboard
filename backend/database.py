@@ -158,6 +158,7 @@ class ReferralEntry(Base):
     rel_to_sponsor  = Column(String(100), default="")
     occupation      = Column(String(200), default="")
     sig_other       = Column(String(200), default="")
+    status          = Column(String(20),  default="")  # "met" | "pending" | "skip" | ""
 
     program = relationship("ReferralProgram", back_populates="referrals")
 
