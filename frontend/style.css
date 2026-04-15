@@ -1382,6 +1382,16 @@ h2 { margin-top: 0; }
   background: #dcfce7;
   border-color: #4ade80;
 }
+.pg-popover-block-recurring {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1.5px solid #fed7aa;
+  margin-top: 6px;
+}
+.pg-popover-block-recurring:hover {
+  background: #ffedd5;
+  border-color: #fb923c;
+}
 
 /* ── Blocked Cell — subtle red tint + stripes ────────── */
 .pg-cell-blocked {

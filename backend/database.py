@@ -177,6 +177,19 @@ class BlockedDay(Base):
     day_of_week = Column(Integer, nullable=False)  # 0–6
 
 
+class BlockedDate(Base):
+    """
+    A one-time specific date that an admin has marked as unavailable.
+    Unlike BlockedDay (recurring), this only blocks ONE specific date.
+    Use case: vacation days, holidays, personal days off.
+    """
+    __tablename__ = "blocked_dates"
+
+    id       = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date     = Column(String(10), nullable=False)  # YYYY-MM-DD
+
+
 class AuditLog(Base):
     """Tracks sensitive actions: logins, password changes, deletes."""
     __tablename__ = "audit_logs"

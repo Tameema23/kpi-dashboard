@@ -38,7 +38,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -564,6 +564,12 @@ def create_appointment(data: AppointmentPayload,
     if blocked:
         DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
         raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be scheduled on this day.")
+    # ── One-time blocked date enforcement ─────────────────────
+    blocked_date = db.query(BlockedDate).filter(
+        BlockedDate.owner_id == owner, BlockedDate.date == sched[:10]
+    ).first()
+    if blocked_date:
+        raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be scheduled on this date.")
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     appt  = Appointment(
         created_by=user.id, owner_id=owner,
@@ -606,6 +612,12 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     if blocked:
         DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
         raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be rescheduled to this day.")
+    # ── One-time blocked date enforcement ─────────────────────
+    blocked_date = db.query(BlockedDate).filter(
+        BlockedDate.owner_id == owner, BlockedDate.date == sched[:10]
+    ).first()
+    if blocked_date:
+        raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
     appt.lead_name     = sanitize_str(data.lead_name, 200)
     appt.comments      = sanitize_str(data.comments or "", 2000)
     appt.scheduled_for = validate_datetime(data.scheduled_for)
@@ -688,6 +700,54 @@ def remove_blocked_day(dow: int,
         db.commit()
         DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
         audit(db, user.id, "unblock_day", f"Unblocked {DAY_NAMES[dow]}")
+    return {"status": "unblocked"}
+
+# ── Blocked Dates (One-Time) ──────────────────────────────────────────────────
+
+class BlockedDatePayload(BaseModel):
+    date: str  # YYYY-MM-DD
+
+@app.get("/blocked-dates")
+def get_blocked_dates(user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """Return list of one-time blocked dates for this admin/owner."""
+    _check_planner_access(user)
+    owner = get_owner_id(user)
+    rows = db.query(BlockedDate).filter(BlockedDate.owner_id == owner).all()
+    return [r.date for r in rows]
+
+@app.post("/blocked-dates", status_code=201)
+def add_blocked_date(data: BlockedDatePayload,
+                     user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Admin-only: block a specific date (one-time)."""
+    _require_admin(user)
+    date_str = validate_date(data.date)
+    owner = user.id
+    existing = db.query(BlockedDate).filter(
+        BlockedDate.owner_id == owner, BlockedDate.date == date_str
+    ).first()
+    if existing:
+        return {"status": "already blocked"}
+    db.add(BlockedDate(owner_id=owner, date=date_str))
+    db.commit()
+    audit(db, user.id, "block_date", f"Blocked {date_str}")
+    return {"status": "blocked"}
+
+@app.delete("/blocked-dates/{date_str}")
+def remove_blocked_date(date_str: str,
+                        user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Admin-only: unblock a specific date."""
+    _require_admin(user)
+    owner = user.id
+    row = db.query(BlockedDate).filter(
+        BlockedDate.owner_id == owner, BlockedDate.date == date_str
+    ).first()
+    if row:
+        db.delete(row)
+        db.commit()
+        audit(db, user.id, "unblock_date", f"Unblocked {date_str}")
     return {"status": "unblocked"}
 
 # ── Quality ────────────────────────────────────────────────────────────────────

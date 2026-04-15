@@ -42,10 +42,21 @@
   var calYear, calMonth;
   var currentWeekStart = getWeekStart(new Date());
 
-  // ── Blocked days ─────────────────────────────────────────────────
+  // ── Blocked days (recurring) ──────────────────────────────────
   // Set of day-of-week numbers (0=Sun…6=Sat), persisted in the database via API.
-  // Both admins and assistants fetch from the same owner's data.
   var blockedDays = new Set();
+
+  // ── Blocked dates (one-time) ────────────────────────────────
+  // Set of specific date strings "YYYY-MM-DD", persisted in the database via API.
+  var blockedDates = new Set();
+
+  // Helper: is a specific date blocked? (checks both recurring + one-time)
+  function isDateBlocked(dateStr) {
+    var d = new Date(dateStr + "T00:00:00");
+    if (blockedDays.has(d.getDay())) return "recurring";
+    if (blockedDates.has(dateStr)) return "oneoff";
+    return false;
+  }
 
   async function loadBlockedDays() {
     try {
@@ -57,6 +68,16 @@
         blockedDays = new Set(days);
       }
     } catch(e) { console.error("Failed to load blocked days", e); }
+    // Also load one-time blocked dates
+    try {
+      var res2 = await fetch(API + "/blocked-dates", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res2.ok) {
+        var dates = await res2.json();
+        blockedDates = new Set(dates);
+      }
+    } catch(e) { console.error("Failed to load blocked dates", e); }
   }
 
   async function toggleBlockedDay(dow) {
@@ -78,12 +99,46 @@
       if (res.ok) {
         if (isCurrentlyBlocked) {
           blockedDays.delete(dow);
-          showToast(DAY_FULL[dow] + " is now available.", "info");
+          showToast(DAY_FULL[dow] + " is now available every week.", "info");
         } else {
           blockedDays.add(dow);
-          showToast(DAY_FULL[dow] + " marked as unavailable.", "info");
+          showToast("Every " + DAY_FULL[dow] + " marked as unavailable.", "info");
         }
         renderDaysOffPanel();
+        renderPlanner();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.detail || "Failed to update.", "error");
+      }
+    } catch(e) {
+      showToast("Server error.", "error");
+    }
+  }
+
+  async function toggleBlockedDate(dateStr) {
+    var isCurrentlyBlocked = blockedDates.has(dateStr);
+    try {
+      var res;
+      if (isCurrentlyBlocked) {
+        res = await fetch(API + "/blocked-dates/" + dateStr, {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + TOKEN }
+        });
+      } else {
+        res = await fetch(API + "/blocked-dates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+          body: JSON.stringify({ date: dateStr })
+        });
+      }
+      if (res.ok) {
+        if (isCurrentlyBlocked) {
+          blockedDates.delete(dateStr);
+          showToast(fmtDisplay(dateStr) + " is now available.", "info");
+        } else {
+          blockedDates.add(dateStr);
+          showToast(fmtDisplay(dateStr) + " marked as unavailable.", "info");
+        }
         renderPlanner();
       } else {
         var err = await res.json().catch(function() { return {}; });
@@ -207,30 +262,32 @@
 
     days.forEach(function (day) {
       var dow       = day.getDay();
-      var isBlocked = blockedDays.has(dow);
+      var dateStr   = fmtDate(day);
+      var blockType = isDateBlocked(dateStr); // "recurring" | "oneoff" | false
+      var isBlocked = !!blockType;
       var cell = document.createElement("div");
       cell.className = "pg-day-head" +
-        (fmtDate(day) === today ? " pg-day-today" : "") +
+        (dateStr === today ? " pg-day-today" : "") +
         (isBlocked ? " pg-day-blocked-head" : "");
       cell.style.position = "relative";
 
       var dayName = day.toLocaleDateString("en-US", { weekday: "short" });
       var dayNum  = day.getDate();
 
-      // Build header content
       var html =
         '<span class="pg-dow">' + dayName + '</span>' +
         '<span class="pg-dom">' + dayNum  + '</span>';
 
       if (isBlocked) {
-        html += '<span class="pg-block-badge">Unavailable</span>';
+        var badgeText = blockType === "oneoff" ? "Day Off" : "Unavailable";
+        html += '<span class="pg-block-badge">' + badgeText + '</span>';
       }
 
       cell.innerHTML = html;
 
-      // Admin hover popover for toggling blocked status
+      // Admin hover popover
       if (role === "admin") {
-        (function(cellEl, dayOfWeek, blocked) {
+        (function(cellEl, dayOfWeek, dayDateStr, bType) {
           var popover = null;
           var hideTimeout = null;
 
@@ -239,21 +296,45 @@
             if (popover) return;
             popover = document.createElement("div");
             popover.className = "pg-block-popover";
-            var actionLabel = blocked
-              ? "Mark as available"
-              : "Mark as unavailable";
-            var actionIcon = blocked
-              ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>'
-              : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-            var btnClass = blocked ? "pg-popover-btn pg-popover-unblock" : "pg-popover-btn pg-popover-block";
-            popover.innerHTML =
-              '<div class="pg-popover-title">' + DAY_FULL[dayOfWeek] + '</div>' +
-              '<button class="' + btnClass + '">' + actionIcon + actionLabel + '</button>';
-            popover.querySelector("button").addEventListener("click", function(e) {
-              e.stopPropagation();
-              removePopover();
-              toggleBlockedDay(dayOfWeek);
+
+            var displayDate = new Date(dayDateStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            var title = DAY_FULL[dayOfWeek] + ", " + displayDate;
+            var btns = "";
+
+            if (bType === "recurring") {
+              // Currently recurring blocked — offer to unblock all weeks
+              btns = '<button class="pg-popover-btn pg-popover-unblock" data-action="unblock-recurring">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>' +
+                'Unblock every ' + DAY_NAMES[dayOfWeek] + '</button>';
+            } else if (bType === "oneoff") {
+              // One-time block — offer to remove it
+              btns = '<button class="pg-popover-btn pg-popover-unblock" data-action="unblock-date">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>' +
+                'Remove day off</button>';
+            } else {
+              // Not blocked — offer both options
+              btns = '<button class="pg-popover-btn pg-popover-block" data-action="block-date">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+                'Block this day only</button>' +
+                '<button class="pg-popover-btn pg-popover-block-recurring" data-action="block-recurring">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>' +
+                'Block every ' + DAY_NAMES[dayOfWeek] + '</button>';
+            }
+
+            popover.innerHTML = '<div class="pg-popover-title">' + title + '</div>' + btns;
+
+            popover.querySelectorAll("button").forEach(function(btn) {
+              btn.addEventListener("click", function(e) {
+                e.stopPropagation();
+                var action = btn.dataset.action;
+                removePopover();
+                if (action === "block-date")        toggleBlockedDate(dayDateStr);
+                if (action === "unblock-date")      toggleBlockedDate(dayDateStr);
+                if (action === "block-recurring")   toggleBlockedDay(dayOfWeek);
+                if (action === "unblock-recurring")  toggleBlockedDay(dayOfWeek);
+              });
             });
+
             popover.addEventListener("mouseenter", function() {
               if (hideTimeout) { clearTimeout(hideTimeout); hideTimeout = null; }
             });
@@ -272,7 +353,7 @@
           cellEl.addEventListener("mouseleave", function() {
             hideTimeout = setTimeout(removePopover, 250);
           });
-        })(cell, dow, isBlocked);
+        })(cell, dow, dateStr, blockType);
       }
 
       headerRow.appendChild(cell);
@@ -291,12 +372,13 @@
 
       days.forEach(function (day) {
         var dow_cell  = day.getDay();
-        var isBlocked = blockedDays.has(dow_cell);
+        var cellDateStr = fmtDate(day);
+        var isBlocked = !!isDateBlocked(cellDateStr);
         var cell = document.createElement("div");
         cell.className = "pg-cell" +
-          (fmtDate(day) === today ? " pg-cell-today" : "") +
+          (cellDateStr === today ? " pg-cell-today" : "") +
           (isBlocked ? " pg-cell-blocked" : "");
-        cell.dataset.date = fmtDate(day);
+        cell.dataset.date = cellDateStr;
         cell.dataset.hour = hour;
 
         // Click empty area — blocked days are not bookable
@@ -304,7 +386,7 @@
           return function () {
             if (blocked) {
               if (role === "admin") {
-                showToast("This day is unavailable. Use the Availability panel above to change it.", "error");
+                showToast("This day is unavailable. Hover the day header to change it.", "error");
               } else {
                 showToast("This day is unavailable. No appointments can be scheduled.", "error");
               }
@@ -650,11 +732,15 @@
     // ── Blocked-day check (client-side, backed by server enforcement) ──
     var selectedDate = new Date(date + "T00:00:00");
     var selectedDow  = selectedDate.getDay(); // 0=Sun … 6=Sat
-    if (blockedDays.has(selectedDow)) {
+    var saveBlockCheck = isDateBlocked(date);
+    if (saveBlockCheck) {
       var dateEl = document.getElementById("m_date");
       dateEl.style.borderColor = "#dc2626";
       setTimeout(function() { dateEl.style.borderColor = ""; }, 2000);
-      showToast(DAY_FULL[selectedDow] + " is unavailable. Please choose a different day.", "error");
+      var msg = saveBlockCheck === "recurring"
+        ? DAY_FULL[selectedDow] + " is unavailable. Please choose a different day."
+        : fmtDisplay(date) + " is unavailable. Please choose a different date.";
+      showToast(msg, "error");
       return;
     }
 
@@ -857,20 +943,25 @@
       var d = document.createElement("div");
       var dateStr = calYear + "-" + String(calMonth + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
       var dayDow = new Date(calYear, calMonth, day).getDay();
-      var isDayBlocked = blockedDays.has(dayDow);
+      var mcBlockType = isDateBlocked(dateStr);
       d.className = "mc-day";
       if (dateStr === todayStr)     d.classList.add("mc-today");
       if (dateStr === selectedDate) d.classList.add("mc-selected");
-      if (isDayBlocked)             d.classList.add("mc-blocked");
+      if (mcBlockType)              d.classList.add("mc-blocked");
       d.innerText = day;
-      if (isDayBlocked) {
-        d.title = DAY_FULL[dayDow] + " — unavailable";
-        d.addEventListener("click", (function(dowName) {
+      if (mcBlockType) {
+        d.title = mcBlockType === "oneoff"
+          ? fmtDisplay(dateStr) + " — day off"
+          : DAY_FULL[dayDow] + " — unavailable";
+        d.addEventListener("click", (function(ds, bt) {
           return function(e) {
             e.preventDefault();
-            showToast(dowName + " is unavailable. Please choose a different day.", "error");
+            var msg = bt === "oneoff"
+              ? fmtDisplay(ds) + " is a day off. Please choose a different date."
+              : DAY_FULL[new Date(ds + "T00:00:00").getDay()] + " is unavailable. Please choose a different day.";
+            showToast(msg, "error");
           };
-        })(DAY_FULL[dayDow]));
+        })(dateStr, mcBlockType));
       } else {
         d.addEventListener("click", (function (ds) {
           return function () {
@@ -1141,10 +1232,14 @@
     if (!appt) return null;
     // ── Blocked-day enforcement for drag-drop ──
     if (changes.scheduled_for) {
-      var dropDate = new Date(changes.scheduled_for.split("T")[0] + "T00:00:00");
-      var dropDow = dropDate.getDay();
-      if (blockedDays.has(dropDow)) {
-        showToast(DAY_FULL[dropDow] + " is unavailable. Cannot reschedule to this day.", "error");
+      var dropDateStr = changes.scheduled_for.split("T")[0];
+      var dragBlockCheck = isDateBlocked(dropDateStr);
+      if (dragBlockCheck) {
+        var dropDow = new Date(dropDateStr + "T00:00:00").getDay();
+        var msg = dragBlockCheck === "recurring"
+          ? DAY_FULL[dropDow] + " is unavailable. Cannot reschedule to this day."
+          : fmtDisplay(dropDateStr) + " is unavailable. Cannot reschedule to this date.";
+        showToast(msg, "error");
         return null;
       }
     }
