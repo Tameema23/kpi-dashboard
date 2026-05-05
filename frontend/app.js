@@ -889,8 +889,103 @@ function logout() {
   localStorage.removeItem("token");
   localStorage.removeItem("username");
   localStorage.removeItem("role");
-  window.location.href = "/";
+  localStorage.removeItem("can_planner");
+  localStorage.removeItem("can_quality");
+  localStorage.removeItem("pw_expires_at");
+  // Hard navigate so the browser fully reloads the login page (no stale state)
+  window.location.replace("/");
 }
+
+/* ── MIDNIGHT SESSION EXPIRY ─────────────────────────────────────────────────
+   Calculates ms until midnight Mountain Time and sets a timer.
+   When it fires, clears the session and redirects to login.
+   A "session expiring" warning appears 2 minutes before midnight. */
+(function initMidnightLogout() {
+  if (location.pathname.includes("login")) return;
+  if (!TOKEN) return;
+
+  function msMidnightMT() {
+    // Get current time in Mountain Time, compute ms until next midnight
+    var nowMT = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Edmonton" }));
+    var midMT = new Date(nowMT);
+    midMT.setHours(24, 0, 0, 0); // next midnight MT
+    return midMT - nowMT;
+  }
+
+  var WARN_MS = 2 * 60 * 1000; // warn 2 minutes before
+
+  function scheduleLogout() {
+    var ms = msMidnightMT();
+    if (ms <= 0) { logout(); return; }
+
+    // Warning toast 2 min before
+    var warnDelay = ms - WARN_MS;
+    if (warnDelay > 0) {
+      setTimeout(function() {
+        showToast("Your session expires at midnight. Please save your work.", "info");
+      }, warnDelay);
+    }
+
+    // Auto-logout at midnight
+    setTimeout(function() {
+      logout();
+    }, ms);
+  }
+
+  scheduleLogout();
+
+  // Re-schedule if the tab was in the background and missed midnight
+  document.addEventListener("visibilitychange", function() {
+    if (!document.hidden) {
+      var ms = msMidnightMT();
+      if (ms <= 0) { logout(); }
+    }
+  });
+})();
+
+/* ── PASSWORD EXPIRY WARNING ─────────────────────────────────────────────────
+   Checks localStorage for the password expiry date set at login.
+   Shows a dismissible banner if the password expires within 14 days,
+   and a mandatory change prompt if it is already expired. */
+(function initPasswordExpiryWarning() {
+  if (location.pathname.includes("login")) return;
+
+  var expiresAt = localStorage.getItem("pw_expires_at");
+  if (!expiresAt) return;
+
+  var expDate = new Date(expiresAt + "T00:00:00");
+  var today   = new Date();
+  today.setHours(0, 0, 0, 0);
+  var diffDays = Math.round((expDate - today) / (1000 * 60 * 60 * 24));
+
+  if (diffDays > 14) return; // plenty of time — no banner
+
+  // Show expiry notice once DOM is ready
+  window.addEventListener("DOMContentLoaded", function() {
+    if (diffDays <= 0) {
+      // Expired — show modal-style prompt directing to Settings
+      var banner = document.createElement("div");
+      banner.style.cssText = [
+        "position:fixed","top:0","left:0","right:0","z-index:8000",
+        "background:#dc2626","color:#fff","padding:12px 20px",
+        "display:flex","align-items:center","gap:12px","justify-content:center",
+        "font-size:14px","font-weight:600","box-shadow:0 2px 8px rgba(0,0,0,0.2)"
+      ].join(";");
+      banner.innerHTML =
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+        '<span>Your password has expired. Please <a href="/settings.html" style="color:#fff;font-weight:800;text-decoration:underline;">update it now</a> to keep your account secure.</span>';
+      document.body.prepend(banner);
+    } else {
+      // Expiring soon — dismissible toast
+      var msg = diffDays === 1
+        ? "Your password expires tomorrow!"
+        : "Your password expires in " + diffDays + " days.";
+      setTimeout(function() {
+        showToast(msg + " Go to Settings to change it.", "info");
+      }, 1500);
+    }
+  });
+})();
 
 /* ================= EXPORT ================= */
 

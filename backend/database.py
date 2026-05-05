@@ -46,6 +46,14 @@ class User(Base):
     # User can still log in — they just see a prompt to update it.
     needs_password_reset = Column(Boolean, default=False, nullable=False)
 
+    # ISO timestamp of the last password change (YYYY-MM-DDTHH:MM:SS).
+    # Used to enforce 6-month password expiry.
+    password_changed_at  = Column(String(20), nullable=True)
+
+    # bcrypt hash of the immediately previous password.
+    # Prevents users from re-using their last password on expiry change.
+    previous_password_hash = Column(String(200), nullable=True)
+
     logs = relationship(
         "DailyLog", back_populates="user", cascade="all, delete-orphan"
     )

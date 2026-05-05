@@ -20,7 +20,7 @@ Security:
   ✓ Timing-safe login (prevents username enumeration)
 """
 
-import os, re, html, logging, shutil
+import os, re, html, logging, shutil, hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -43,6 +43,33 @@ from backend.database import SessionLocal, create_db, User, DailyLog, Appointmen
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
 
+# ── Build hash — computed once at startup from all JS/CSS file contents ────────
+# This hash changes automatically every deploy whenever any frontend file changes.
+# It is injected into every HTML response as the ?v= query string on static assets,
+# so the browser is always forced to fetch the latest files after a deploy.
+# Your client can log out and log back in to pick up new features — no Ctrl+R needed.
+
+def _compute_build_hash() -> str:
+    frontend_dir = "frontend"
+    h = hashlib.md5()
+    extensions = (".js", ".css")
+    try:
+        for root, _, files in os.walk(frontend_dir):
+            for fname in sorted(files):
+                if any(fname.endswith(ext) for ext in extensions):
+                    fpath = os.path.join(root, fname)
+                    try:
+                        with open(fpath, "rb") as f:
+                            h.update(f.read())
+                    except OSError:
+                        pass
+    except OSError:
+        pass
+    return h.hexdigest()[:10]  # short 10-char hash, e.g. "a3f9c1d820"
+
+BUILD_HASH = _compute_build_hash()
+logger.info(f"Build hash: {BUILD_HASH}")
+
 # ── Secret key — MUST be set as environment variable on Render ────────────────
 SECRET_KEY = os.environ.get("SECRET_KEY")
 if not SECRET_KEY:
@@ -56,6 +83,7 @@ if not SECRET_KEY:
 ALGORITHM         = "HS256"
 TOKEN_EXPIRE_DAYS = 7
 MIN_PASSWORD_LEN  = 8
+PASSWORD_EXPIRY_DAYS = 183  # ~6 months
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -94,6 +122,66 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# ── Security headers — added to every response ─────────────────────────────────
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+        response.headers["X-Content-Type-Options"]    = "nosniff"
+        response.headers["X-Frame-Options"]           = "DENY"
+        response.headers["Referrer-Policy"]           = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"]        = "geolocation=(), microphone=(), camera=()"
+        # CSP — allows our CDN scripts, Google Fonts, own API
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.gstatic.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self' https://data-log.onrender.com; "
+            "frame-ancestors 'none';"
+        )
+        # HTML pages must never be cached — ensures fresh content on every navigation
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"]        = "no-cache"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ── Cache-busting middleware — rewrites ?v=... in HTML responses ───────────────
+# Replaces any ?v=<anything> on .js and .css references with ?v=BUILD_HASH.
+# Works on every FileResponse HTML page automatically — no manual version bumping.
+from fastapi.responses import Response as StarletteResponse
+
+class CacheBustMiddleware(BaseHTTPMiddleware):
+    _pattern = re.compile(rb'(\.(js|css))\?v=[^"\'&\s]+')
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        content_type = response.headers.get("content-type", "")
+        if "text/html" not in content_type:
+            return response
+        # Read and rewrite the body
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk
+        new_body = self._pattern.sub(
+            lambda m: m.group(1) + b"?v=" + BUILD_HASH.encode(),
+            body
+        )
+        return StarletteResponse(
+            content=new_body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=content_type,
+        )
+
+app.add_middleware(CacheBustMiddleware)
 
 # ── Frontend pages ─────────────────────────────────────────────────────────────
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
@@ -202,16 +290,26 @@ def audit(db: Session, user_id: int, action: str, detail: str = ""):
 
 # ── JWT ────────────────────────────────────────────────────────────────────────
 
+def _midnight_utc() -> datetime:
+    """Returns UTC datetime for midnight tonight in Mountain Time (America/Edmonton)."""
+    now_mt = datetime.now(ZoneInfo("America/Edmonton"))
+    midnight_mt = now_mt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    return midnight_mt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
 def create_token(user_id: int, role: str, token_version: int,
-                 can_planner: bool = True, can_quality: bool = False) -> str:
+                 can_planner: bool = True, can_quality: bool = False,
+                 password_expires_at: Optional[str] = None) -> str:
     return jwt.encode({
-        "user_id":       user_id,
-        "role":          role,
-        "token_version": token_version,
-        "can_planner":   can_planner,
-        "can_quality":   can_quality,
-        "exp":           datetime.utcnow() + timedelta(days=TOKEN_EXPIRE_DAYS),
-        "iat":           datetime.utcnow(),
+        "user_id":             user_id,
+        "role":                role,
+        "token_version":       token_version,
+        "can_planner":         can_planner,
+        "can_quality":         can_quality,
+        # Token expires at midnight Mountain Time — forces daily re-login
+        "exp":                 _midnight_utc(),
+        "iat":                 datetime.utcnow(),
+        # Password expiry date so the frontend can warn the user
+        "password_expires_at": password_expires_at or "",
     }, SECRET_KEY, algorithm=ALGORITHM)
 
 def get_current_user(authorization: str = Header(...),
@@ -306,6 +404,26 @@ def login(request: Request, data: UserPayload, db: Session = Depends(get_db)):
         can_planner = bool(user.can_planner)
         can_quality = bool(user.can_quality)
 
+    # ── Password expiry check (6 months) ─────────────────────────────────────
+    now_mt = datetime.now(ZoneInfo("America/Edmonton"))
+    pw_changed_at = getattr(user, "password_changed_at", None)
+    password_expired = False
+    password_expires_at = ""
+
+    if pw_changed_at:
+        try:
+            changed_dt = datetime.strptime(pw_changed_at, "%Y-%m-%dT%H:%M:%S")
+            expires_dt = changed_dt + timedelta(days=PASSWORD_EXPIRY_DAYS)
+            password_expires_at = expires_dt.strftime("%Y-%m-%d")
+            if now_mt.replace(tzinfo=None) >= expires_dt:
+                password_expired = True
+        except ValueError:
+            pass
+    else:
+        # Account predates the expiry feature — treat as needing password set
+        # so password_changed_at gets stamped on their next change.
+        pass
+
     audit(db, user.id, "login", f"IP: {get_remote_address(request)}")
     logger.info(f"Login: {username} ({user.role})")
 
@@ -313,16 +431,19 @@ def login(request: Request, data: UserPayload, db: Session = Depends(get_db)):
         "token":                create_token(
                                     user.id, user.role or "admin",
                                     user.token_version or 0,
-                                    can_planner, can_quality
+                                    can_planner, can_quality,
+                                    password_expires_at
                                 ),
         "role":                 user.role or "admin",
         "can_planner":          can_planner,
         "can_quality":          can_quality,
         "username":             user.username,
-        # ← This tells the frontend to show a password update prompt.
-        #   True only for accounts whose original password was under 8 chars.
-        #   They are fully logged in — just nudged to update their password.
+        # ← True only for accounts whose original password was under 8 chars.
         "needs_password_reset": bool(getattr(user, "needs_password_reset", False)),
+        # ← True if the password hasn't been changed in 6+ months
+        "password_expired":     password_expired,
+        # ← ISO date string of when the password expires (YYYY-MM-DD)
+        "password_expires_at":  password_expires_at,
     }
 
 # ── Change password ────────────────────────────────────────────────────────────
@@ -343,9 +464,17 @@ def change_password(data: ChangePasswordPayload,
     if data.current_password == new_pw:
         raise HTTPException(400, "New password must be different from your current password.")
 
-    user.password             = hash_password(new_pw)
-    user.token_version        = (user.token_version or 0) + 1
-    user.needs_password_reset = False   # clear the flag — requirement now met
+    # Prevent reuse of the immediately previous password
+    prev_hash = getattr(user, "previous_password_hash", None)
+    if prev_hash and verify_password(new_pw, prev_hash):
+        raise HTTPException(400, "You cannot reuse your previous password. Please choose a different one.")
+
+    # Save current hash as previous before overwriting
+    user.previous_password_hash = user.password
+    user.password                = hash_password(new_pw)
+    user.token_version           = (user.token_version or 0) + 1
+    user.needs_password_reset    = False   # clear short-password flag
+    user.password_changed_at     = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M:%S")
     db.commit()
 
     audit(db, user.id, "password_change", "Password updated")

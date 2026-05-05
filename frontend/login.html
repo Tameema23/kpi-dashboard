@@ -145,15 +145,28 @@ async function submitAuth() {
     localStorage.setItem("role", data.role || "admin");
     localStorage.setItem("can_planner", data.can_planner ? "1" : "0");
     localStorage.setItem("can_quality", data.can_quality ? "1" : "0");
+    // Store password expiry date so app.js can warn the user
+    if (data.password_expires_at) {
+      localStorage.setItem("pw_expires_at", data.password_expires_at);
+    } else {
+      localStorage.removeItem("pw_expires_at");
+    }
+
+    // If the password has fully expired, force them to change it before continuing
+    if (data.password_expired) {
+      document.getElementById("pwResetOverlay").style.display = "flex";
+      document.querySelector("#pwResetOverlay .pw-reset-reason").innerText =
+        "Your password has expired (6-month policy). Please create a new password to continue.";
+      return;
+    }
 
     // If the account has a short password, show the reset prompt first.
-    // The user IS logged in — they just need to update their password.
     if (data.needs_password_reset) {
       document.getElementById("pwResetOverlay").style.display = "flex";
       return;
     }
 
-    // Normal redirect
+    // Normal redirect — use replace() so the back button skips the login page
     navigateAfterLogin(data);
 
   } catch {
@@ -167,21 +180,21 @@ async function submitAuth() {
 }
 
 function navigateAfterLogin(data) {
-  const role = data.role || localStorage.getItem("role") || "admin";
-  const canPlanner = data.can_planner !== undefined
+  var role = data.role || localStorage.getItem("role") || "admin";
+  var canPlanner = data.can_planner !== undefined
     ? data.can_planner
     : localStorage.getItem("can_planner") === "1";
-  const canQuality = data.can_quality !== undefined
+  var canQuality = data.can_quality !== undefined
     ? data.can_quality
     : localStorage.getItem("can_quality") === "1";
   if (role === "admin") {
-    window.location.href = "/index.html";
+    window.location.replace("/index.html");
   } else if (canPlanner && !canQuality) {
-    window.location.href = "/planner.html";
+    window.location.replace("/planner.html");
   } else if (canQuality && !canPlanner) {
-    window.location.href = "/quality.html";
+    window.location.replace("/quality.html");
   } else {
-    window.location.href = "/planner.html";
+    window.location.replace("/planner.html");
   }
 }
 
@@ -274,7 +287,7 @@ document.addEventListener("keydown", e => { if (e.key === "Enter") submitAuth();
         </div>
         <div>
           <div style="font-size:17px;font-weight:800;color:#fff;">Update Your Password</div>
-          <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:2px;">
+          <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:2px;" class="pw-reset-reason">
             Your current password is too short
           </div>
         </div>
