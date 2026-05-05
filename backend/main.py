@@ -1,5 +1,5 @@
 """
-main.py — KPI Dashboard API (backend/ folder)
+main.py — ApexTrack API (backend/ folder)
 Imported as: from backend.database import ...
 Run from project root: uvicorn backend.main:app
 
@@ -70,7 +70,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="KPI Dashboard",
+    title="ApexTrack",
     docs_url=None,   # Disable Swagger in production
     redoc_url=None,
 )

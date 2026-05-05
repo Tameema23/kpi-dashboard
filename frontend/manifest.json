@@ -1,7 +1,7 @@
 {
-  "name": "KPI Dashboard",
-  "short_name": "KPI",
-  "description": "Insurance sales KPI tracking and appointment planner",
+  "name": "ApexTrack",
+  "short_name": "ApexTrack",
+  "description": "Insurance sales performance tracking and team management",
   "start_url": "/index.html",
   "display": "standalone",
   "background_color": "#f1f5f9",

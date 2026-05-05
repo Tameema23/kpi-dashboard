@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="/icon-192.png">
   <link rel="manifest" href="/manifest.json">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="KPI Dashboard">
+  <meta name="apple-mobile-web-app-title" content="ApexTrack">
   <link rel="apple-touch-icon" href="/icon-192.png">
   <meta name="api-base" content="https://data-log.onrender.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -22,7 +23,7 @@
   <div class="topbar-left">
     <span class="topbar-brand">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      KPI Dashboard
+      ApexTrack
     </span>
     <nav class="topbar-nav">
       <a href="/index.html"     class="admin-only">Home</a>
@@ -60,9 +61,8 @@
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <div class="ts-period-toggle">
-          <button class="ts-period-btn active" id="adminWeekBtn"  onclick="setAdminPeriod('week')">This Week</button>
-          <button class="ts-period-btn"        id="adminYtdBtn"   onclick="setAdminPeriod('ytd')">Year to Date</button>
-          <button class="ts-period-btn"        id="adminAllBtn"   onclick="setAdminPeriod('all')">All Time</button>
+          <button class="ts-period-btn active" id="adminWeekBtn" onclick="setAdminPeriod('week')">This Week</button>
+          <button class="ts-period-btn"        id="adminYtdBtn"  onclick="setAdminPeriod('ytd')">Year to Date</button>
         </div>
       </div>
     </div>
@@ -110,7 +110,6 @@
     <div class="ts-period-toggle" style="margin-bottom:16px;">
       <button class="ts-period-btn active" id="myWeekBtn" onclick="setMyPeriod('week')">This Week</button>
       <button class="ts-period-btn"        id="myYtdBtn"  onclick="setMyPeriod('ytd')">Year to Date</button>
-      <button class="ts-period-btn"        id="myAllBtn"  onclick="setMyPeriod('all')">All Time</button>
     </div>
     <div class="ts-summary-strip" style="margin-bottom:24px;">
       <div class="ts-summary-card">
@@ -313,11 +312,11 @@
   // ── ADMIN RENDER ──────────────────────────────────────────────
   window.setAdminPeriod = function(p) {
     adminPeriod = p;
-    ['adminWeekBtn','adminYtdBtn','adminAllBtn'].forEach(function(id) {
+    ['adminWeekBtn','adminYtdBtn'].forEach(function(id) {
       document.getElementById(id).classList.remove('active');
     });
     document.getElementById(
-      p === 'week' ? 'adminWeekBtn' : p === 'ytd' ? 'adminYtdBtn' : 'adminAllBtn'
+      p === 'week' ? 'adminWeekBtn' : 'adminYtdBtn'
     ).classList.add('active');
     renderAdmin();
   };
@@ -431,11 +430,11 @@
   // ── ASSISTANT RENDER ──────────────────────────────────────────
   window.setMyPeriod = function(p) {
     myPeriod = p;
-    ['myWeekBtn','myYtdBtn','myAllBtn'].forEach(function(id) {
+    ['myWeekBtn','myYtdBtn'].forEach(function(id) {
       document.getElementById(id).classList.remove('active');
     });
     document.getElementById(
-      p === 'week' ? 'myWeekBtn' : p === 'ytd' ? 'myYtdBtn' : 'myAllBtn'
+      p === 'week' ? 'myWeekBtn' : 'myYtdBtn'
     ).classList.add('active');
     renderAssistant();
   };

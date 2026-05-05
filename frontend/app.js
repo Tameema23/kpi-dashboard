@@ -1328,7 +1328,7 @@ function initPullToRefresh(onRefresh) {
   // Called from Settings "Install Now" button
   window.triggerPWAInstall = function() {
     if (localStorage.getItem("pwaInstalled") === "1") {
-      showToast("KPI Dashboard is already installed!", "info");
+      showToast("ApexTrack is already installed!", "info");
       return;
     }
     if (!window._pwaPrompt) {
@@ -1341,7 +1341,7 @@ function initPullToRefresh(onRefresh) {
       if (r.outcome === "accepted") {
         localStorage.setItem("pwaInstalled", "1");
         window._pwaPrompt = null;
-        showToast("KPI Dashboard installed!", "success");
+        showToast("ApexTrack installed!", "success");
       }
       if (typeof renderInstallAppCard === "function") renderInstallAppCard();
     });
@@ -1370,7 +1370,7 @@ function renderInstallAppCard() {
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>' +
         '</div>' +
         '<div><h2 style="margin:0 0 2px 0;font-size:17px;">App Installed</h2>' +
-        '<p style="margin:0;font-size:13px;color:#64748b;">KPI Dashboard is installed on this device</p></div>' +
+        '<p style="margin:0;font-size:13px;color:#64748b;">ApexTrack is installed on this device</p></div>' +
       '</div>' +
       '<p style="font-size:13px;color:#64748b;margin:0 0 16px 0;line-height:1.6;">Youre running the installed version. Find it on your home screen.</p>' +
       '<button onclick="uninstallPWA()" style="background:none;border:1.5px solid #e2e8f0;color:#64748b;' +
@@ -1406,7 +1406,7 @@ function renderInstallAppCard() {
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
       '</div>' +
       '<div><h2 style="margin:0 0 2px 0;font-size:17px;">Install App</h2>' +
-      '<p style="margin:0;font-size:13px;color:#64748b;">Add KPI Dashboard to your home screen</p></div>' +
+      '<p style="margin:0;font-size:13px;color:#64748b;">Add ApexTrack to your home screen</p></div>' +
     '</div>' +
     '<p style="font-size:13px;color:#475569;margin:0 0 14px 0;line-height:1.6;">' +
       dismissedNote +
@@ -1989,3 +1989,130 @@ async function triggerBackup() {
     if (btn) { btn.disabled = false; btn.innerText = "Backup Now"; }
   }
 }
+
+/* ── GLOBAL KEYBOARD SHORTCUTS ───────────────────────────────────────────────
+   Applied sitewide. Each handler is a no-op if the relevant element/function
+   isn't present on the current page, so this is safe to run everywhere.
+
+   Shortcuts implemented:
+     Ctrl+S / Cmd+S  — save the current form (log, quality, timesheet, referral)
+     Escape          — close the topmost open modal
+     Ctrl+F / Cmd+F  — focus the page's search input if one exists
+     Enter           — in modal inputs, move to next field or submit
+     Tab             — native, but we ensure logical order via tabindex where needed
+*/
+(function initGlobalKeyboardShortcuts() {
+
+  document.addEventListener('keydown', function(e) {
+    var tag    = document.activeElement ? document.activeElement.tagName : '';
+    var inText = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT');
+
+    // ── Ctrl+S / Cmd+S — save current form ──────────────────────────────────
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      // Log Day page
+      if (typeof save === 'function' && document.getElementById('total_alp')) {
+        save(); return;
+      }
+      // Quality modal
+      if (typeof saveEntry === 'function' &&
+          !document.getElementById('qualityModal').classList.contains('hidden')) {
+        saveEntry(); return;
+      }
+      // Timesheet modal
+      if (typeof submitEntry === 'function') {
+        var tsModal = document.getElementById('tsModal');
+        if (tsModal && !tsModal.classList.contains('hidden')) {
+          submitEntry(); return;
+        }
+      }
+      // Planner appointment modal
+      var plannerModal = document.getElementById('modalBackdrop');
+      if (plannerModal && !plannerModal.classList.contains('hidden')) {
+        var saveBtn = document.getElementById('modalSaveBtn');
+        if (saveBtn) { saveBtn.click(); return; }
+      }
+    }
+
+    // ── Escape — close topmost open modal ───────────────────────────────────
+    if (e.key === 'Escape') {
+      // Timesheet modal
+      if (typeof closeForm === 'function') {
+        var tsModal = document.getElementById('tsModal');
+        if (tsModal && !tsModal.classList.contains('hidden')) { closeForm(); return; }
+      }
+      // Quality modal
+      if (typeof closeModal === 'function') {
+        var qModal = document.getElementById('qualityModal');
+        if (qModal && !qModal.classList.contains('hidden')) { closeModal(); return; }
+      }
+      // Planner modal
+      var pModal = document.getElementById('modalBackdrop');
+      if (pModal && !pModal.classList.contains('hidden')) {
+        var closeBtn = document.getElementById('modalCloseBtn');
+        if (closeBtn) { closeBtn.click(); return; }
+      }
+      // showConfirm dialog
+      var confirmDialog = document.querySelector('.confirm-dialog');
+      if (confirmDialog) {
+        var cancelBtn = confirmDialog.querySelector('.confirm-cancel');
+        if (cancelBtn) { cancelBtn.click(); return; }
+      }
+    }
+
+    // ── Ctrl+F / Cmd+F — focus search ───────────────────────────────────────
+    if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      var searchInputs = [
+        'qualitySearchInput', 'apptSearchInput', 'refSearchInput', 'tsSearchInput'
+      ];
+      for (var i = 0; i < searchInputs.length; i++) {
+        var el = document.getElementById(searchInputs[i]);
+        if (el) { e.preventDefault(); el.focus(); el.select && el.select(); return; }
+      }
+    }
+  });
+
+  // ── Modal Enter-key navigation ───────────────────────────────────────────
+  // Quality modal fields
+  function initModalEnterNav(fieldIds, submitFn, modalId) {
+    document.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      var modal = document.getElementById(modalId);
+      if (!modal || modal.classList.contains('hidden')) return;
+      var active = document.activeElement;
+      if (!active) return;
+      // Don't intercept textarea Enter (allow newlines)
+      if (active.tagName === 'TEXTAREA') return;
+      var idx = fieldIds.indexOf(active.id);
+      if (idx === -1) return;
+      e.preventDefault();
+      var next = fieldIds[idx + 1];
+      if (next) {
+        var nextEl = document.getElementById(next);
+        if (nextEl) { nextEl.focus(); nextEl.select && nextEl.select(); }
+      } else {
+        if (typeof window[submitFn] === 'function') window[submitFn]();
+      }
+    });
+  }
+
+  // Quality modal
+  initModalEnterNav(
+    ['f_insured_name','f_policy_number','f_remarks','f_date',
+     'f_phone_number','f_follow_up','f_alp'],
+    'saveEntry', 'qualityModal'
+  );
+
+  // Timesheet modal
+  initModalEnterNav(
+    ['ts_date','ts_hours','ts_booked','ts_resolved','ts_callbacks'],
+    'submitEntry', 'tsModal'
+  );
+
+  // Planner modal
+  initModalEnterNav(
+    ['m_lead_name','m_date','m_time'],
+    null, 'modalBackdrop'
+  );
+
+})();
