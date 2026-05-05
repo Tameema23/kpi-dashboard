@@ -31,7 +31,7 @@ h2 { margin-top: 0; }
    ============================================= */
 
 .topbar {
-  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 60%, #60a5fa 100%);
+  background: linear-gradient(135deg, #1a3faa 0%, #2563eb 50%, #3b82f6 100%);
   color: white;
   padding: 0 30px;
   height: 64px;
@@ -40,7 +40,7 @@ h2 { margin-top: 0; }
   justify-content: space-between;
   font-size: 18px;
   font-weight: 700;
-  box-shadow: 0 4px 20px rgba(59,130,246,0.3);
+  box-shadow: 0 4px 24px rgba(30,64,175,0.35);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -54,8 +54,8 @@ h2 { margin-top: 0; }
 
 .topbar-brand {
   font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.3px;
+  font-weight: 900;
+  letter-spacing: -0.4px;
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -91,9 +91,10 @@ h2 { margin-top: 0; }
 }
 
 .topbar-nav a.active {
-  background: rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.26);
   color: white;
   font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
 
 .topbar-right {
@@ -169,7 +170,8 @@ h2 { margin-top: 0; }
   background: white;
   border-radius: 18px;
   padding: 26px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04);
+  border: 1px solid #f1f5f9;
 }
 
 /* =============================================
@@ -217,7 +219,8 @@ h2 { margin-top: 0; }
 
 .dashboard-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 32px rgba(0,0,0,0.12);
+  box-shadow: 0 8px 28px rgba(37,99,235,0.12), 0 2px 8px rgba(0,0,0,0.06);
+  border-color: #dbeafe;
 }
 
 .dashboard-card-icon {
@@ -235,7 +238,7 @@ h2 { margin-top: 0; }
   height: 24px;
 }
 
-.icon-blue   { background: #eff6ff; }
+.icon-blue   { background: #dbeafe; }
 .icon-blue svg   { color: #2563eb; }
 .icon-green  { background: #f0fdf4; }
 .icon-green svg  { color: #16a34a; }
@@ -265,7 +268,7 @@ h2 { margin-top: 0; }
    ============================================= */
 
 .btn {
-  background: #3b82f6;
+  background: #2563eb;
   color: white;
   border: none;
   padding: 11px 20px;
@@ -273,13 +276,13 @@ h2 { margin-top: 0; }
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.1s;
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.btn:hover { background: #2563eb; transform: translateY(-1px); }
+.btn:hover { background: #1d4ed8; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(37,99,235,0.35); }
 .btn:active { transform: translateY(0); }
 
 .btn.small {
