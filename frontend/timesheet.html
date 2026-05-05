@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="KPI Dashboard">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="api-base" content="https://data-log.onrender.com">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://data-log.onrender.com">
+  <link rel="stylesheet" href="/static/style.css?v=5">
+  <title>Timesheet</title>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      KPI Dashboard
+    </span>
+    <nav class="topbar-nav">
+      <a href="/index.html"     class="admin-only">Home</a>
+      <a href="/log.html"       class="admin-only">Log Day</a>
+      <a href="/reports.html"   class="admin-only">Reports</a>
+      <a href="/history.html"   class="admin-only">History</a>
+      <a href="/planner.html">Planner</a>
+      <a href="/quality.html"   class="admin-only">Quality</a>
+      <a href="/referrals.html" class="admin-only">Referrals</a>
+      <a href="/timesheet.html" class="active">Timesheet</a>
+      <a href="/settings.html"  class="assistant-visible">Settings</a>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-user">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span id="username-text"></span>
+    </span>
+    <button class="logout" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<div class="page">
+  <a class="back admin-only" onclick="location.href='/index.html'">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+    Back to Dashboard
+  </a>
+
+  <!-- ══ ADMIN VIEW ══════════════════════════════════════════ -->
+  <div id="adminView" style="display:none;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+      <div>
+        <h2 style="margin:0 0 3px 0;font-size:20px;font-weight:800;color:#0f172a;">Team Timesheet</h2>
+        <p style="margin:0;font-size:13px;color:#64748b;">All assistant work logs for your team</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="ts-period-toggle">
+          <button class="ts-period-btn active" id="adminWeekBtn"  onclick="setAdminPeriod('week')">This Week</button>
+          <button class="ts-period-btn"        id="adminYtdBtn"   onclick="setAdminPeriod('ytd')">Year to Date</button>
+          <button class="ts-period-btn"        id="adminAllBtn"   onclick="setAdminPeriod('all')">All Time</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Team-wide totals strip -->
+    <div class="ts-summary-strip" id="adminSummaryStrip">
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Total Hours</div>
+        <div class="ts-summary-value" id="adminTotalHours">—</div>
+      </div>
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Appts Booked</div>
+        <div class="ts-summary-value" id="adminTotalBooked">—</div>
+      </div>
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Appts Resolved</div>
+        <div class="ts-summary-value" id="adminTotalResolved">—</div>
+      </div>
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Callbacks</div>
+        <div class="ts-summary-value" id="adminTotalCallbacks">—</div>
+      </div>
+    </div>
+
+    <!-- Per-assistant accordions -->
+    <div id="adminAccordions">
+      <div class="ts-empty">Loading...</div>
+    </div>
+  </div>
+
+  <!-- ══ ASSISTANT VIEW ══════════════════════════════════════ -->
+  <div id="assistantView" style="display:none;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+      <div>
+        <h2 style="margin:0 0 3px 0;font-size:20px;font-weight:800;color:#0f172a;">My Timesheet</h2>
+        <p style="margin:0;font-size:13px;color:#64748b;">Your daily work log</p>
+      </div>
+      <button class="btn" id="newEntryBtn" onclick="showForm(null)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Log Today
+      </button>
+    </div>
+
+    <!-- My totals strip -->
+    <div class="ts-period-toggle" style="margin-bottom:16px;">
+      <button class="ts-period-btn active" id="myWeekBtn" onclick="setMyPeriod('week')">This Week</button>
+      <button class="ts-period-btn"        id="myYtdBtn"  onclick="setMyPeriod('ytd')">Year to Date</button>
+      <button class="ts-period-btn"        id="myAllBtn"  onclick="setMyPeriod('all')">All Time</button>
+    </div>
+    <div class="ts-summary-strip" style="margin-bottom:24px;">
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Hours Worked</div>
+        <div class="ts-summary-value" id="myTotalHours">—</div>
+      </div>
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Appts Booked</div>
+        <div class="ts-summary-value" id="myTotalBooked">—</div>
+      </div>
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Appts Resolved</div>
+        <div class="ts-summary-value" id="myTotalResolved">—</div>
+      </div>
+      <div class="ts-summary-card">
+        <div class="ts-summary-label">Callbacks</div>
+        <div class="ts-summary-value" id="myTotalCallbacks">—</div>
+      </div>
+    </div>
+
+    <!-- My entries table -->
+    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+      <div style="overflow-x:auto;">
+        <table class="ts-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th style="text-align:center;">Hours</th>
+              <th style="text-align:center;">Booked</th>
+              <th style="text-align:center;">Resolved</th>
+              <th style="text-align:center;">Callbacks</th>
+              <th>Notes</th>
+              <th style="text-align:center;width:70px;">Edit</th>
+            </tr>
+          </thead>
+          <tbody id="myEntriesBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Submit / Edit Form Modal ──────────────────────────────── -->
+<div class="modal-backdrop hidden" id="tsModal">
+  <div class="modal-card" onclick="event.stopPropagation()" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 id="tsModalTitle">Log Work Day</h3>
+      <button class="modal-close" onclick="closeForm()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="ts-form-card" style="box-shadow:none;border:none;padding:0;max-width:100%;">
+        <div class="ts-form-grid">
+          <div class="ts-form-field ts-form-full">
+            <label>Date <span style="color:#dc2626;">*</span></label>
+            <input type="date" id="ts_date">
+          </div>
+          <div class="ts-form-field">
+            <label>Hours Worked <span style="color:#dc2626;">*</span></label>
+            <input type="number" id="ts_hours" min="0" max="24" step="0.5" placeholder="e.g. 8">
+          </div>
+          <div class="ts-form-field">
+            <label>Appointments Booked</label>
+            <input type="number" id="ts_booked" min="0" placeholder="0">
+          </div>
+          <div class="ts-form-field">
+            <label>Appointments Resolved</label>
+            <input type="number" id="ts_resolved" min="0" placeholder="0">
+          </div>
+          <div class="ts-form-field">
+            <label>Callbacks</label>
+            <input type="number" id="ts_callbacks" min="0" placeholder="0">
+          </div>
+          <div class="ts-form-field ts-form-full">
+            <label>Notes (optional)</label>
+            <textarea id="ts_notes" placeholder="Any notes about your day..."></textarea>
+          </div>
+        </div>
+        <div id="tsFormMsg" style="font-size:13px;color:#dc2626;font-weight:600;min-height:18px;margin-top:4px;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" style="background:#f1f5f9;color:#475569;" onclick="closeForm()">Cancel</button>
+      <button class="btn" id="tsSubmitBtn" onclick="submitEntry()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+        Save Entry
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom nav -->
+<nav class="bottom-nav">
+  <div class="bottom-nav-items">
+    <a href="/index.html"     class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home
+    </a>
+    <a href="/planner.html"   class="bottom-nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Planner
+    </a>
+    <a href="/timesheet.html" class="bottom-nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>Timesheet
+    </a>
+    <a href="/reports.html"   class="bottom-nav-item admin-only">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Reports
+    </a>
+    <a href="/settings.html"  class="bottom-nav-item assistant-visible">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings
+    </a>
+  </div>
+</nav>
+
+<script src="/static/app.js?v=5"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ── Init ──────────────────────────────────────────────────────
+  var role    = localStorage.getItem('role') || 'admin';
+  var uname   = localStorage.getItem('username') || '';
+  document.getElementById('username-text').innerText = uname;
+
+  // Nav visibility
+  if (role === 'assistant') {
+    document.querySelectorAll('.admin-only').forEach(function(el) { el.style.display = 'none'; });
+    document.querySelectorAll('.assistant-visible').forEach(function(el) { el.style.display = ''; });
+    document.getElementById('assistantView').style.display = '';
+  } else {
+    document.getElementById('adminView').style.display = '';
+  }
+
+  // ── State ─────────────────────────────────────────────────────
+  var allEntries   = [];   // raw data from API
+  var editingId    = null;
+  var adminPeriod  = 'week';
+  var myPeriod     = 'week';
+
+  // ── Date helpers ──────────────────────────────────────────────
+  function todayStr() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' });
+  }
+
+  function weekStart() {
+    // Week starts Sunday
+    var d = new Date(todayStr() + 'T00:00:00');
+    var day = d.getDay();
+    d.setDate(d.getDate() - day);
+    return d.toLocaleDateString('en-CA');
+  }
+
+  function thisYear() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' }).slice(0, 4);
+  }
+
+  function filterByPeriod(entries, period) {
+    if (period === 'all') return entries;
+    var cutoff = period === 'week' ? weekStart() : thisYear() + '-01-01';
+    return entries.filter(function(e) { return e.date >= cutoff; });
+  }
+
+  function fmtDate(d) {
+    if (!d) return '';
+    return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric'
+    });
+  }
+
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function totals(entries) {
+    return entries.reduce(function(acc, e) {
+      acc.hours    += Number(e.hours_worked)   || 0;
+      acc.booked   += Number(e.appts_booked)   || 0;
+      acc.resolved += Number(e.appts_resolved) || 0;
+      callbacks: acc.callbacks += Number(e.callbacks) || 0;
+      acc.callbacks += Number(e.callbacks) || 0;
+      return acc;
+    }, { hours: 0, booked: 0, resolved: 0, callbacks: 0 });
+  }
+
+  // ── Load all entries from API ─────────────────────────────────
+  async function load() {
+    try {
+      var res = await fetch(API + '/timesheet', {
+        headers: { Authorization: 'Bearer ' + TOKEN }
+      });
+      if (!res.ok) { showToast('Failed to load timesheet.', 'error'); return; }
+      allEntries = await res.json();
+      if (role === 'admin') renderAdmin();
+      else renderAssistant();
+    } catch(e) {
+      showToast('Server error loading timesheet.', 'error');
+    }
+  }
+
+  // ── ADMIN RENDER ──────────────────────────────────────────────
+  window.setAdminPeriod = function(p) {
+    adminPeriod = p;
+    ['adminWeekBtn','adminYtdBtn','adminAllBtn'].forEach(function(id) {
+      document.getElementById(id).classList.remove('active');
+    });
+    document.getElementById(
+      p === 'week' ? 'adminWeekBtn' : p === 'ytd' ? 'adminYtdBtn' : 'adminAllBtn'
+    ).classList.add('active');
+    renderAdmin();
+  };
+
+  function renderAdmin() {
+    var filtered = filterByPeriod(allEntries, adminPeriod);
+
+    // Team totals
+    var t = totals(filtered);
+    document.getElementById('adminTotalHours').innerText    = t.hours.toFixed(1);
+    document.getElementById('adminTotalBooked').innerText   = t.booked;
+    document.getElementById('adminTotalResolved').innerText = t.resolved;
+    document.getElementById('adminTotalCallbacks').innerText = t.callbacks;
+
+    // Group by assistant username
+    var byUser = {};
+    filtered.forEach(function(e) {
+      if (!byUser[e.username]) byUser[e.username] = [];
+      byUser[e.username].push(e);
+    });
+
+    var container = document.getElementById('adminAccordions');
+
+    if (Object.keys(byUser).length === 0) {
+      container.innerHTML = '<div class="ts-empty">No entries found for this period. Assistants haven\'t logged any work yet.</div>';
+      return;
+    }
+
+    container.innerHTML = Object.keys(byUser).sort().map(function(username) {
+      var rows   = byUser[username].sort(function(a,b) { return b.date.localeCompare(a.date); });
+      var ut     = totals(rows);
+      var initials = username.slice(0,2).toUpperCase();
+      var uid    = 'acc-' + username.replace(/[^a-z0-9]/gi, '_');
+
+      var tableRows = rows.map(function(e) {
+        return '<tr>' +
+          '<td class="ts-date">' + esc(fmtDate(e.date)) + '</td>' +
+          '<td class="ts-hours" style="text-align:center;">' + Number(e.hours_worked).toFixed(1) + 'h</td>' +
+          '<td class="ts-num">' + e.appts_booked + '</td>' +
+          '<td class="ts-num">' + e.appts_resolved + '</td>' +
+          '<td class="ts-num">' + e.callbacks + '</td>' +
+          '<td class="ts-notes">' + esc(e.notes) + '</td>' +
+          '<td style="text-align:center;">' +
+            '<button class="btn small" style="background:#fee2e2;color:#dc2626;" ' +
+              'onclick="adminDeleteEntry(' + e.id + ',event)" title="Delete entry">' +
+              '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' +
+            '</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+
+      return '<div class="ts-assistant-block" id="' + uid + '">' +
+        '<div class="ts-assistant-header" onclick="toggleAccordion(\'' + uid + '\')">' +
+          '<div class="ts-assistant-name">' +
+            '<div class="ts-assistant-avatar">' + esc(initials) + '</div>' +
+            esc(username) +
+          '</div>' +
+          '<div class="ts-assistant-stats">' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Hours</div><div class="ts-assistant-stat-val">' + ut.hours.toFixed(1) + '</div></div>' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Booked</div><div class="ts-assistant-stat-val">' + ut.booked + '</div></div>' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Resolved</div><div class="ts-assistant-stat-val">' + ut.resolved + '</div></div>' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Callbacks</div><div class="ts-assistant-stat-val">' + ut.callbacks + '</div></div>' +
+          '</div>' +
+          '<svg class="ts-chevron open" id="chev-' + uid + '" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' +
+        '</div>' +
+        '<div class="ts-assistant-body" id="body-' + uid + '">' +
+          '<table class="ts-table">' +
+            '<thead><tr>' +
+              '<th>Date</th><th style="text-align:center;">Hours</th>' +
+              '<th style="text-align:center;">Booked</th><th style="text-align:center;">Resolved</th>' +
+              '<th style="text-align:center;">Callbacks</th><th>Notes</th>' +
+              '<th style="text-align:center;width:60px;">Del</th>' +
+            '</tr></thead>' +
+            '<tbody>' + tableRows + '</tbody>' +
+            '<tfoot><tr>' +
+              '<td class="ts-foot-label">Totals</td>' +
+              '<td>' + ut.hours.toFixed(1) + 'h</td>' +
+              '<td>' + ut.booked + '</td>' +
+              '<td>' + ut.resolved + '</td>' +
+              '<td>' + ut.callbacks + '</td>' +
+              '<td colspan="2"></td>' +
+            '</tr></tfoot>' +
+          '</table>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  window.toggleAccordion = function(uid) {
+    var body  = document.getElementById('body-' + uid);
+    var chev  = document.getElementById('chev-' + uid);
+    var open  = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    chev.classList.toggle('open', !open);
+  };
+
+  window.adminDeleteEntry = function(id, evt) {
+    evt.stopPropagation();
+    showConfirm('Delete this timesheet entry? This cannot be undone.', async function() {
+      try {
+        var res = await fetch(API + '/timesheet/' + id, {
+          method: 'DELETE',
+          headers: { Authorization: 'Bearer ' + TOKEN }
+        });
+        if (res.ok) { showToast('Entry deleted.'); load(); }
+        else showToast('Failed to delete.', 'error');
+      } catch(e) { showToast('Server error.', 'error'); }
+    }, { confirmText: 'Delete' });
+  };
+
+  // ── ASSISTANT RENDER ──────────────────────────────────────────
+  window.setMyPeriod = function(p) {
+    myPeriod = p;
+    ['myWeekBtn','myYtdBtn','myAllBtn'].forEach(function(id) {
+      document.getElementById(id).classList.remove('active');
+    });
+    document.getElementById(
+      p === 'week' ? 'myWeekBtn' : p === 'ytd' ? 'myYtdBtn' : 'myAllBtn'
+    ).classList.add('active');
+    renderAssistant();
+  };
+
+  function renderAssistant() {
+    var filtered = filterByPeriod(allEntries, myPeriod);
+    var t = totals(filtered);
+    document.getElementById('myTotalHours').innerText    = t.hours.toFixed(1);
+    document.getElementById('myTotalBooked').innerText   = t.booked;
+    document.getElementById('myTotalResolved').innerText = t.resolved;
+    document.getElementById('myTotalCallbacks').innerText = t.callbacks;
+
+    var sorted = allEntries.slice().sort(function(a,b) { return b.date.localeCompare(a.date); });
+    var tbody  = document.getElementById('myEntriesBody');
+
+    if (sorted.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="ts-empty">No entries yet. Click "Log Today" to add your first entry.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = sorted.map(function(e) {
+      return '<tr>' +
+        '<td class="ts-date">' + esc(fmtDate(e.date)) + '</td>' +
+        '<td class="ts-hours" style="text-align:center;">' + Number(e.hours_worked).toFixed(1) + 'h</td>' +
+        '<td class="ts-num">' + e.appts_booked + '</td>' +
+        '<td class="ts-num">' + e.appts_resolved + '</td>' +
+        '<td class="ts-num">' + e.callbacks + '</td>' +
+        '<td class="ts-notes">' + esc(e.notes) + '</td>' +
+        '<td style="text-align:center;">' +
+          '<button class="btn small" style="background:#eff6ff;color:#2563eb;" ' +
+            'onclick="showForm(' + e.id + ')" title="Edit">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
+          '</button>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // ── Form (submit / edit) ──────────────────────────────────────
+  window.showForm = function(id) {
+    editingId = id;
+    var msgEl = document.getElementById('tsFormMsg');
+    msgEl.innerText = '';
+
+    if (id === null) {
+      // New entry — pre-fill today's date
+      document.getElementById('tsModalTitle').innerText = 'Log Work Day';
+      document.getElementById('ts_date').value     = todayStr();
+      document.getElementById('ts_date').readOnly  = false;
+      document.getElementById('ts_hours').value    = '';
+      document.getElementById('ts_booked').value   = '';
+      document.getElementById('ts_resolved').value = '';
+      document.getElementById('ts_callbacks').value = '';
+      document.getElementById('ts_notes').value    = '';
+    } else {
+      // Edit existing
+      var entry = allEntries.find(function(e) { return e.id === id; });
+      if (!entry) return;
+      document.getElementById('tsModalTitle').innerText  = 'Edit Entry';
+      document.getElementById('ts_date').value      = entry.date;
+      document.getElementById('ts_date').readOnly   = true;
+      document.getElementById('ts_hours').value     = entry.hours_worked;
+      document.getElementById('ts_booked').value    = entry.appts_booked;
+      document.getElementById('ts_resolved').value  = entry.appts_resolved;
+      document.getElementById('ts_callbacks').value = entry.callbacks;
+      document.getElementById('ts_notes').value     = entry.notes;
+    }
+    document.getElementById('tsModal').classList.remove('hidden');
+    setTimeout(function() { document.getElementById('ts_hours').focus(); }, 100);
+  };
+
+  window.closeForm = function() {
+    document.getElementById('tsModal').classList.add('hidden');
+    editingId = null;
+  };
+
+  window.submitEntry = async function() {
+    var msgEl    = document.getElementById('tsFormMsg');
+    var date     = document.getElementById('ts_date').value;
+    var hours    = parseFloat(document.getElementById('ts_hours').value);
+    var booked   = parseInt(document.getElementById('ts_booked').value)   || 0;
+    var resolved = parseInt(document.getElementById('ts_resolved').value) || 0;
+    var callbacks = parseInt(document.getElementById('ts_callbacks').value) || 0;
+    var notes    = document.getElementById('ts_notes').value.trim();
+
+    msgEl.innerText = '';
+    if (!date)           { msgEl.innerText = 'Date is required.'; return; }
+    if (isNaN(hours) || hours < 0) { msgEl.innerText = 'Enter a valid number of hours.'; return; }
+
+    var btn = document.getElementById('tsSubmitBtn');
+    btn.disabled = true;
+    btn.innerText = 'Saving...';
+
+    try {
+      var url    = editingId ? API + '/timesheet/' + editingId : API + '/timesheet';
+      var method = editingId ? 'PUT' : 'POST';
+      var payload = { hours_worked: hours, appts_booked: booked, appts_resolved: resolved, callbacks: callbacks, notes: notes };
+      if (!editingId) payload.date = date;
+
+      var res = await fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        closeForm();
+        showToast(editingId ? 'Entry updated!' : 'Entry saved!');
+        await load();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        msgEl.innerText = err.detail || 'Failed to save. Please try again.';
+      }
+    } catch(e) {
+      msgEl.innerText = 'Server error. Please try again.';
+    } finally {
+      btn.disabled = false;
+      btn.innerText = 'Save Entry';
+    }
+  };
+
+  // Close modal on backdrop click
+  document.getElementById('tsModal').addEventListener('click', function(e) {
+    if (e.target === this) closeForm();
+  });
+
+  // ── Boot ──────────────────────────────────────────────────────
+  load();
+})();
+</script>
+</body>
+</html>
