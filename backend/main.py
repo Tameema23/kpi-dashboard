@@ -174,10 +174,16 @@ class CacheBustMiddleware(BaseHTTPMiddleware):
             lambda m: m.group(1) + b"?v=" + BUILD_HASH.encode(),
             body
         )
+        # Drop Content-Length — StarletteResponse recomputes it from new_body.
+        # Without this, uvicorn crashes with "Response content longer than Content-Length"
+        # because the rewritten body is longer than the original header value.
+        headers = dict(response.headers)
+        headers.pop("content-length", None)
+        headers.pop("Content-Length", None)
         return StarletteResponse(
             content=new_body,
             status_code=response.status_code,
-            headers=dict(response.headers),
+            headers=headers,
             media_type=content_type,
         )
 
