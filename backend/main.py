@@ -38,7 +38,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, TimesheetEntry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -116,6 +116,8 @@ def planner_page():  return FileResponse("frontend/planner.html")
 def quality_page():  return FileResponse("frontend/quality.html")
 @app.get("/referrals.html")
 def referrals_page(): return FileResponse("frontend/referrals.html")
+@app.get("/timesheet.html")
+def timesheet_page(): return FileResponse("frontend/timesheet.html")
 
 @app.get("/manifest.json")
 def manifest():      return FileResponse("frontend/manifest.json", media_type="application/manifest+json")
@@ -1126,3 +1128,137 @@ def update_referral_entry_status(entry_id: int,
     entry.status = data.status
     db.commit()
     return {"id": entry_id, "status": entry.status}
+
+# ── Timesheet ──────────────────────────────────────────────────────────────────
+
+class TimesheetPayload(BaseModel):
+    date:           str
+    hours_worked:   float
+    appts_booked:   int
+    appts_resolved: int
+    callbacks:      int
+    notes:          str = ""
+
+class TimesheetUpdatePayload(BaseModel):
+    hours_worked:   float
+    appts_booked:   int
+    appts_resolved: int
+    callbacks:      int
+    notes:          str = ""
+
+@app.post("/timesheet", status_code=201)
+def create_timesheet_entry(data: TimesheetPayload,
+                            user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """Assistant submits a daily timesheet entry. One entry per date per user."""
+    date_str = validate_date(data.date)
+    # Prevent duplicate entries for the same date
+    existing = db.query(TimesheetEntry).filter(
+        TimesheetEntry.user_id == user.id,
+        TimesheetEntry.date    == date_str
+    ).first()
+    if existing:
+        raise HTTPException(409, "An entry for this date already exists. Edit the existing one.")
+    owner = get_owner_id(user)
+    now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    entry = TimesheetEntry(
+        user_id        = user.id,
+        owner_id       = owner,
+        date           = date_str,
+        hours_worked   = max(0.0, round(float(data.hours_worked), 2)),
+        appts_booked   = max(0, int(data.appts_booked)),
+        appts_resolved = max(0, int(data.appts_resolved)),
+        callbacks      = max(0, int(data.callbacks)),
+        notes          = sanitize_str(data.notes, 500),
+        submitted_at   = now,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    audit(db, user.id, "timesheet_submit", f"Date {date_str}")
+    return _ts_row(entry, user.username)
+
+@app.get("/timesheet")
+def get_timesheet(user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    """
+    Assistant: returns only their own entries.
+    Admin: returns all entries for all of their assistants.
+    """
+    if user.role == "admin":
+        # Fetch all assistant users owned by this admin
+        assistants = db.query(User).filter(
+            User.owner_id == user.id,
+            User.role     == "assistant"
+        ).all()
+        assistant_ids = [a.id for a in assistants]
+        if not assistant_ids:
+            return []
+        rows = db.query(TimesheetEntry).filter(
+            TimesheetEntry.user_id.in_(assistant_ids)
+        ).order_by(TimesheetEntry.date.desc()).all()
+        # Build username lookup
+        uid_to_name = {a.id: a.username for a in assistants}
+        return [_ts_row(r, uid_to_name.get(r.user_id, "unknown")) for r in rows]
+    else:
+        rows = db.query(TimesheetEntry).filter(
+            TimesheetEntry.user_id == user.id
+        ).order_by(TimesheetEntry.date.desc()).all()
+        return [_ts_row(r, user.username) for r in rows]
+
+@app.put("/timesheet/{entry_id}")
+def update_timesheet_entry(entry_id: int,
+                            data: TimesheetUpdatePayload,
+                            user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """Owner of the entry (assistant) or admin can edit."""
+    entry = db.query(TimesheetEntry).filter(TimesheetEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(404, "Entry not found.")
+    # Assistants can only edit their own; admins can edit any of their assistants'
+    if user.role == "assistant" and entry.user_id != user.id:
+        raise HTTPException(403, "Cannot edit another assistant's entry.")
+    if user.role == "admin" and entry.owner_id != user.id:
+        raise HTTPException(403, "Entry does not belong to your team.")
+    entry.hours_worked   = max(0.0, round(float(data.hours_worked), 2))
+    entry.appts_booked   = max(0, int(data.appts_booked))
+    entry.appts_resolved = max(0, int(data.appts_resolved))
+    entry.callbacks      = max(0, int(data.callbacks))
+    entry.notes          = sanitize_str(data.notes, 500)
+    db.commit()
+    db.refresh(entry)
+    # get username
+    submitter = db.query(User).filter(User.id == entry.user_id).first()
+    uname = submitter.username if submitter else "unknown"
+    audit(db, user.id, "timesheet_edit", f"Entry {entry_id}")
+    return _ts_row(entry, uname)
+
+@app.delete("/timesheet/{entry_id}")
+def delete_timesheet_entry(entry_id: int,
+                            user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """Admin only can delete timesheet entries."""
+    _require_admin(user)
+    entry = db.query(TimesheetEntry).filter(
+        TimesheetEntry.id       == entry_id,
+        TimesheetEntry.owner_id == user.id
+    ).first()
+    if not entry:
+        raise HTTPException(404, "Entry not found.")
+    db.delete(entry)
+    db.commit()
+    audit(db, user.id, "timesheet_delete", f"Entry {entry_id}")
+    return {"status": "deleted"}
+
+def _ts_row(entry: TimesheetEntry, username: str) -> dict:
+    return {
+        "id":             entry.id,
+        "username":       username,
+        "date":           entry.date,
+        "hours_worked":   entry.hours_worked,
+        "appts_booked":   entry.appts_booked,
+        "appts_resolved": entry.appts_resolved,
+        "callbacks":      entry.callbacks,
+        "notes":          entry.notes,
+        "submitted_at":   entry.submitted_at,
+    }

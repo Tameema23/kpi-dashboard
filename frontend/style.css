@@ -2455,3 +2455,245 @@ mark.q-highlight {
 @media (max-width: 768px) {
   .quality-search-bar { max-width: 100%; }
 }
+/* ══════════════════════════════════════════════════════════════
+   TIMESHEET PAGE
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Summary stat strip ─────────────────────────────────────── */
+.ts-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.ts-summary-card {
+  background: #fff;
+  border: 1px solid #f1f5f9;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  text-align: center;
+}
+.ts-summary-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.ts-summary-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1;
+}
+
+/* ── Period toggle ──────────────────────────────────────────── */
+.ts-period-toggle {
+  display: flex;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+  width: fit-content;
+}
+.ts-period-btn {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: #64748b;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.ts-period-btn.active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+}
+
+/* ── Assistant accordion (admin view) ───────────────────────── */
+.ts-assistant-block {
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.ts-assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.ts-assistant-header:hover { background: #f8fafc; }
+.ts-assistant-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.ts-assistant-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.ts-assistant-stats {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+.ts-assistant-stat {
+  text-align: center;
+  min-width: 52px;
+}
+.ts-assistant-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ts-assistant-stat-val {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.ts-chevron {
+  color: #94a3b8;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.ts-chevron.open { transform: rotate(180deg); }
+
+.ts-assistant-body {
+  border-top: 1.5px solid #f1f5f9;
+  overflow-x: auto;
+}
+
+/* ── Timesheet table ────────────────────────────────────────── */
+.ts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 580px;
+}
+.ts-table thead th {
+  background: #f8fafc;
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1.5px solid #e2e8f0;
+  white-space: nowrap;
+}
+.ts-table tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.1s;
+}
+.ts-table tbody tr:last-child { border-bottom: none; }
+.ts-table tbody tr:hover { background: #f8fafc; }
+.ts-table td {
+  padding: 11px 14px;
+  color: #334155;
+  vertical-align: middle;
+}
+.ts-table td.ts-date { font-weight: 700; color: #0f172a; white-space: nowrap; }
+.ts-table td.ts-num  { font-weight: 700; color: #2563eb; text-align: center; }
+.ts-table td.ts-hours { font-weight: 700; color: #16a34a; }
+.ts-table td.ts-notes { color: #64748b; font-size: 12px; max-width: 180px; }
+.ts-table tfoot td {
+  padding: 11px 14px;
+  font-weight: 800;
+  font-size: 13px;
+  color: #0f172a;
+  background: #f8fafc;
+  border-top: 2px solid #e2e8f0;
+  text-align: center;
+}
+.ts-table tfoot td.ts-foot-label {
+  text-align: left;
+  color: #64748b;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Assistant form (submit view) ───────────────────────────── */
+.ts-form-card {
+  background: #fff;
+  border-radius: 16px;
+  border: 1.5px solid #e2e8f0;
+  padding: 24px 26px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  max-width: 560px;
+}
+.ts-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.ts-form-field { display: flex; flex-direction: column; gap: 6px; }
+.ts-form-field label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ts-form-field input, .ts-form-field textarea {
+  padding: 10px 13px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 9px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #0f172a;
+  background: #fafafa;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+.ts-form-field input:focus, .ts-form-field textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+  background: #fff;
+}
+.ts-form-field textarea { resize: vertical; min-height: 70px; }
+.ts-form-full { grid-column: 1 / -1; }
+
+/* ── Empty state ────────────────────────────────────────────── */
+.ts-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+/* ── Mobile ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ts-summary-strip { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ts-summary-value { font-size: 20px; }
+  .ts-assistant-stats { display: none; }
+  .ts-form-card { padding: 16px 14px; }
+  .ts-form-grid { grid-template-columns: 1fr; }
+}
