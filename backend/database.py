@@ -163,26 +163,6 @@ class ReferralEntry(Base):
     program = relationship("ReferralProgram", back_populates="referrals")
 
 
-class TimesheetEntry(Base):
-    """
-    Daily work log submitted by an assistant.
-    One entry per assistant per date (enforced at API level).
-    Admin sees all entries for their assistants; assistants see only their own.
-    """
-    __tablename__ = "timesheet_entries"
-
-    id                  = Column(Integer, primary_key=True, index=True)
-    user_id             = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    owner_id            = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    date                = Column(String(10),  nullable=False)   # YYYY-MM-DD
-    hours_worked        = Column(Float,       default=0.0)
-    appts_booked        = Column(Integer,     default=0)
-    appts_resolved      = Column(Integer,     default=0)
-    callbacks           = Column(Integer,     default=0)
-    notes               = Column(Text,        default="")
-    submitted_at        = Column(String(16),  default="")       # YYYY-MM-DDTHH:MM
-
-
 class BlockedDay(Base):
     """
     A recurring day-of-week that an admin has marked as unavailable.
@@ -219,6 +199,26 @@ class AuditLog(Base):
     action    = Column(String(100), nullable=False)
     detail    = Column(String(500), default="")
     timestamp = Column(String(20),  nullable=False)  # YYYY-MM-DDTHH:MM:SS
+
+
+class TimesheetEntry(Base):
+    """
+    Daily work log submitted by an assistant.
+    One entry per assistant per date (enforced at API level).
+    Admin sees all entries for their assistants; assistants see only their own.
+    """
+    __tablename__ = "timesheet_entries"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    user_id        = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    owner_id       = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date           = Column(String(10),  nullable=False)   # YYYY-MM-DD
+    hours_worked   = Column(Float,       default=0.0)
+    appts_booked   = Column(Integer,     default=0)
+    appts_resolved = Column(Integer,     default=0)
+    callbacks      = Column(Integer,     default=0)
+    notes          = Column(Text,        default="")
+    submitted_at   = Column(String(16),  default="")       # YYYY-MM-DDTHH:MM
 
 
 def create_db():

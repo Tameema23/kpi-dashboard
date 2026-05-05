@@ -1146,13 +1146,25 @@ class TimesheetUpdatePayload(BaseModel):
     callbacks:      int
     notes:          str = ""
 
+def _ts_row(entry: TimesheetEntry, username: str) -> dict:
+    return {
+        "id":             entry.id,
+        "username":       username,
+        "date":           entry.date,
+        "hours_worked":   entry.hours_worked,
+        "appts_booked":   entry.appts_booked,
+        "appts_resolved": entry.appts_resolved,
+        "callbacks":      entry.callbacks,
+        "notes":          entry.notes,
+        "submitted_at":   entry.submitted_at,
+    }
+
 @app.post("/timesheet", status_code=201)
 def create_timesheet_entry(data: TimesheetPayload,
                             user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):
-    """Assistant submits a daily timesheet entry. One entry per date per user."""
+    """Assistant or admin submits a daily timesheet entry. One per date per user."""
     date_str = validate_date(data.date)
-    # Prevent duplicate entries for the same date
     existing = db.query(TimesheetEntry).filter(
         TimesheetEntry.user_id == user.id,
         TimesheetEntry.date    == date_str
@@ -1186,7 +1198,6 @@ def get_timesheet(user: User = Depends(get_current_user),
     Admin: returns all entries for all of their assistants.
     """
     if user.role == "admin":
-        # Fetch all assistant users owned by this admin
         assistants = db.query(User).filter(
             User.owner_id == user.id,
             User.role     == "assistant"
@@ -1197,7 +1208,6 @@ def get_timesheet(user: User = Depends(get_current_user),
         rows = db.query(TimesheetEntry).filter(
             TimesheetEntry.user_id.in_(assistant_ids)
         ).order_by(TimesheetEntry.date.desc()).all()
-        # Build username lookup
         uid_to_name = {a.id: a.username for a in assistants}
         return [_ts_row(r, uid_to_name.get(r.user_id, "unknown")) for r in rows]
     else:
@@ -1211,11 +1221,10 @@ def update_timesheet_entry(entry_id: int,
                             data: TimesheetUpdatePayload,
                             user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):
-    """Owner of the entry (assistant) or admin can edit."""
+    """Owner (assistant) or admin can edit an entry."""
     entry = db.query(TimesheetEntry).filter(TimesheetEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(404, "Entry not found.")
-    # Assistants can only edit their own; admins can edit any of their assistants'
     if user.role == "assistant" and entry.user_id != user.id:
         raise HTTPException(403, "Cannot edit another assistant's entry.")
     if user.role == "admin" and entry.owner_id != user.id:
@@ -1227,7 +1236,6 @@ def update_timesheet_entry(entry_id: int,
     entry.notes          = sanitize_str(data.notes, 500)
     db.commit()
     db.refresh(entry)
-    # get username
     submitter = db.query(User).filter(User.id == entry.user_id).first()
     uname = submitter.username if submitter else "unknown"
     audit(db, user.id, "timesheet_edit", f"Entry {entry_id}")
@@ -1249,16 +1257,3 @@ def delete_timesheet_entry(entry_id: int,
     db.commit()
     audit(db, user.id, "timesheet_delete", f"Entry {entry_id}")
     return {"status": "deleted"}
-
-def _ts_row(entry: TimesheetEntry, username: str) -> dict:
-    return {
-        "id":             entry.id,
-        "username":       username,
-        "date":           entry.date,
-        "hours_worked":   entry.hours_worked,
-        "appts_booked":   entry.appts_booked,
-        "appts_resolved": entry.appts_resolved,
-        "callbacks":      entry.callbacks,
-        "notes":          entry.notes,
-        "submitted_at":   entry.submitted_at,
-    }
