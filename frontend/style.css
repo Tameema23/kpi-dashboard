@@ -1045,7 +1045,9 @@ h2 { margin-top: 0; }
 
 .pw-field-wrap input {
   flex: 1;
-  padding-right: 42px !important;
+  min-width: 0; /* prevents flex overflow on iOS */
+  padding-right: 46px !important;
+  box-sizing: border-box;
 }
 
 /* Hide browser's built-in password reveal button (Windows Edge/Chrome only) */
@@ -1053,12 +1055,12 @@ h2 { margin-top: 0; }
 .pw-field-wrap input::-ms-clear {
   display: none;
 }
-/* Hide Chrome desktop autofill button — do NOT hide on iOS Safari as it
-   breaks the entire input field rendering and prevents typing */
-@supports not (-webkit-touch-callout: none) {
-  .pw-field-wrap input::-webkit-credentials-auto-fill-button {
-    display: none !important;
-  }
+/* Hide Chrome/Edge desktop autofill overlay button — safe to hide everywhere
+   as iOS Safari does not use this pseudo-element at all */
+.pw-field-wrap input::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
 }
 
 .pw-toggle-btn {
@@ -2818,11 +2820,6 @@ input[type="time"] {
 }
 
 /* ── 6. iOS: ensure password field eye toggle is always tappable */
-.pw-field-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
 .pw-toggle-btn {
   position: absolute;
   right: 10px;
@@ -2836,13 +2833,12 @@ input[type="time"] {
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-}
-.pw-field-wrap input {
-  flex: 1;
-  padding-right: 46px !important;
-  /* Prevent iOS from clipping the text behind the eye button */
-  box-sizing: border-box;
-  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #94a3b8;
+  border-radius: 4px;
+  transition: color 0.15s;
 }
 
 /* ── 7. macOS Safari: fix sticky hover states on buttons */
