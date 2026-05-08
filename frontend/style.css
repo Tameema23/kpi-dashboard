@@ -2783,12 +2783,29 @@ a, button, .btn, .bottom-nav-item, .planner-nav-btn,
 
 /* ── 4. iOS Safari: inputs — remove inner shadow & rounded corners
         Only apply to text-style inputs. NEVER apply to radio/checkbox
-        as it makes them invisible on macOS/iOS Safari. */
-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+        as it makes them invisible on macOS/iOS Safari.
+        NEVER apply to password inputs — Safari needs its default
+        appearance to render the masking dots (•••). */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="password"]),
 textarea,
 select {
   -webkit-appearance: none;
   -moz-appearance: none;
+  appearance: none;
+}
+
+/* Password inputs: keep native appearance for masking dots,
+   but normalise the visual look to match other inputs */
+input[type="password"] {
+  background: #fff;
+  box-shadow: none;
+  -webkit-box-shadow: none;
+  font-family: inherit;
+}
+/* When eye is clicked and field switches to text, apply appearance:none
+   so the revealed text looks clean and consistent */
+input[type="text"].pw-revealed {
+  -webkit-appearance: none;
   appearance: none;
 }
 
