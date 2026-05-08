@@ -1039,14 +1039,17 @@ h2 { margin-top: 0; }
   padding-right: 42px !important;
 }
 
-/* Hide browser's built-in password reveal button */
+/* Hide browser's built-in password reveal button (Windows Edge/Chrome only) */
 .pw-field-wrap input::-ms-reveal,
 .pw-field-wrap input::-ms-clear {
   display: none;
 }
-.pw-field-wrap input::-webkit-credentials-auto-fill-button,
-.pw-field-wrap input::-webkit-textfield-decoration-container {
-  display: none !important;
+/* Hide Chrome desktop autofill button — do NOT hide on iOS Safari as it
+   breaks the entire input field rendering and prevents typing */
+@supports not (-webkit-touch-callout: none) {
+  .pw-field-wrap input::-webkit-credentials-auto-fill-button {
+    display: none !important;
+  }
 }
 
 .pw-toggle-btn {
@@ -1981,13 +1984,17 @@ textarea:focus {
   .form-field input,
   .log-date-row input,
   .auth-input-group input,
-  .mini-cal-wrap input {
+  .pw-field-wrap input,
+  .mini-cal-wrap input,
+  .planner-search-input-wrap input,
+  .quality-search-input-wrap input {
     font-size: 16px !important;
   }
 
   /* Keep the visual size compact while meeting iOS requirement */
   .form-field input  { padding: 10px 12px; }
   .log-date-row input { padding: 10px 12px; }
+  .auth-input-group input { padding: 13px 14px; }
 }
 
 /* =============================================
@@ -2699,4 +2706,176 @@ mark.q-highlight {
   .ts-assistant-stats { display: none; }
   .ts-form-card { padding: 16px 14px; }
   .ts-form-grid { grid-template-columns: 1fr; }
+}
+
+/* =============================================
+   iOS & macOS COMPATIBILITY FIXES
+   ============================================= */
+
+/* ── 1. iOS Safari: remove tap highlight flash on buttons/links */
+a, button, .btn, .bottom-nav-item, .planner-nav-btn,
+.modal-close, .search-clear-btn, .pw-toggle-btn {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── 2. iOS Safari: prevent rubber-band scroll on fixed overlays */
+.modal-backdrop, #pwResetOverlay, #_cfModal {
+  -webkit-overflow-scrolling: auto;
+  overscroll-behavior: contain;
+}
+
+/* ── 3. iOS Safari: modal card scroll momentum */
+.modal-card, .modal-body {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── 4. iOS Safari: inputs — remove inner shadow & rounded corners
+        Safari adds a default inner shadow and border-radius to inputs
+        that makes them look inconsistent with the rest of the UI */
+input,
+textarea,
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Restore checkbox/radio appearance (only suppress on text inputs) */
+input[type="checkbox"],
+input[type="radio"] {
+  -webkit-appearance: checkbox;
+  -moz-appearance: checkbox;
+  appearance: auto;
+}
+
+/* ── 5. iOS Safari: date input — make it look like other inputs */
+input[type="date"],
+input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 44px;
+}
+
+/* ── 6. iOS: ensure password field eye toggle is always tappable */
+.pw-field-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.pw-toggle-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  min-width: 36px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.pw-field-wrap input {
+  flex: 1;
+  padding-right: 46px !important;
+  /* Prevent iOS from clipping the text behind the eye button */
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* ── 7. macOS Safari: fix sticky hover states on buttons */
+@media (hover: hover) {
+  .btn:hover { filter: brightness(0.93); }
+  .bottom-nav-item:hover { background: #f1f5f9; }
+}
+/* Remove hover effects on touch devices (iOS) */
+@media (hover: none) {
+  .btn:hover { filter: none; }
+  .bottom-nav-item:hover { background: transparent; }
+}
+
+/* ── 8. iOS: bottom nav safe area — extra padding for home bar */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .bottom-nav {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  /* Push page content above the nav + safe area */
+  @media (max-width: 768px) {
+    .page {
+      padding-bottom: calc(90px + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* ── 9. iOS: topbar safe area for notch/Dynamic Island */
+@supports (padding-top: env(safe-area-inset-top)) {
+  @media (max-width: 768px) {
+    .topbar {
+      padding-top: env(safe-area-inset-top);
+      height: calc(56px + env(safe-area-inset-top));
+    }
+  }
+}
+
+/* ── 10. iOS: minimum tap target size (44×44px) for all interactive elements */
+@media (max-width: 768px) {
+  .btn,
+  .bottom-nav-item,
+  .planner-nav-btn,
+  .modal-close,
+  .logout,
+  .back {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Back link is inline — override justify */
+  .back {
+    justify-content: flex-start;
+    display: inline-flex;
+  }
+  .bottom-nav-item {
+    min-height: 52px;  /* taller for bottom nav */
+  }
+}
+
+/* ── 11. iOS: planner modal — account for home bar at bottom */
+@media (max-width: 768px) {
+  .modal-card {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+}
+
+/* ── 12. macOS: topbar brand image — consistent sizing on Retina */
+.topbar-brand img {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* ── 13. iOS: planner grid — prevent text selection during scroll */
+.planner-wrap,
+.planner-grid {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ── 14. iOS/macOS: fix select dropdown appearance */
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 32px !important;
+}
+
+/* ── 15. iOS: auth card — prevent overflow on small screens */
+@media (max-width: 400px) {
+  .auth-card {
+    padding: 24px 18px;
+    border-radius: 16px;
+  }
+  .auth-logo span {
+    font-size: 18px;
+  }
 }
