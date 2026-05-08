@@ -691,12 +691,12 @@
     var isAppt = document.getElementById("type_appt").checked;
     var apptL  = document.getElementById("type_appt_label");
     var cbL    = document.getElementById("type_cb_label");
+    apptL.classList.remove("selected-appt", "selected-cb");
+    cbL.classList.remove("selected-appt", "selected-cb");
     if (isAppt) {
-      apptL.style.borderColor = "#3b82f6"; apptL.style.background = "#eff6ff"; apptL.style.color = "#1d4ed8";
-      cbL.style.borderColor   = "#e2e8f0"; cbL.style.background   = "#fafafa"; cbL.style.color   = "#64748b";
+      apptL.classList.add("selected-appt");
     } else {
-      cbL.style.borderColor   = "#f59e0b"; cbL.style.background   = "#fffbeb"; cbL.style.color   = "#92400e";
-      apptL.style.borderColor = "#e2e8f0"; apptL.style.background = "#fafafa"; apptL.style.color = "#64748b";
+      cbL.classList.add("selected-cb");
     }
   }
   document.getElementById("type_appt").addEventListener("change", updateTypeToggle);
