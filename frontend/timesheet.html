@@ -60,8 +60,18 @@
         <p style="margin:0;font-size:13px;color:#64748b;">All assistant work logs for your team</p>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <!-- Week navigator -->
+        <div class="ts-week-nav" id="adminWeekNav">
+          <button class="ts-week-arrow" id="adminPrevWeek" onclick="shiftAdminWeek(-1)" title="Previous week">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span class="ts-week-label" id="adminWeekLabel">—</span>
+          <button class="ts-week-arrow" id="adminNextWeek" onclick="shiftAdminWeek(1)" title="Next week">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
         <div class="ts-period-toggle">
-          <button class="ts-period-btn active" id="adminWeekBtn" onclick="setAdminPeriod('week')">This Week</button>
+          <button class="ts-period-btn active" id="adminWeekBtn" onclick="setAdminPeriod('week')">Week</button>
           <button class="ts-period-btn"        id="adminYtdBtn"  onclick="setAdminPeriod('ytd')">Year to Date</button>
         </div>
       </div>
@@ -106,10 +116,21 @@
       </button>
     </div>
 
-    <!-- My totals strip -->
-    <div class="ts-period-toggle" style="margin-bottom:16px;">
-      <button class="ts-period-btn active" id="myWeekBtn" onclick="setMyPeriod('week')">This Week</button>
-      <button class="ts-period-btn"        id="myYtdBtn"  onclick="setMyPeriod('ytd')">Year to Date</button>
+    <!-- Week navigator + period toggle -->
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+      <div class="ts-week-nav" id="myWeekNav">
+        <button class="ts-week-arrow" onclick="shiftMyWeek(-1)" title="Previous week">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="ts-week-label" id="myWeekLabel">—</span>
+        <button class="ts-week-arrow" onclick="shiftMyWeek(1)" title="Next week">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+      <div class="ts-period-toggle">
+        <button class="ts-period-btn active" id="myWeekBtn" onclick="setMyPeriod('week')">Week</button>
+        <button class="ts-period-btn"        id="myYtdBtn"  onclick="setMyPeriod('ytd')">Year to Date</button>
+      </div>
     </div>
     <div class="ts-summary-strip" style="margin-bottom:24px;">
       <div class="ts-summary-card">
@@ -241,11 +262,10 @@
   'use strict';
 
   // ── Init ──────────────────────────────────────────────────────
-  var role    = localStorage.getItem('role') || 'admin';
-  var uname   = localStorage.getItem('username') || '';
+  var role  = localStorage.getItem('role') || 'admin';
+  var uname = localStorage.getItem('username') || '';
   document.getElementById('username-text').innerText = uname;
 
-  // Nav visibility
   if (role === 'assistant') {
     document.querySelectorAll('.admin-only').forEach(function(el) { el.style.display = 'none'; });
     document.querySelectorAll('.assistant-visible').forEach(function(el) { el.style.display = ''; });
@@ -255,32 +275,65 @@
   }
 
   // ── State ─────────────────────────────────────────────────────
-  var allEntries   = [];   // raw data from API
-  var editingId    = null;
-  var adminPeriod  = 'week';
-  var myPeriod     = 'week';
+  var allEntries    = [];
+  var editingId     = null;
+  var adminPeriod   = 'week';
+  var myPeriod      = 'week';
+  // weekOffset: 0 = current week, -1 = last week, -2 = two weeks ago, etc.
+  var adminWeekOffset = 0;
+  var myWeekOffset    = 0;
 
   // ── Date helpers ──────────────────────────────────────────────
   function todayStr() {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' });
   }
 
-  function weekStart() {
-    // Week starts Sunday
+  // Returns Monday of the week that is `offset` weeks from today
+  // offset=0 → this week's Monday, offset=-1 → last Monday, etc.
+  function mondayOfWeek(offset) {
     var d = new Date(todayStr() + 'T00:00:00');
-    var day = d.getDay();
-    d.setDate(d.getDate() - day);
-    return d.toLocaleDateString('en-CA');
+    // getDay(): 0=Sun,1=Mon,...,6=Sat
+    // Shift so week starts Monday: Mon=0, Tue=1,..., Sun=6
+    var dow = (d.getDay() + 6) % 7; // days since Monday
+    d.setDate(d.getDate() - dow + (offset * 7));
+    return d;
+  }
+
+  function dateStr(d) {
+    return d.toLocaleDateString('en-CA'); // YYYY-MM-DD
+  }
+
+  function weekRangeFor(offset) {
+    var mon = mondayOfWeek(offset);
+    var sun = new Date(mon);
+    sun.setDate(sun.getDate() + 6);
+    return { start: dateStr(mon), end: dateStr(sun), mon: mon, sun: sun };
+  }
+
+  function formatWeekLabel(offset) {
+    var r = weekRangeFor(offset);
+    var opts = { month: 'short', day: 'numeric' };
+    var monStr = r.mon.toLocaleDateString('en-US', opts);
+    var sunStr = r.sun.toLocaleDateString('en-US', opts);
+    if (offset === 0) return 'This Week (' + monStr + ' – ' + sunStr + ')';
+    if (offset === -1) return 'Last Week (' + monStr + ' – ' + sunStr + ')';
+    return monStr + ' – ' + sunStr;
   }
 
   function thisYear() {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' }).slice(0, 4);
   }
 
-  function filterByPeriod(entries, period) {
-    if (period === 'all') return entries;
-    var cutoff = period === 'week' ? weekStart() : thisYear() + '-01-01';
-    return entries.filter(function(e) { return e.date >= cutoff; });
+  function filterByWeekOffset(entries, offset) {
+    var r = weekRangeFor(offset);
+    return entries.filter(function(e) { return e.date >= r.start && e.date <= r.end; });
+  }
+
+  function filterByPeriod(entries, period, weekOffset) {
+    if (period === 'ytd') {
+      return entries.filter(function(e) { return e.date >= thisYear() + '-01-01'; });
+    }
+    return filterByWeekOffset(entries, weekOffset);
   }
 
   function fmtDate(d) {
@@ -297,15 +350,33 @@
 
   function totals(entries) {
     return entries.reduce(function(acc, e) {
-      acc.hours    += Number(e.hours_worked)   || 0;
-      acc.booked   += Number(e.appts_booked)   || 0;
-      acc.resolved += Number(e.appts_resolved) || 0;
-      acc.callbacks += Number(e.callbacks)     || 0;
+      acc.hours     += Number(e.hours_worked)   || 0;
+      acc.booked    += Number(e.appts_booked)   || 0;
+      acc.resolved  += Number(e.appts_resolved) || 0;
+      acc.callbacks += Number(e.callbacks)      || 0;
       return acc;
     }, { hours: 0, booked: 0, resolved: 0, callbacks: 0 });
   }
 
-  // ── Load all entries from API ─────────────────────────────────
+  function updateWeekNav(labelId, navId, offset, period) {
+    var label = document.getElementById(labelId);
+    var nav   = document.getElementById(navId);
+    if (!label || !nav) return;
+    if (period === 'ytd') {
+      nav.style.opacity        = '0.4';
+      nav.style.pointerEvents  = 'none';
+      label.innerText          = thisYear() + ' Year to Date';
+    } else {
+      nav.style.opacity        = '1';
+      nav.style.pointerEvents  = '';
+      label.innerText          = formatWeekLabel(offset);
+      // Disable next arrow if already on current week or beyond
+      var nextBtn = nav.querySelector('.ts-week-arrow:last-child');
+      if (nextBtn) nextBtn.disabled = offset >= 0;
+    }
+  }
+
+  // ── Load ──────────────────────────────────────────────────────
   async function load() {
     try {
       var res = await fetch(API + '/timesheet', {
@@ -320,29 +391,32 @@
     }
   }
 
-  // ── ADMIN RENDER ──────────────────────────────────────────────
+  // ── ADMIN ─────────────────────────────────────────────────────
   window.setAdminPeriod = function(p) {
     adminPeriod = p;
-    ['adminWeekBtn','adminYtdBtn'].forEach(function(id) {
-      document.getElementById(id).classList.remove('active');
-    });
-    document.getElementById(
-      p === 'week' ? 'adminWeekBtn' : 'adminYtdBtn'
-    ).classList.add('active');
+    document.getElementById('adminWeekBtn').classList.toggle('active', p === 'week');
+    document.getElementById('adminYtdBtn').classList.toggle('active',  p === 'ytd');
+    renderAdmin();
+  };
+
+  window.shiftAdminWeek = function(dir) {
+    if (adminPeriod !== 'week') return;
+    var next = adminWeekOffset + dir;
+    if (next > 0) return; // can't go into the future
+    adminWeekOffset = next;
     renderAdmin();
   };
 
   function renderAdmin() {
-    var filtered = filterByPeriod(allEntries, adminPeriod);
+    updateWeekNav('adminWeekLabel', 'adminWeekNav', adminWeekOffset, adminPeriod);
+    var filtered = filterByPeriod(allEntries, adminPeriod, adminWeekOffset);
 
-    // Team totals
     var t = totals(filtered);
-    document.getElementById('adminTotalHours').innerText    = t.hours.toFixed(1);
-    document.getElementById('adminTotalBooked').innerText   = t.booked;
-    document.getElementById('adminTotalResolved').innerText = t.resolved;
+    document.getElementById('adminTotalHours').innerText     = t.hours.toFixed(1);
+    document.getElementById('adminTotalBooked').innerText    = t.booked;
+    document.getElementById('adminTotalResolved').innerText  = t.resolved;
     document.getElementById('adminTotalCallbacks').innerText = t.callbacks;
 
-    // Group by assistant username
     var byUser = {};
     filtered.forEach(function(e) {
       if (!byUser[e.username]) byUser[e.username] = [];
@@ -350,29 +424,28 @@
     });
 
     var container = document.getElementById('adminAccordions');
-
     if (Object.keys(byUser).length === 0) {
-      container.innerHTML = '<div class="ts-empty">No entries found for this period. Assistants haven\'t logged any work yet.</div>';
+      container.innerHTML = '<div class="ts-empty">No entries found for this period.</div>';
       return;
     }
 
     container.innerHTML = Object.keys(byUser).sort().map(function(username) {
-      var rows   = byUser[username].sort(function(a,b) { return b.date.localeCompare(a.date); });
-      var ut     = totals(rows);
+      var rows     = byUser[username].sort(function(a,b) { return b.date.localeCompare(a.date); });
+      var ut       = totals(rows);
       var initials = username.slice(0,2).toUpperCase();
-      var uid    = 'acc-' + username.replace(/[^a-z0-9]/gi, '_');
+      var uid      = 'acc-' + username.replace(/[^a-z0-9]/gi, '_');
 
       var tableRows = rows.map(function(e) {
         return '<tr>' +
-          '<td class="ts-date">' + esc(fmtDate(e.date)) + '</td>' +
+          '<td class="ts-date">'  + esc(fmtDate(e.date)) + '</td>' +
           '<td class="ts-hours" style="text-align:center;">' + Number(e.hours_worked).toFixed(1) + 'h</td>' +
-          '<td class="ts-num">' + e.appts_booked + '</td>' +
-          '<td class="ts-num">' + e.appts_resolved + '</td>' +
-          '<td class="ts-num">' + e.callbacks + '</td>' +
-          '<td class="ts-notes">' + esc(e.notes) + '</td>' +
+          '<td class="ts-num">'   + e.appts_booked   + '</td>' +
+          '<td class="ts-num">'   + e.appts_resolved  + '</td>' +
+          '<td class="ts-num">'   + e.callbacks       + '</td>' +
+          '<td class="ts-notes">' + esc(e.notes)      + '</td>' +
           '<td style="text-align:center;">' +
             '<button class="btn small" style="background:#fee2e2;color:#dc2626;" ' +
-              'onclick="adminDeleteEntry(' + e.id + ',event)" title="Delete entry">' +
+              'onclick="adminDeleteEntry(' + e.id + ',event)" title="Delete">' +
               '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' +
             '</button>' +
           '</td>' +
@@ -405,7 +478,7 @@
             '<tfoot><tr>' +
               '<td class="ts-foot-label">Totals</td>' +
               '<td>' + ut.hours.toFixed(1) + 'h</td>' +
-              '<td>' + ut.booked + '</td>' +
+              '<td>' + ut.booked   + '</td>' +
               '<td>' + ut.resolved + '</td>' +
               '<td>' + ut.callbacks + '</td>' +
               '<td colspan="2"></td>' +
@@ -417,9 +490,9 @@
   }
 
   window.toggleAccordion = function(uid) {
-    var body  = document.getElementById('body-' + uid);
-    var chev  = document.getElementById('chev-' + uid);
-    var open  = body.style.display !== 'none';
+    var body = document.getElementById('body-' + uid);
+    var chev = document.getElementById('chev-' + uid);
+    var open = body.style.display !== 'none';
     body.style.display = open ? 'none' : '';
     chev.classList.toggle('open', !open);
   };
@@ -438,26 +511,32 @@
     }, { confirmText: 'Delete' });
   };
 
-  // ── ASSISTANT RENDER ──────────────────────────────────────────
+  // ── ASSISTANT ─────────────────────────────────────────────────
   window.setMyPeriod = function(p) {
     myPeriod = p;
-    ['myWeekBtn','myYtdBtn'].forEach(function(id) {
-      document.getElementById(id).classList.remove('active');
-    });
-    document.getElementById(
-      p === 'week' ? 'myWeekBtn' : 'myYtdBtn'
-    ).classList.add('active');
+    document.getElementById('myWeekBtn').classList.toggle('active', p === 'week');
+    document.getElementById('myYtdBtn').classList.toggle('active',  p === 'ytd');
+    renderAssistant();
+  };
+
+  window.shiftMyWeek = function(dir) {
+    if (myPeriod !== 'week') return;
+    var next = myWeekOffset + dir;
+    if (next > 0) return;
+    myWeekOffset = next;
     renderAssistant();
   };
 
   function renderAssistant() {
-    var filtered = filterByPeriod(allEntries, myPeriod);
+    updateWeekNav('myWeekLabel', 'myWeekNav', myWeekOffset, myPeriod);
+    var filtered = filterByPeriod(allEntries, myPeriod, myWeekOffset);
     var t = totals(filtered);
-    document.getElementById('myTotalHours').innerText    = t.hours.toFixed(1);
-    document.getElementById('myTotalBooked').innerText   = t.booked;
-    document.getElementById('myTotalResolved').innerText = t.resolved;
+    document.getElementById('myTotalHours').innerText     = t.hours.toFixed(1);
+    document.getElementById('myTotalBooked').innerText    = t.booked;
+    document.getElementById('myTotalResolved').innerText  = t.resolved;
     document.getElementById('myTotalCallbacks').innerText = t.callbacks;
 
+    // Table always shows all entries sorted newest first
     var sorted = allEntries.slice().sort(function(a,b) { return b.date.localeCompare(a.date); });
     var tbody  = document.getElementById('myEntriesBody');
 
@@ -467,13 +546,16 @@
     }
 
     tbody.innerHTML = sorted.map(function(e) {
-      return '<tr>' +
-        '<td class="ts-date">' + esc(fmtDate(e.date)) + '</td>' +
+      // Highlight rows that fall in the current week view
+      var r = weekRangeFor(myWeekOffset);
+      var inView = myPeriod === 'week' && e.date >= r.start && e.date <= r.end;
+      return '<tr' + (inView ? '' : ' style="opacity:0.45;"') + '>' +
+        '<td class="ts-date">'  + esc(fmtDate(e.date)) + '</td>' +
         '<td class="ts-hours" style="text-align:center;">' + Number(e.hours_worked).toFixed(1) + 'h</td>' +
-        '<td class="ts-num">' + e.appts_booked + '</td>' +
-        '<td class="ts-num">' + e.appts_resolved + '</td>' +
-        '<td class="ts-num">' + e.callbacks + '</td>' +
-        '<td class="ts-notes">' + esc(e.notes) + '</td>' +
+        '<td class="ts-num">'   + e.appts_booked   + '</td>' +
+        '<td class="ts-num">'   + e.appts_resolved  + '</td>' +
+        '<td class="ts-num">'   + e.callbacks       + '</td>' +
+        '<td class="ts-notes">' + esc(e.notes)      + '</td>' +
         '<td style="text-align:center;">' +
           '<button class="btn small" style="background:#eff6ff;color:#2563eb;" ' +
             'onclick="showForm(' + e.id + ')" title="Edit">' +
@@ -484,34 +566,30 @@
     }).join('');
   }
 
-  // ── Form (submit / edit) ──────────────────────────────────────
+  // ── Form ──────────────────────────────────────────────────────
   window.showForm = function(id) {
     editingId = id;
-    var msgEl = document.getElementById('tsFormMsg');
-    msgEl.innerText = '';
-
+    document.getElementById('tsFormMsg').innerText = '';
     if (id === null) {
-      // New entry — pre-fill today's date
-      document.getElementById('tsModalTitle').innerText = 'Log Work Day';
-      document.getElementById('ts_date').value     = todayStr();
-      document.getElementById('ts_date').readOnly  = false;
-      document.getElementById('ts_hours').value    = '';
-      document.getElementById('ts_booked').value   = '';
-      document.getElementById('ts_resolved').value = '';
-      document.getElementById('ts_callbacks').value = '';
-      document.getElementById('ts_notes').value    = '';
+      document.getElementById('tsModalTitle').innerText  = 'Log Work Day';
+      document.getElementById('ts_date').value          = todayStr();
+      document.getElementById('ts_date').readOnly       = false;
+      document.getElementById('ts_hours').value         = '';
+      document.getElementById('ts_booked').value        = '';
+      document.getElementById('ts_resolved').value      = '';
+      document.getElementById('ts_callbacks').value     = '';
+      document.getElementById('ts_notes').value         = '';
     } else {
-      // Edit existing
       var entry = allEntries.find(function(e) { return e.id === id; });
       if (!entry) return;
       document.getElementById('tsModalTitle').innerText  = 'Edit Entry';
-      document.getElementById('ts_date').value      = entry.date;
-      document.getElementById('ts_date').readOnly   = true;
-      document.getElementById('ts_hours').value     = entry.hours_worked;
-      document.getElementById('ts_booked').value    = entry.appts_booked;
-      document.getElementById('ts_resolved').value  = entry.appts_resolved;
-      document.getElementById('ts_callbacks').value = entry.callbacks;
-      document.getElementById('ts_notes').value     = entry.notes;
+      document.getElementById('ts_date').value          = entry.date;
+      document.getElementById('ts_date').readOnly       = true;
+      document.getElementById('ts_hours').value         = entry.hours_worked;
+      document.getElementById('ts_booked').value        = entry.appts_booked;
+      document.getElementById('ts_resolved').value      = entry.appts_resolved;
+      document.getElementById('ts_callbacks').value     = entry.callbacks;
+      document.getElementById('ts_notes').value         = entry.notes;
     }
     document.getElementById('tsModal').classList.remove('hidden');
     setTimeout(function() { document.getElementById('ts_hours').focus(); }, 100);
@@ -523,25 +601,25 @@
   };
 
   window.submitEntry = async function() {
-    var msgEl    = document.getElementById('tsFormMsg');
-    var date     = document.getElementById('ts_date').value;
-    var hours    = parseFloat(document.getElementById('ts_hours').value);
-    var booked   = parseInt(document.getElementById('ts_booked').value)   || 0;
-    var resolved = parseInt(document.getElementById('ts_resolved').value) || 0;
+    var msgEl     = document.getElementById('tsFormMsg');
+    var date      = document.getElementById('ts_date').value;
+    var hours     = parseFloat(document.getElementById('ts_hours').value);
+    var booked    = parseInt(document.getElementById('ts_booked').value)    || 0;
+    var resolved  = parseInt(document.getElementById('ts_resolved').value)  || 0;
     var callbacks = parseInt(document.getElementById('ts_callbacks').value) || 0;
-    var notes    = document.getElementById('ts_notes').value.trim();
+    var notes     = document.getElementById('ts_notes').value.trim();
 
     msgEl.innerText = '';
-    if (!date)           { msgEl.innerText = 'Date is required.'; return; }
-    if (isNaN(hours) || hours < 0) { msgEl.innerText = 'Enter a valid number of hours.'; return; }
+    if (!date)                    { msgEl.innerText = 'Date is required.'; return; }
+    if (isNaN(hours) || hours < 0){ msgEl.innerText = 'Enter a valid number of hours.'; return; }
 
     var btn = document.getElementById('tsSubmitBtn');
-    btn.disabled = true;
+    btn.disabled  = true;
     btn.innerText = 'Saving...';
 
     try {
-      var url    = editingId ? API + '/timesheet/' + editingId : API + '/timesheet';
-      var method = editingId ? 'PUT' : 'POST';
+      var url     = editingId ? API + '/timesheet/' + editingId : API + '/timesheet';
+      var method  = editingId ? 'PUT' : 'POST';
       var payload = { hours_worked: hours, appts_booked: booked, appts_resolved: resolved, callbacks: callbacks, notes: notes };
       if (!editingId) payload.date = date;
 
@@ -562,12 +640,11 @@
     } catch(e) {
       msgEl.innerText = 'Server error. Please try again.';
     } finally {
-      btn.disabled = false;
+      btn.disabled  = false;
       btn.innerText = 'Save Entry';
     }
   };
 
-  // Close modal on backdrop click
   document.getElementById('tsModal').addEventListener('click', function(e) {
     if (e.target === this) closeForm();
   });

@@ -1045,9 +1045,7 @@ h2 { margin-top: 0; }
 
 .pw-field-wrap input {
   flex: 1;
-  min-width: 0; /* prevents flex overflow on iOS */
-  padding-right: 46px !important;
-  box-sizing: border-box;
+  padding-right: 42px !important;
 }
 
 /* Hide browser's built-in password reveal button (Windows Edge/Chrome only) */
@@ -1055,12 +1053,12 @@ h2 { margin-top: 0; }
 .pw-field-wrap input::-ms-clear {
   display: none;
 }
-/* Hide Chrome/Edge desktop autofill overlay button — safe to hide everywhere
-   as iOS Safari does not use this pseudo-element at all */
-.pw-field-wrap input::-webkit-credentials-auto-fill-button {
-  visibility: hidden;
-  pointer-events: none;
-  position: absolute;
+/* Hide Chrome desktop autofill button — do NOT hide on iOS Safari as it
+   breaks the entire input field rendering and prevents typing */
+@supports not (-webkit-touch-callout: none) {
+  .pw-field-wrap input::-webkit-credentials-auto-fill-button {
+    display: none !important;
+  }
 }
 
 .pw-toggle-btn {
@@ -2580,6 +2578,48 @@ mark.q-highlight {
   box-shadow: 0 1px 4px rgba(0,0,0,0.10);
 }
 
+/* ── Week navigator ─────────────────────────────────────────── */
+.ts-week-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 4px 8px;
+}
+.ts-week-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  cursor: pointer;
+  color: #475569;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.ts-week-arrow:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.ts-week-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.ts-week-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  min-width: 160px;
+  text-align: center;
+}
+
 /* ── Assistant accordion (admin view) ───────────────────────── */
 .ts-assistant-block {
   background: #fff;
@@ -2820,6 +2860,11 @@ input[type="time"] {
 }
 
 /* ── 6. iOS: ensure password field eye toggle is always tappable */
+.pw-field-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
 .pw-toggle-btn {
   position: absolute;
   right: 10px;
@@ -2833,12 +2878,13 @@ input[type="time"] {
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #94a3b8;
-  border-radius: 4px;
-  transition: color 0.15s;
+}
+.pw-field-wrap input {
+  flex: 1;
+  padding-right: 46px !important;
+  /* Prevent iOS from clipping the text behind the eye button */
+  box-sizing: border-box;
+  width: 100%;
 }
 
 /* ── 7. macOS Safari: fix sticky hover states on buttons */
