@@ -33,6 +33,85 @@
       width: 100%;
     }
     .kpi-section-title svg { flex-shrink: 0; color: #94a3b8; }
+
+    /* ── Reports filter bar ── */
+    .rpt-filter-bar {
+      background: #fff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .rpt-filter-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .rpt-preset-btn {
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1.5px solid #e2e8f0;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .rpt-preset-btn:hover { border-color: #3b82f6; color: #2563eb; background: #eff6ff; }
+    .rpt-preset-btn.active {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #fff;
+    }
+    .rpt-custom-range {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .rpt-date-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .rpt-date-field label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .rpt-date-field input[type="date"] {
+      padding: 8px 12px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      color: #0f172a;
+      background: #f8fafc;
+      cursor: pointer;
+    }
+    .rpt-date-field input[type="date"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+    }
+    .rpt-filter-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+    }
+    @media (max-width: 768px) {
+      .rpt-filter-bar { padding: 12px 14px; }
+      .rpt-preset-btn { font-size: 12px; padding: 6px 10px; }
+    }
   </style>
 </head>
 <body>
@@ -70,6 +149,31 @@
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
     Back to Dashboard
   </a>
+
+  <!-- ── DATE RANGE FILTER BAR ──────────────────────────────── -->
+  <div class="rpt-filter-bar">
+    <div class="rpt-filter-presets">
+      <button class="rpt-preset-btn" data-preset="week">This Week</button>
+      <button class="rpt-preset-btn" data-preset="last_week">Last Week</button>
+      <button class="rpt-preset-btn" data-preset="month">This Month</button>
+      <button class="rpt-preset-btn" data-preset="last_month">Last Month</button>
+      <button class="rpt-preset-btn active" data-preset="ytd">Year to Date</button>
+      <button class="rpt-preset-btn" data-preset="custom">Custom</button>
+    </div>
+    <!-- Custom date pickers — hidden until "Custom" is selected -->
+    <div class="rpt-custom-range" id="rptCustomRange" style="display:none;">
+      <div class="rpt-date-field">
+        <label>From</label>
+        <input type="date" id="rptFrom">
+      </div>
+      <div class="rpt-date-field">
+        <label>To</label>
+        <input type="date" id="rptTo">
+      </div>
+      <button class="btn small" onclick="applyCustomRange()">Apply</button>
+    </div>
+    <div class="rpt-filter-label" id="rptFilterLabel">Year to Date</div>
+  </div>
 
   <div class="reports-header">
     <button class="btn export-btn" onclick="exportExcel()">
@@ -188,7 +292,7 @@
   </div>
 
   <!-- WEEKLY PERFORMANCE -->
-  <h2 class="section-title">Weekly Performance</h2>
+  <h2 class="section-title" id="rptTrendTitle">Weekly Performance</h2>
   <section class="chart-grid-2" id="charts-skeleton">
     <div class="skeleton skeleton-chart"></div>
     <div class="skeleton skeleton-chart"></div>
@@ -275,11 +379,73 @@
   // Role-based nav
   if (localStorage.getItem("role") === "assistant") {
     document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
-    // Settings always visible — assistants need it for password management
     document.querySelectorAll(".assistant-visible").forEach(function(el) { el.style.display = ""; });
   }
   const u = localStorage.getItem("username");
   if (u) document.getElementById("username-text").innerText = u;
+
+  // ── Filter bar logic ───────────────────────────────────────────
+  // loadWeekly() in app.js reads window._rptFilter to slice data.
+  // Default: YTD (matches the existing default behaviour).
+  window._rptFilter = { preset: 'ytd', from: null, to: null };
+
+  function _labelFor(preset, from, to) {
+    var now = new Date();
+    var y   = now.getFullYear();
+    if (preset === 'week')       return 'This Week';
+    if (preset === 'last_week')  return 'Last Week';
+    if (preset === 'month')      return 'This Month (' + now.toLocaleDateString('en-US', { month: 'long' }) + ')';
+    if (preset === 'last_month') {
+      var lm = new Date(y, now.getMonth() - 1, 1);
+      return 'Last Month (' + lm.toLocaleDateString('en-US', { month: 'long' }) + ')';
+    }
+    if (preset === 'ytd')        return 'Year to Date (' + y + ')';
+    if (preset === 'custom' && from && to) return from + ' → ' + to;
+    return 'Custom Range';
+  }
+
+  function setPreset(preset) {
+    window._rptFilter = { preset: preset, from: null, to: null };
+
+    document.querySelectorAll('.rpt-preset-btn').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.preset === preset);
+    });
+
+    var customEl = document.getElementById('rptCustomRange');
+    customEl.style.display = preset === 'custom' ? 'flex' : 'none';
+
+    document.getElementById('rptFilterLabel').innerText = _labelFor(preset, null, null);
+
+    if (preset !== 'custom') {
+      // Re-run the whole reports render with the new filter
+      loadWeekly();
+    }
+  }
+
+  window.applyCustomRange = function() {
+    var from = document.getElementById('rptFrom').value;
+    var to   = document.getElementById('rptTo').value;
+    if (!from || !to) { showToast('Please select both a From and To date.', 'error'); return; }
+    if (from > to)    { showToast('From date must be before To date.', 'error'); return; }
+    window._rptFilter = { preset: 'custom', from: from, to: to };
+    document.getElementById('rptFilterLabel').innerText = _labelFor('custom', from, to);
+    loadWeekly();
+  };
+
+  // Wire up preset buttons
+  document.querySelectorAll('.rpt-preset-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { setPreset(btn.dataset.preset); });
+  });
+
+  // Set default dates for custom pickers to sensible values
+  (function() {
+    var now = new Date();
+    var y = now.getFullYear();
+    document.getElementById('rptFrom').value = y + '-01-01';
+    document.getElementById('rptTo').value   = now.toLocaleDateString('en-CA');
+  })();
+
+  // Initial load — YTD
   loadWeekly();
 </script>
 </body>

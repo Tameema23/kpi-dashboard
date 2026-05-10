@@ -153,11 +153,85 @@ async function loadWeekly() {
   const data = await res.json();
   if (!data.length) { if (typeof showOnboardingState === 'function') showOnboardingState(); return; }
 
-  /* ================= GROUP DATA BY WEEK ================= */
+  /* ================= APPLY DATE RANGE FILTER ================= */
+  // window._rptFilter is set by reports.html's filter bar.
+  // Falls back to YTD if not on reports page (e.g. homepage uses loadWeekly too).
+
+  function _getFilteredData(raw) {
+    var f = window._rptFilter;
+    if (!f || f.preset === 'ytd') {
+      var year = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' }).slice(0, 4);
+      return raw.filter(function(d) { return d.date >= year + '-01-01'; });
+    }
+
+    var now   = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' }) + 'T00:00:00');
+    var today = now.toLocaleDateString('en-CA');
+
+    if (f.preset === 'week') {
+      // Monday of current week
+      var dow = (now.getDay() + 6) % 7;
+      var mon = new Date(now); mon.setDate(now.getDate() - dow);
+      return raw.filter(function(d) { return d.date >= mon.toLocaleDateString('en-CA') && d.date <= today; });
+    }
+    if (f.preset === 'last_week') {
+      var dow2 = (now.getDay() + 6) % 7;
+      var thisMon = new Date(now); thisMon.setDate(now.getDate() - dow2);
+      var lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
+      var lastSun = new Date(thisMon); lastSun.setDate(thisMon.getDate() - 1);
+      return raw.filter(function(d) { return d.date >= lastMon.toLocaleDateString('en-CA') && d.date <= lastSun.toLocaleDateString('en-CA'); });
+    }
+    if (f.preset === 'month') {
+      var y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0');
+      return raw.filter(function(d) { return d.date >= y + '-' + m + '-01' && d.date <= today; });
+    }
+    if (f.preset === 'last_month') {
+      var lmDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      var lmY = lmDate.getFullYear(), lmM = String(lmDate.getMonth() + 1).padStart(2, '0');
+      var lastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+      return raw.filter(function(d) { return d.date >= lmY + '-' + lmM + '-01' && d.date <= lastDay.toLocaleDateString('en-CA'); });
+    }
+    if (f.preset === 'custom' && f.from && f.to) {
+      return raw.filter(function(d) { return d.date >= f.from && d.date <= f.to; });
+    }
+    // Fallback: all data
+    return raw;
+  }
+
+  const filteredData = _getFilteredData(data);
+
+  // Show zero state if filter returns no data (but don't trigger onboarding — data exists)
+  if (!filteredData.length) {
+    // Hide skeletons, show empty KPI grids with dashes
+    ['kpi-skeleton-grid','kpi-ref-skeleton','charts-skeleton'].forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.classList.add('hidden');
+    });
+    ['kpi-real-grid','kpi-ref-grid','charts-real'].forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.classList.remove('hidden');
+    });
+    ['wk_pres','wk_sales','wk_ytd_alp','wk_show','wk_close','wk_alp','wk_conv',
+     'wk_bad_lead','wk_ref_collected','wk_ref_pres','wk_ref_sales_total',
+     'wk_ref_close_ratio','wk_ref_conv_ratio','wk_total_sales','wk_ref_sales_pct'].forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.innerText = '—';
+    });
+    return;
+  }
 
   const weeks = {};
 
-  data.forEach(d => {
+  // Update the trend section title to match the active filter
+  (function() {
+    var titleEl = document.getElementById('rptTrendTitle');
+    if (!titleEl) return;
+    var f = window._rptFilter;
+    if (!f || f.preset === 'ytd') { titleEl.innerText = 'Weekly Performance — Year to Date'; return; }
+    if (f.preset === 'week')       { titleEl.innerText = 'Weekly Performance — This Week'; return; }
+    if (f.preset === 'last_week')  { titleEl.innerText = 'Weekly Performance — Last Week'; return; }
+    if (f.preset === 'month')      { titleEl.innerText = 'Weekly Performance — This Month'; return; }
+    if (f.preset === 'last_month') { titleEl.innerText = 'Weekly Performance — Last Month'; return; }
+    if (f.preset === 'custom' && f.from && f.to) { titleEl.innerText = 'Weekly Performance — ' + f.from + ' to ' + f.to; return; }
+  })();
+
+  filteredData.forEach(d => {
 
     const date = new Date(
       new Date(d.date + "T00:00:00")
