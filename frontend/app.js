@@ -129,9 +129,39 @@ const API = "https://data-log.onrender.com";
 const API_BASE = API;
 const TOKEN = localStorage.getItem("token");
 
-if (!TOKEN && !location.pathname.includes("login")) {
-  location.href = "/login.html";
-}
+// ── Auth guard — validates JWT expiry on EVERY page load ──────────────────────
+// A token sitting in localStorage may be expired (e.g. from yesterday).
+// We decode the JWT payload (no signature needed — just expiry check) and
+// redirect to login immediately if it is missing, malformed, or expired.
+(function enforceAuth() {
+  if (location.pathname.includes("login")) return;
+
+  function isTokenValid(token) {
+    if (!token) return false;
+    try {
+      var parts = token.split(".");
+      if (parts.length !== 3) return false;
+      // Base64url → Base64 → JSON
+      var payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+      if (!payload.exp) return false;
+      // exp is Unix seconds — compare against now
+      return payload.exp * 1000 > Date.now();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  if (!isTokenValid(TOKEN)) {
+    // Clear any stale session data
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    localStorage.removeItem("role");
+    localStorage.removeItem("can_planner");
+    localStorage.removeItem("can_quality");
+    localStorage.removeItem("pw_expires_at");
+    window.location.replace("/login.html");
+  }
+})();
 
 const CHART_COLORS = {
   blue: "#2563eb",
@@ -1015,6 +1045,56 @@ function logout() {
       if (ms <= 0) { logout(); }
     }
   });
+})();
+
+/* ── INACTIVITY TIMEOUT ──────────────────────────────────────────────────────
+   Logs the user out after 30 minutes of no interaction.
+   "Interaction" = mouse move, click, keypress, scroll, touch.
+   Also fires when the tab becomes visible after being hidden — if the
+   idle timer expired while the tab was in the background, they get
+   logged out the moment they switch back to it. */
+(function initInactivityTimeout() {
+  if (location.pathname.includes("login")) return;
+  if (!TOKEN) return;
+
+  var IDLE_MS = 30 * 60 * 1000; // 30 minutes
+  var WARN_MS = 2  * 60 * 1000; // warn at 28 minutes
+  var idleTimer   = null;
+  var warnTimer   = null;
+  var lastActivity = Date.now();
+
+  function resetTimer() {
+    lastActivity = Date.now();
+    clearTimeout(idleTimer);
+    clearTimeout(warnTimer);
+
+    warnTimer = setTimeout(function() {
+      showToast("You'll be signed out in 2 minutes due to inactivity.", "info");
+    }, IDLE_MS - WARN_MS);
+
+    idleTimer = setTimeout(function() {
+      logout();
+    }, IDLE_MS);
+  }
+
+  // Track any user interaction
+  ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"].forEach(function(evt) {
+    document.addEventListener(evt, resetTimer, { passive: true });
+  });
+
+  // When tab becomes visible, check if idle time already elapsed
+  document.addEventListener("visibilitychange", function() {
+    if (!document.hidden) {
+      if (Date.now() - lastActivity >= IDLE_MS) {
+        logout();
+      } else {
+        resetTimer();
+      }
+    }
+  });
+
+  // Start the timer
+  resetTimer();
 })();
 
 /* ── PASSWORD EXPIRY WARNING ─────────────────────────────────────────────────
