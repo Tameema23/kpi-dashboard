@@ -1755,6 +1755,7 @@ async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> 
                     "Content-Type": "application/json",
                 },
                 json={
+                    "from": {"phoneNumber": token_row.rc_phone_number},
                     "to":   [{"phoneNumber": to_number}],
                     "text": message,
                 },
