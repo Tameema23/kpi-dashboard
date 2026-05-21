@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="/static/images/ApexTrack.png">
+  <meta name="api-base" content="https://data-log.onrender.com">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="/static/style.css?v=1">
+  <title>Confirmations — ApexTrack</title>
+  <style>
+    .conf-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .conf-date-label {
+      font-size: 22px;
+      font-weight: 900;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+    .conf-subtitle {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 3px;
+    }
+    .conf-refresh-info {
+      font-size: 12px;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .conf-refresh-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      animation: pulse-dot 2s infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+    .conf-date-picker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .conf-date-picker input[type="date"] {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1.5px solid #e2e8f0;
+      font-size: 13px;
+      font-weight: 600;
+      color: #0f172a;
+      background: #f8fafc;
+      cursor: pointer;
+    }
+
+    /* Summary bar */
+    .conf-summary {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .conf-stat {
+      flex: 1;
+      min-width: 100px;
+      background: white;
+      border-radius: 12px;
+      padding: 14px 16px;
+      border: 1.5px solid #f1f5f9;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      text-align: center;
+    }
+    .conf-stat-num {
+      font-size: 26px;
+      font-weight: 900;
+      color: #0f172a;
+      line-height: 1;
+    }
+    .conf-stat-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 4px;
+    }
+    .conf-stat-num.green  { color: #15803d; }
+    .conf-stat-num.amber  { color: #d97706; }
+    .conf-stat-num.slate  { color: #475569; }
+
+    /* Appointment rows */
+    .conf-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .conf-row {
+      background: white;
+      border-radius: 14px;
+      padding: 16px 18px;
+      border: 1.5px solid #f1f5f9;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      transition: border-color 0.2s;
+    }
+    .conf-row.status-confirmed  { border-color: #bbf7d0; background: #f0fdf4; }
+    .conf-row.status-rescheduled { border-color: #fde68a; background: #fffbeb; }
+
+    .conf-row-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: 1;
+      min-width: 0;
+    }
+    .conf-time-badge {
+      background: #eff6ff;
+      color: #2563eb;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-weight: 800;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 72px;
+      text-align: center;
+    }
+    .conf-name {
+      font-size: 16px;
+      font-weight: 800;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .conf-phone {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 2px;
+      font-weight: 500;
+    }
+    .conf-sms-badges {
+      display: flex;
+      gap: 5px;
+      margin-top: 4px;
+      flex-wrap: wrap;
+    }
+    .conf-sms-badge {
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+    .conf-sms-badge.sent    { background: #dbeafe; color: #1d4ed8; }
+    .conf-sms-badge.unsent  { background: #f1f5f9; color: #94a3b8; }
+
+    /* Status pill + dropdown */
+    .conf-row-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 20px;
+      padding: 5px 13px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .status-pill.pending      { background: #f1f5f9; color: #64748b; }
+    .status-pill.confirmed    { background: #dcfce7; color: #15803d; }
+    .status-pill.rescheduled  { background: #fef9c3; color: #a16207; }
+
+    .conf-status-select {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1.5px solid #e2e8f0;
+      font-size: 12px;
+      font-weight: 600;
+      color: #0f172a;
+      background: #f8fafc;
+      cursor: pointer;
+    }
+
+    /* Empty state */
+    .conf-empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: #94a3b8;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .conf-empty svg {
+      display: block;
+      margin: 0 auto 14px;
+      opacity: 0.3;
+    }
+
+    /* Test button */
+    .conf-test-btn {
+      font-size: 12px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .conf-test-btn:hover { background: #e2e8f0; }
+
+    @media (max-width: 600px) {
+      .conf-row { flex-direction: column; align-items: flex-start; }
+      .conf-row-right { width: 100%; justify-content: flex-end; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="topbar-brand">
+      <img src="/static/images/ApexTrack.png" alt="ApexTrack"
+        style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
+      ApexTrack
+    </span>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-user">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+      <span id="username-text"></span>
+    </span>
+    <button class="logout" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<div class="page">
+
+  <div class="conf-header">
+    <div>
+      <div class="conf-date-label" id="confDateLabel">Today's Appointments</div>
+      <div class="conf-subtitle">Hazem's schedule — confirmation status</div>
+      <div class="conf-refresh-info">
+        <span class="conf-refresh-dot"></span>
+        Auto-refreshes every 30 seconds
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+      <div class="conf-date-picker">
+        <label style="font-size:12px;font-weight:700;color:#64748b;">Date:</label>
+        <input type="date" id="confDateInput" onchange="loadConfirmations()">
+      </div>
+      <button class="conf-test-btn" onclick="triggerTestSms()" title="Fire SMS jobs now (dry run)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Trigger SMS Test
+      </button>
+    </div>
+  </div>
+
+  <!-- Summary stats -->
+  <div class="conf-summary">
+    <div class="conf-stat">
+      <div class="conf-stat-num slate" id="statTotal">—</div>
+      <div class="conf-stat-label">Total</div>
+    </div>
+    <div class="conf-stat">
+      <div class="conf-stat-num green" id="statConfirmed">—</div>
+      <div class="conf-stat-label">Confirmed</div>
+    </div>
+    <div class="conf-stat">
+      <div class="conf-stat-num amber" id="statPending">—</div>
+      <div class="conf-stat-label">Pending</div>
+    </div>
+    <div class="conf-stat">
+      <div class="conf-stat-num" style="color:#d97706;" id="statRescheduled">—</div>
+      <div class="conf-stat-label">Rescheduled</div>
+    </div>
+  </div>
+
+  <!-- Appointment list -->
+  <div class="conf-list" id="confList">
+    <div class="conf-empty">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="4" width="18" height="18" rx="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      Loading appointments…
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/app.js?v=1"></script>
+<script>
+(function() {
+
+  // ── Auth guard — only Tameema23 ───────────────────────────────
+  var username = localStorage.getItem("username") || "";
+  if (username.toLowerCase() !== "tameema23") {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Inter,sans-serif;flex-direction:column;gap:12px;">' +
+      '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
+      '<div style="font-size:18px;font-weight:800;color:#0f172a;">Access Denied</div>' +
+      '<div style="font-size:14px;color:#64748b;">This page is restricted.</div>' +
+      '<a href="/" style="margin-top:8px;color:#2563eb;font-weight:600;font-size:13px;">← Back to login</a>' +
+      '</div>';
+    return;
+  }
+
+  document.getElementById("username-text").innerText = username;
+
+  // ── Date setup ────────────────────────────────────────────────
+  var today = new Date().toLocaleDateString("en-CA");
+  document.getElementById("confDateInput").value = today;
+
+  function fmtDateLabel(dateStr) {
+    var d = new Date(dateStr + "T00:00:00");
+    var isToday = dateStr === today;
+    var label = d.toLocaleDateString("en-US", {
+      weekday: "long", month: "long", day: "numeric"
+    });
+    return isToday ? "Today — " + label : label;
+  }
+
+  function fmtTime(iso) {
+    if (!iso || !iso.includes("T")) return "";
+    var t = iso.split("T")[1];
+    var parts = t.split(":");
+    var h = parseInt(parts[0]);
+    var m = parts[1];
+    var ampm = h >= 12 ? "PM" : "AM";
+    var h12  = h % 12 || 12;
+    return h12 + ":" + m + " " + ampm;
+  }
+
+  // ── Load confirmations ────────────────────────────────────────
+  window.loadConfirmations = async function() {
+    var dateVal = document.getElementById("confDateInput").value || today;
+    document.getElementById("confDateLabel").innerText = fmtDateLabel(dateVal);
+
+    try {
+      var res = await fetch("/confirmations?date=" + dateVal, {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res.status === 403) {
+        showToast("Access denied.", "error");
+        return;
+      }
+      if (!res.ok) { showToast("Failed to load.", "error"); return; }
+      var appts = await res.json();
+      renderList(appts);
+      updateStats(appts);
+    } catch(e) {
+      console.error(e);
+      showToast("Server error.", "error");
+    }
+  };
+
+  function updateStats(appts) {
+    var confirmed   = appts.filter(function(a) { return a.sms_status === "confirmed"; }).length;
+    var rescheduled = appts.filter(function(a) { return a.sms_status === "rescheduled"; }).length;
+    var pending     = appts.filter(function(a) { return !a.sms_status || a.sms_status === ""; }).length;
+    document.getElementById("statTotal").innerText       = appts.length;
+    document.getElementById("statConfirmed").innerText   = confirmed;
+    document.getElementById("statPending").innerText     = pending;
+    document.getElementById("statRescheduled").innerText = rescheduled;
+  }
+
+  function renderList(appts) {
+    var list = document.getElementById("confList");
+    if (!appts || appts.length === 0) {
+      list.innerHTML = '<div class="conf-empty">' +
+        '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+          '<rect x="3" y="4" width="18" height="18" rx="2"/>' +
+          '<line x1="16" y1="2" x2="16" y2="6"/>' +
+          '<line x1="8" y1="2" x2="8" y2="6"/>' +
+          '<line x1="3" y1="10" x2="21" y2="10"/>' +
+        '</svg>' +
+        'No appointments scheduled for this date.' +
+      '</div>';
+      return;
+    }
+
+    list.innerHTML = appts.map(function(a) {
+      var status    = a.sms_status || "";
+      var rowClass  = status ? "conf-row status-" + status : "conf-row";
+      var timeStr   = fmtTime(a.sms_status, a.scheduled_for) || fmtTime2(a.scheduled_for);
+      var pillHtml  = statusPill(status);
+      var noPhone   = !a.phone_number;
+
+      var smsBadges = "";
+      if (!noPhone) {
+        smsBadges = '<div class="conf-sms-badges">' +
+          '<span class="conf-sms-badge ' + (a.sms_sent_evening ? "sent" : "unsent") + '">Evening ' + (a.sms_sent_evening ? "✓" : "–") + '</span>' +
+          '<span class="conf-sms-badge ' + (a.sms_sent_morning ? "sent" : "unsent") + '">Morning ' + (a.sms_sent_morning ? "✓" : "–") + '</span>' +
+        '</div>';
+      } else {
+        smsBadges = '<div style="font-size:11px;color:#f59e0b;font-weight:600;margin-top:3px;">⚠ No phone number</div>';
+      }
+
+      return '<div class="' + rowClass + '" id="row-' + a.id + '">' +
+        '<div class="conf-row-left">' +
+          '<div class="conf-time-badge">' + fmtTime2(a.scheduled_for) + '</div>' +
+          '<div>' +
+            '<div class="conf-name">' + esc(a.lead_name) + '</div>' +
+            '<div class="conf-phone">' + (a.phone_number || "No phone") + '</div>' +
+            smsBadges +
+          '</div>' +
+        '</div>' +
+        '<div class="conf-row-right">' +
+          pillHtml +
+          '<select class="conf-status-select" onchange="setStatus(' + a.id + ', this.value)">' +
+            '<option value="" '          + (status === ""            ? "selected" : "") + '>— Set status</option>' +
+            '<option value="confirmed" ' + (status === "confirmed"   ? "selected" : "") + '>✓ Confirmed</option>' +
+            '<option value="rescheduled"'+ (status === "rescheduled" ? "selected" : "") + '>↻ Rescheduled</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  function fmtTime2(iso) {
+    if (!iso || !iso.includes("T")) return "?";
+    var t = iso.split("T")[1];
+    if (!t) return "?";
+    var parts = t.split(":");
+    var h = parseInt(parts[0]);
+    var m = parts[1];
+    var ampm = h >= 12 ? "PM" : "AM";
+    var h12  = h % 12 || 12;
+    return h12 + ":" + m + " " + ampm;
+  }
+
+  function statusPill(status) {
+    if (status === "confirmed") {
+      return '<span class="status-pill confirmed">' +
+        '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' +
+        'Confirmed</span>';
+    }
+    if (status === "rescheduled") {
+      return '<span class="status-pill rescheduled">' +
+        '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/></svg>' +
+        'Rescheduled</span>';
+    }
+    return '<span class="status-pill pending">' +
+      '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+      'Pending</span>';
+  }
+
+  function esc(str) {
+    return String(str || "")
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  // ── Set status manually ───────────────────────────────────────
+  window.setStatus = async function(apptId, status) {
+    try {
+      var res = await fetch("/confirmations/" + apptId + "/status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify({ status: status })
+      });
+      if (res.ok) {
+        showToast(status ? "Status set to " + status + "." : "Status cleared.");
+        loadConfirmations(); // refresh list
+      } else {
+        showToast("Failed to update.", "error");
+      }
+    } catch(e) { showToast("Server error.", "error"); }
+  };
+
+  // ── Trigger SMS test ──────────────────────────────────────────
+  window.triggerTestSms = async function() {
+    try {
+      var res = await fetch("/rc/test-sms", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res.ok) {
+        showToast("SMS jobs fired! Check Render logs.");
+      } else {
+        showToast("Failed to trigger.", "error");
+      }
+    } catch(e) { showToast("Server error.", "error"); }
+  };
+
+  // ── Auto-refresh every 30 seconds ─────────────────────────────
+  loadConfirmations();
+  setInterval(loadConfirmations, 30000);
+
+})();
+</script>
+</body>
+</html>

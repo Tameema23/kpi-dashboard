@@ -94,14 +94,132 @@ def hash_password(plain: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
+import asyncio
+from contextlib import asynccontextmanager
+
+# ── Scheduler ──────────────────────────────────────────────────────────────────
+# Runs two daily SMS jobs in Mountain Time:
+#   • 8:00 PM — evening reminder (night before appointment)
+#   • 9:00 AM — morning reminder (day of appointment)
+# Both jobs respect dry_run mode — no real texts sent until live mode is on.
+
+async def _run_sms_job(job_type: str):
+    """
+    job_type: "evening" — sends to appointments TOMORROW
+              "morning"  — sends to appointments TODAY
+    """
+    db = SessionLocal()
+    try:
+        mt = ZoneInfo("America/Edmonton")
+        now_mt    = datetime.now(mt)
+        today_str = now_mt.strftime("%Y-%m-%d")
+
+        if job_type == "evening":
+            target_date = (now_mt + timedelta(days=1)).strftime("%Y-%m-%d")
+            sent_flag   = "sms_sent_evening"
+            template    = SMS_EVENING_TEMPLATE
+            label       = "evening"
+        else:
+            target_date = today_str
+            sent_flag   = "sms_sent_morning"
+            template    = SMS_MORNING_TEMPLATE
+            label       = "morning"
+
+        # Get all appointments on the target date that haven't been texted yet
+        appts = db.query(Appointment).filter(
+            Appointment.scheduled_for.startswith(target_date),
+            Appointment.phone_number != "",
+            Appointment.phone_number != None,
+        ).all()
+
+        for appt in appts:
+            # Skip if already sent this message
+            already_sent = getattr(appt, sent_flag)
+            if already_sent:
+                continue
+
+            # Format time for message (e.g. "10:00 AM")
+            time_part = (appt.scheduled_for or "T").split("T")[1] if "T" in (appt.scheduled_for or "") else ""
+            try:
+                h, m  = map(int, time_part.split(":"))
+                ampm  = "AM" if h < 12 else "PM"
+                h12   = h % 12 or 12
+                time_display = f"{h12}:{m:02d} {ampm}"
+            except Exception:
+                time_display = time_part or "your scheduled time"
+
+            first_name = appt.lead_name.split()[0] if appt.lead_name else "there"
+            message    = template.format(name=first_name, time=time_display)
+
+            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+
+            # Mark as sent (even in dry run — so we don't log it repeatedly)
+            setattr(appt, sent_flag, True)
+            db.commit()
+
+            logger.info(
+                f"[SMS {label.upper()}] Appt {appt.id} ({appt.lead_name}) "
+                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
+            )
+
+    except Exception as e:
+        logger.error(f"SMS job ({job_type}) error: {e}")
+    finally:
+        db.close()
+
+
+async def _scheduler_loop():
+    """
+    Lightweight scheduler — wakes up every minute, checks if it's time
+    to fire a job. Uses Mountain Time for all comparisons.
+    """
+    mt = ZoneInfo("America/Edmonton")
+    # Track which dates we've already fired each job for
+    fired = {"evening": None, "morning": None}
+
+    while True:
+        try:
+            now    = datetime.now(mt)
+            today  = now.strftime("%Y-%m-%d")
+            h, min_ = now.hour, now.minute
+
+            # Evening job: 20:00 MT (8:00 PM)
+            if h == 20 and min_ == 0 and fired["evening"] != today:
+                fired["evening"] = today
+                logger.info("Scheduler: firing evening SMS job")
+                await _run_sms_job("evening")
+
+            # Morning job: 09:00 MT (9:00 AM)
+            if h == 9 and min_ == 0 and fired["morning"] != today:
+                fired["morning"] = today
+                logger.info("Scheduler: firing morning SMS job")
+                await _run_sms_job("morning")
+
+        except Exception as e:
+            logger.error(f"Scheduler loop error: {e}")
+
+        await asyncio.sleep(60)  # check every minute
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """Start background scheduler on app startup."""
+    task = asyncio.create_task(_scheduler_loop())
+    logger.info("SMS scheduler started.")
+    yield
+    task.cancel()
+    logger.info("SMS scheduler stopped.")
+
+
 # ── Rate limiter ───────────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address)
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="ApexTrack",
-    docs_url=None,   # Disable Swagger in production
+    docs_url=None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -1764,6 +1882,22 @@ def set_confirmation_status(appt_id: int,
     appt.sms_status = data.status
     db.commit()
     return {"id": appt_id, "sms_status": appt.sms_status}
+
+# ── Manual SMS test trigger (Tameema23 only) ──────────────────────────────────
+
+@app.post("/rc/test-sms")
+async def test_sms_trigger(user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """
+    Manually fire both SMS jobs right now — for testing only.
+    Only Tameema23 can call this.
+    Runs in whatever mode (dry_run or live) is currently set.
+    """
+    if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
+        raise HTTPException(403, "Access denied.")
+    await _run_sms_job("evening")
+    await _run_sms_job("morning")
+    return {"status": "SMS jobs fired — check Render logs for output."}
 
 # ── Confirmations HTML page ───────────────────────────────────────────────────
 
