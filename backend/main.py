@@ -1411,7 +1411,7 @@ def delete_timesheet_entry(entry_id: int,
 RC_CLIENT_ID     = os.environ.get("RC_CLIENT_ID", "")
 RC_CLIENT_SECRET = os.environ.get("RC_CLIENT_SECRET", "")
 RC_REDIRECT_URI  = os.environ.get("RC_REDIRECT_URI", "https://data-log.onrender.com/rc/callback")
-RC_AUTH_BASE     = "https://platform.devtest.ringcentral.com"  # sandbox URL
+RC_AUTH_BASE = "https://platform.ringcentral.com"  # production
 
 # Placeholder SMS scripts — replace with real scripts when ready
 SMS_EVENING_TEMPLATE = (
