@@ -23,6 +23,7 @@ Security:
 import os, re, html, logging, shutil, hashlib
 from datetime import datetime, timedelta
 from typing import Optional
+import httpx
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,7 +39,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, TimesheetEntry
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, TimesheetEntry, RcToken
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -676,6 +677,7 @@ def delete_days(ids: list[int],
 
 class AppointmentPayload(BaseModel):
     lead_name:     str
+    phone_number:  Optional[str] = ""
     comments:      Optional[str] = ""
     scheduled_for: str
     appt_type:     Optional[str] = "appointment"
@@ -707,10 +709,13 @@ def create_appointment(data: AppointmentPayload,
     ).first()
     if blocked_date:
         raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be scheduled on this date.")
+    # Normalize phone: strip everything except digits, keep leading +
+    raw_phone = re.sub(r"[^\d+]", "", data.phone_number or "")
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     appt  = Appointment(
         created_by=user.id, owner_id=owner,
         lead_name=lead_name,
+        phone_number=raw_phone[:20],
         comments=sanitize_str(data.comments or "", 2000),
         scheduled_for=validate_datetime(data.scheduled_for),
         booked_at=now,
@@ -756,6 +761,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     if blocked_date:
         raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
     appt.lead_name     = sanitize_str(data.lead_name, 200)
+    appt.phone_number  = re.sub(r"[^\d+]", "", data.phone_number or "")[:20]
     appt.comments      = sanitize_str(data.comments or "", 2000)
     appt.scheduled_for = validate_datetime(data.scheduled_for)
     appt.appt_type     = data.appt_type if data.appt_type in ("appointment","callback") else "appointment"
@@ -779,11 +785,15 @@ def delete_appointment(appt_id: int,
 def _appt_dict(appt, db):
     creator = db.query(User).filter(User.id == appt.created_by).first()
     return {"id": appt.id, "lead_name": appt.lead_name,
+            "phone_number": appt.phone_number or "",
             "comments": appt.comments, "scheduled_for": appt.scheduled_for,
             "booked_at": appt.booked_at,
             "created_by": creator.username if creator else "unknown",
             "appt_type": appt.appt_type or "appointment",
-            "booking_tz": appt.booking_tz or "America/Edmonton"}
+            "booking_tz": appt.booking_tz or "America/Edmonton",
+            "sms_status": appt.sms_status or "",
+            "sms_sent_evening": bool(appt.sms_sent_evening),
+            "sms_sent_morning": bool(appt.sms_sent_morning)}
 
 # ── Blocked Days (Unavailable Days) ────────────────────────────────────────────
 
@@ -1392,3 +1402,362 @@ def delete_timesheet_entry(entry_id: int,
     db.commit()
     audit(db, user.id, "timesheet_delete", f"Entry {entry_id}")
     return {"status": "deleted"}
+# ── RingCentral OAuth + SMS Automation ────────────────────────────────────────
+# Environment variables required on Render:
+#   RC_CLIENT_ID      — from developers.ringcentral.com
+#   RC_CLIENT_SECRET  — from developers.ringcentral.com
+#   RC_REDIRECT_URI   — https://data-log.onrender.com/rc/callback
+
+RC_CLIENT_ID     = os.environ.get("RC_CLIENT_ID", "")
+RC_CLIENT_SECRET = os.environ.get("RC_CLIENT_SECRET", "")
+RC_REDIRECT_URI  = os.environ.get("RC_REDIRECT_URI", "https://data-log.onrender.com/rc/callback")
+RC_AUTH_BASE     = "https://platform.devtest.ringcentral.com"  # sandbox URL
+
+# Placeholder SMS scripts — replace with real scripts when ready
+SMS_EVENING_TEMPLATE = (
+    "Hi {name}, this is a reminder that you have an appointment tomorrow at {time}. "
+    "Please reply YES to confirm."
+)
+SMS_MORNING_TEMPLATE = (
+    "Good morning {name}! Just a reminder of your appointment today at {time}. "
+    "We look forward to seeing you!"
+)
+
+# ── RC token helpers ──────────────────────────────────────────────────────────
+
+def _get_rc_token(db: Session, owner_id: int) -> RcToken | None:
+    return db.query(RcToken).filter(RcToken.owner_user_id == owner_id).first()
+
+async def _refresh_rc_token_if_needed(db: Session, token_row: RcToken) -> bool:
+    """Refresh the access token if it expires within 5 minutes. Returns True if OK."""
+    try:
+        expiry = datetime.fromisoformat(token_row.token_expiry)
+        if datetime.utcnow() < expiry - timedelta(minutes=5):
+            return True  # still valid
+        # Refresh it
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{RC_AUTH_BASE}/restapi/oauth/token",
+                data={
+                    "grant_type":    "refresh_token",
+                    "refresh_token": token_row.refresh_token,
+                },
+                auth=(RC_CLIENT_ID, RC_CLIENT_SECRET),
+            )
+        if resp.status_code != 200:
+            logger.error(f"RC token refresh failed: {resp.text}")
+            return False
+        data = resp.json()
+        token_row.access_token  = data["access_token"]
+        token_row.refresh_token = data.get("refresh_token", token_row.refresh_token)
+        token_row.token_expiry  = (
+            datetime.utcnow() + timedelta(seconds=data.get("expires_in", 3600))
+        ).isoformat()
+        db.commit()
+        return True
+    except Exception as e:
+        logger.error(f"RC token refresh error: {e}")
+        return False
+
+# ── OAuth: start flow ─────────────────────────────────────────────────────────
+
+@app.get("/rc/connect")
+def rc_connect(user: User = Depends(get_current_user)):
+    """Admin clicks 'Connect RingCentral' → redirects to RC login page."""
+    _require_admin(user)
+    import urllib.parse
+    params = urllib.parse.urlencode({
+        "response_type": "code",
+        "client_id":     RC_CLIENT_ID,
+        "redirect_uri":  RC_REDIRECT_URI,
+        "state":         str(user.id),   # we pass user ID so callback knows who to store tokens for
+    })
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(f"{RC_AUTH_BASE}/restapi/oauth/authorize?{params}")
+
+# ── OAuth: callback ───────────────────────────────────────────────────────────
+
+@app.get("/rc/callback")
+async def rc_callback(code: str, state: str, db: Session = Depends(get_db)):
+    """
+    RingCentral redirects here after the user logs in and approves.
+    Exchanges the code for tokens and stores them in rc_tokens table.
+    Then redirects back to settings page.
+    """
+    from fastapi.responses import RedirectResponse
+    user_id = int(state)
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user or user.role != "admin":
+        return RedirectResponse("/settings.html?rc=error")
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{RC_AUTH_BASE}/restapi/oauth/token",
+            data={
+                "grant_type":   "authorization_code",
+                "code":         code,
+                "redirect_uri": RC_REDIRECT_URI,
+            },
+            auth=(RC_CLIENT_ID, RC_CLIENT_SECRET),
+        )
+
+    if resp.status_code != 200:
+        logger.error(f"RC OAuth token exchange failed: {resp.text}")
+        return RedirectResponse("/settings.html?rc=error")
+
+    data    = resp.json()
+    expiry  = (datetime.utcnow() + timedelta(seconds=data.get("expires_in", 3600))).isoformat()
+    now_str = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Fetch the account's phone number from RC
+    rc_phone = ""
+    try:
+        async with httpx.AsyncClient() as client:
+            ph_resp = await client.get(
+                f"{RC_AUTH_BASE}/restapi/v1.0/account/~/extension/~/phone-number",
+                headers={"Authorization": f"Bearer {data['access_token']}"},
+            )
+        if ph_resp.status_code == 200:
+            numbers = ph_resp.json().get("records", [])
+            for n in numbers:
+                features = n.get("features", [])
+                if "SmsSender" in features:
+                    rc_phone = n.get("phoneNumber", "")
+                    break
+    except Exception as e:
+        logger.warning(f"Could not fetch RC phone number: {e}")
+
+    # Upsert token row
+    token_row = db.query(RcToken).filter(RcToken.owner_user_id == user_id).first()
+    if token_row:
+        token_row.access_token  = data["access_token"]
+        token_row.refresh_token = data.get("refresh_token", "")
+        token_row.token_expiry  = expiry
+        token_row.rc_phone_number = rc_phone
+        token_row.connected_at  = now_str
+    else:
+        token_row = RcToken(
+            owner_user_id   = user_id,
+            access_token    = data["access_token"],
+            refresh_token   = data.get("refresh_token", ""),
+            token_expiry    = expiry,
+            rc_phone_number = rc_phone,
+            dry_run         = True,   # always start in dry-run/sandbox mode
+            connected_at    = now_str,
+        )
+        db.add(token_row)
+    db.commit()
+    audit(db, user_id, "rc_connect", f"RingCentral connected, number: {rc_phone}")
+    return RedirectResponse("/settings.html?rc=connected")
+
+# ── RC: disconnect ────────────────────────────────────────────────────────────
+
+@app.delete("/rc/disconnect")
+def rc_disconnect(user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    _require_admin(user)
+    token_row = _get_rc_token(db, user.id)
+    if token_row:
+        db.delete(token_row)
+        db.commit()
+        audit(db, user.id, "rc_disconnect", "RingCentral disconnected")
+    return {"status": "disconnected"}
+
+# ── RC: status ────────────────────────────────────────────────────────────────
+
+@app.get("/rc/status")
+def rc_status(user: User = Depends(get_current_user),
+              db: Session = Depends(get_db)):
+    """Returns whether this admin has RC connected, and key info."""
+    _require_admin(user)
+    token_row = _get_rc_token(db, user.id)
+    if not token_row:
+        return {"connected": False}
+    return {
+        "connected":      True,
+        "rc_phone_number": token_row.rc_phone_number or "Unknown",
+        "dry_run":        bool(token_row.dry_run),
+        "connected_at":   token_row.connected_at or "",
+    }
+
+# ── RC: toggle dry run ────────────────────────────────────────────────────────
+
+class DryRunPayload(BaseModel):
+    dry_run: bool
+
+@app.patch("/rc/dry-run")
+def rc_set_dry_run(data: DryRunPayload,
+                   user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    _require_admin(user)
+    token_row = _get_rc_token(db, user.id)
+    if not token_row:
+        raise HTTPException(404, "RingCentral not connected.")
+    token_row.dry_run = data.dry_run
+    db.commit()
+    mode = "dry run (sandbox)" if data.dry_run else "LIVE"
+    audit(db, user.id, "rc_dry_run_toggle", f"SMS mode set to {mode}")
+    return {"dry_run": token_row.dry_run}
+
+# ── SMS sender ────────────────────────────────────────────────────────────────
+
+async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> dict:
+    """
+    Send an SMS via RingCentral API.
+    If dry_run is True, logs the message instead of sending.
+    Returns {"sent": bool, "dry_run": bool, "detail": str}
+    """
+    token_row = _get_rc_token(db, owner_id)
+    if not token_row:
+        return {"sent": False, "dry_run": False, "detail": "RC not connected"}
+
+    if token_row.dry_run:
+        logger.info(f"[DRY RUN] SMS to {to_number}: {message}")
+        return {"sent": False, "dry_run": True, "detail": f"[DRY RUN] Would send to {to_number}: {message}"}
+
+    ok = await _refresh_rc_token_if_needed(db, token_row)
+    if not ok:
+        return {"sent": False, "dry_run": False, "detail": "Token refresh failed"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{RC_AUTH_BASE}/restapi/v1.0/account/~/extension/~/sms",
+                headers={
+                    "Authorization": f"Bearer {token_row.access_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": {"phoneNumber": token_row.rc_phone_number},
+                    "to":   [{"phoneNumber": to_number}],
+                    "text": message,
+                },
+            )
+        if resp.status_code in (200, 201):
+            return {"sent": True, "dry_run": False, "detail": "Sent"}
+        logger.error(f"RC SMS error {resp.status_code}: {resp.text}")
+        return {"sent": False, "dry_run": False, "detail": resp.text}
+    except Exception as e:
+        logger.error(f"RC SMS exception: {e}")
+        return {"sent": False, "dry_run": False, "detail": str(e)}
+
+# ── Inbound webhook — RingCentral posts here when a client replies ────────────
+
+@app.post("/rc/webhook")
+async def rc_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    RingCentral sends inbound SMS events here.
+    If the message body is exactly 'YES' (case-insensitive),
+    find the appointment matching the sender's number and mark it confirmed.
+    Also handles RC's validation challenge (first-time webhook registration).
+    """
+    # RC sends a validation challenge header on first registration
+    challenge = request.headers.get("Validation-Token")
+    if challenge:
+        from fastapi.responses import Response
+        return Response(content=challenge, media_type="text/plain")
+
+    try:
+        body = await request.json()
+    except Exception:
+        return {"status": "ignored"}
+
+    # Navigate RC's event payload structure
+    body_data = body.get("body", {})
+    msg_type  = body_data.get("type", "")
+    direction = body_data.get("direction", "")
+
+    if msg_type != "SMS" or direction != "Inbound":
+        return {"status": "ignored"}
+
+    text   = (body_data.get("subject", "") or "").strip().upper()
+    sender = body_data.get("from", {}).get("phoneNumber", "")
+
+    if text != "YES" or not sender:
+        return {"status": "ignored"}
+
+    # Normalize sender number for matching
+    sender_digits = re.sub(r"[^\d]", "", sender)
+
+    # Find today's appointment for this phone number across all admins
+    today_str = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+    appts = db.query(Appointment).filter(
+        Appointment.scheduled_for.startswith(today_str),
+        Appointment.sms_status != "confirmed"
+    ).all()
+
+    matched = None
+    for a in appts:
+        appt_digits = re.sub(r"[^\d]", "", a.phone_number or "")
+        if appt_digits and appt_digits[-10:] == sender_digits[-10:]:
+            matched = a
+            break
+
+    if matched:
+        matched.sms_status = "confirmed"
+        db.commit()
+        logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via SMS reply YES from {sender}")
+
+    return {"status": "ok"}
+
+# ── Confirmations page API — Tameema23 only ───────────────────────────────────
+
+CONFIRMATIONS_USERNAME = "Tameema23"
+
+@app.get("/confirmations")
+def get_confirmations(date: Optional[str] = None,
+                      user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """
+    Returns today's appointments for ALL admins (so Tameema23 sees Hazem's).
+    Only accessible by the Tameema23 account.
+    """
+    if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
+        raise HTTPException(403, "Access denied.")
+
+    target_date = date or datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+
+    # Get all admin users
+    admins = db.query(User).filter(User.role == "admin").all()
+    result = []
+    for admin in admins:
+        appts = db.query(Appointment).filter(
+            Appointment.owner_id == admin.id,
+            Appointment.scheduled_for.startswith(target_date),
+        ).order_by(Appointment.scheduled_for).all()
+        for a in appts:
+            result.append({
+                "id":            a.id,
+                "lead_name":     a.lead_name,
+                "phone_number":  a.phone_number or "",
+                "scheduled_for": a.scheduled_for,
+                "sms_status":    a.sms_status or "",
+                "sms_sent_evening": bool(a.sms_sent_evening),
+                "sms_sent_morning": bool(a.sms_sent_morning),
+                "owner":         admin.username,
+            })
+    result.sort(key=lambda x: x["scheduled_for"])
+    return result
+
+@app.patch("/confirmations/{appt_id}/status")
+def set_confirmation_status(appt_id: int,
+                             data: ReferralEntryStatusPayload,
+                             user: User = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """Tameema23 can manually set status: confirmed | rescheduled | (empty)."""
+    if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
+        raise HTTPException(403, "Access denied.")
+    appt = db.query(Appointment).filter(Appointment.id == appt_id).first()
+    if not appt:
+        raise HTTPException(404, "Appointment not found.")
+    if data.status not in ("confirmed", "rescheduled", ""):
+        raise HTTPException(422, "Invalid status.")
+    appt.sms_status = data.status
+    db.commit()
+    return {"id": appt_id, "sms_status": appt.sms_status}
+
+# ── Confirmations HTML page ───────────────────────────────────────────────────
+
+@app.get("/confirmations.html")
+def confirmations_page():
+    return FileResponse("frontend/confirmations.html")

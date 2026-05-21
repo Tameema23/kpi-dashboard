@@ -32,3 +32,4 @@ email-validator==2.2.0
 # ── Optional: Postgres support ─────────────────────────────────────────────────
 # Uncomment when you migrate from SQLite to Postgres (Railway, Render, etc.)
 # psycopg2-binary==2.9.10
+httpx

@@ -146,6 +146,63 @@
       <div id="backupList" style="margin-top:14px;"></div>
     </div>
 
+    <!-- RingCentral SMS Card (admin only) -->
+    <div class="card admin-only" id="rcCard" style="margin-bottom:22px;">
+      <div class="settings-card-header">
+        <div class="settings-icon" style="background:#eef2ff;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        </div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-size:17px;">RingCentral SMS</h2>
+          <p style="margin:0; font-size:13px; color:#64748b;">Automated appointment reminders</p>
+        </div>
+      </div>
+
+      <!-- Not connected state -->
+      <div id="rcNotConnected">
+        <p style="font-size:13px;color:#64748b;margin:0 0 16px 0;line-height:1.6;">
+          Connect your RingCentral account to automatically send SMS reminders to clients
+          the evening before and morning of their appointment.
+        </p>
+        <a href="/rc/connect" class="btn" id="rcConnectBtn" style="display:inline-flex;text-decoration:none;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          Connect RingCentral
+        </a>
+      </div>
+
+      <!-- Connected state -->
+      <div id="rcConnected" style="display:none;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+          <span style="display:inline-flex;align-items:center;gap:6px;background:#f0fdf4;color:#15803d;border-radius:20px;padding:4px 12px;font-size:13px;font-weight:700;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+            Connected
+          </span>
+          <span id="rcPhoneDisplay" style="font-size:13px;color:#475569;font-weight:600;"></span>
+        </div>
+
+        <!-- Dry run toggle -->
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#f8fafc;border-radius:10px;margin-bottom:14px;border:1.5px solid #f1f5f9;">
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#0f172a;">Sandbox Mode</div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">When ON, messages are logged but not actually sent — safe for testing</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;margin-left:12px;">
+            <input type="checkbox" id="rcDryRunToggle" style="opacity:0;width:0;height:0;" onchange="toggleDryRun(this.checked)">
+            <span id="rcDryRunSlider" style="position:absolute;cursor:pointer;inset:0;background:#cbd5e1;border-radius:24px;transition:0.2s;">
+              <span style="position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:white;border-radius:50%;transition:0.2s;display:block;" id="rcDryRunKnob"></span>
+            </span>
+          </label>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn small" style="background:#fee2e2;color:#dc2626;" onclick="rcDisconnect()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Disconnect
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Install App Card — visible to everyone -->
     <div class="card" id="installAppCard" style="margin-bottom:22px;">
       <div style="padding:6px 0;color:#94a3b8;font-size:13px;">Checking install status...</div>
@@ -573,6 +630,81 @@
     } catch(e) {
       container.innerHTML = '<span style="font-size:13px;color:#dc2626;">Error loading backups.</span>';
     }
+  }
+
+  // ── RingCentral status ────────────────────────────────────────
+  if (_role === "admin" || !_role) {
+    loadRcStatus();
+    var urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("rc") === "connected") showToast("RingCentral connected successfully!");
+    if (urlParams.get("rc") === "error")     showToast("RingCentral connection failed. Please try again.", "error");
+  }
+
+  async function loadRcStatus() {
+    try {
+      var res = await fetch("/rc/status", { headers: { Authorization: "Bearer " + TOKEN } });
+      if (!res.ok) return;
+      var data = await res.json();
+      if (data.connected) {
+        document.getElementById("rcNotConnected").style.display = "none";
+        document.getElementById("rcConnected").style.display    = "block";
+        document.getElementById("rcPhoneDisplay").innerText = data.rc_phone_number
+          ? "Sending from: " + data.rc_phone_number : "";
+        var cb     = document.getElementById("rcDryRunToggle");
+        var slider = document.getElementById("rcDryRunSlider");
+        var knob   = document.getElementById("rcDryRunKnob");
+        cb.checked = data.dry_run;
+        updateDryRunSlider(data.dry_run, slider, knob);
+      } else {
+        document.getElementById("rcNotConnected").style.display = "block";
+        document.getElementById("rcConnected").style.display    = "none";
+      }
+    } catch(e) { console.error("RC status error", e); }
+  }
+
+  function updateDryRunSlider(on, slider, knob) {
+    if (on) {
+      slider.style.background = "#f59e0b";
+      knob.style.transform    = "translateX(20px)";
+    } else {
+      slider.style.background = "#cbd5e1";
+      knob.style.transform    = "translateX(0)";
+    }
+  }
+
+  async function toggleDryRun(checked) {
+    var slider = document.getElementById("rcDryRunSlider");
+    var knob   = document.getElementById("rcDryRunKnob");
+    try {
+      var res = await fetch("/rc/dry-run", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify({ dry_run: checked })
+      });
+      if (res.ok) {
+        updateDryRunSlider(checked, slider, knob);
+        showToast(checked ? "Sandbox mode ON — messages will be logged only." : "⚠ Live mode ON — real SMS will be sent!");
+      } else {
+        showToast("Failed to update mode.", "error");
+      }
+    } catch(e) { showToast("Server error.", "error"); }
+  }
+
+  async function rcDisconnect() {
+    showConfirm("Disconnect RingCentral? Automated SMS will stop working.", async function() {
+      try {
+        var res = await fetch("/rc/disconnect", {
+          method: "DELETE",
+          headers: { Authorization: "Bearer " + TOKEN }
+        });
+        if (res.ok) {
+          showToast("RingCentral disconnected.");
+          loadRcStatus();
+        } else {
+          showToast("Failed to disconnect.", "error");
+        }
+      } catch(e) { showToast("Server error.", "error"); }
+    }, { confirmText: "Disconnect", danger: true });
   }
 </script>
 </body>
