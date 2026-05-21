@@ -1731,7 +1731,6 @@ def rc_set_dry_run(data: DryRunPayload,
 async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> dict:
     """
     Send an SMS via RingCentral API.
-    Uses the account-level endpoint so any number on the account can be used as sender.
     If dry_run is True, logs the message instead of sending.
     Returns {"sent": bool, "dry_run": bool, "detail": str}
     """
@@ -1750,20 +1749,17 @@ async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> 
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                # Account-level endpoint — works with any number on the account
-                f"{RC_AUTH_BASE}/restapi/v1.0/account/~/sms",
+                f"{RC_AUTH_BASE}/restapi/v1.0/account/~/extension/~/sms",
                 headers={
                     "Authorization": f"Bearer {token_row.access_token}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "from": {"phoneNumber": token_row.rc_phone_number},
                     "to":   [{"phoneNumber": to_number}],
                     "text": message,
                 },
             )
         if resp.status_code in (200, 201):
-            logger.info(f"RC SMS sent successfully to {to_number}")
             return {"sent": True, "dry_run": False, "detail": "Sent"}
         logger.error(f"RC SMS error {resp.status_code}: {resp.text}")
         return {"sent": False, "dry_run": False, "detail": resp.text}
