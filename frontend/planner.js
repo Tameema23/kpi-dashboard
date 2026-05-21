@@ -411,10 +411,16 @@
           var isCallback = appt.appt_type === "callback";
           block.className = "pg-appt-block" + (isCallback ? " pg-appt-callback" : "");
           block.dataset.apptId = appt.id;
+          var smsStatus = appt.sms_status || "";
+          var smsBadge = "";
+          if (smsStatus === "confirmed") {
+            smsBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px;">✓ YES</span>';
+          }
+
           block.innerHTML =
             (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
-            '<span class="pg-appt-name">' + appt.lead_name + "</span>";
+            '<span class="pg-appt-name">' + appt.lead_name + smsBadge + "</span>";
 
           block.addEventListener("mouseenter", function (e) { showTooltip(e, appt); });
           block.addEventListener("mouseleave", hideTooltip);
@@ -449,6 +455,7 @@
     tip.innerHTML =
       typeBadge +
       '<div class="tip-name">' + appt.lead_name + "</div>" +
+      (appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + appt.phone_number + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
       (function() {
         var tzLabels = {
           "America/Edmonton": "MT", "America/Vancouver": "PT", "America/Winnipeg": "CT",
@@ -528,8 +535,10 @@
   function openAddModal(dateStr, timeStr) {
     editingId = null;
     document.getElementById("modalTitle").innerText = "New Appointment";
-    document.getElementById("m_lead_name").value = "";
-    document.getElementById("m_comments").value  = "";
+    document.getElementById("m_lead_name").value    = "";
+    document.getElementById("m_phone_number").value = "";
+    document.getElementById("m_comments").value     = "";
+    document.getElementById("m_phone_no_number_warn").style.display = "none";
     document.getElementById("m_date").value = dateStr || fmtDate(new Date());
     document.getElementById("m_time").value = timeStr || "09:00";
     document.getElementById("modalBookedAt").classList.add("hidden");
@@ -642,7 +651,16 @@
     // Store original comments on the modal so save can access it
     document.getElementById("modalBackdrop").dataset.existingComments = appt.comments || "";
     document.getElementById("modalTitle").innerText = "Edit Appointment";
-    document.getElementById("m_lead_name").value = appt.lead_name;
+    document.getElementById("m_lead_name").value    = appt.lead_name;
+    document.getElementById("m_phone_number").value = appt.phone_number || "";
+
+    // Warn if existing appointment has no phone number
+    var warnEl = document.getElementById("m_phone_no_number_warn");
+    if (!appt.phone_number) {
+      warnEl.style.display = "block";
+    } else {
+      warnEl.style.display = "none";
+    }
 
     // Parse and render history
     var history = parseHistory(appt.comments || "");
@@ -707,6 +725,24 @@
   document.getElementById("modalBackdrop").addEventListener("click", function (e) {
     if (e.target === this) closeModal();
   });
+
+  // ── Phone number normalizer ───────────────────────────────────
+  // Accepts any format: 403-555-1234, (403)555-1234, +14035551234, etc.
+  // Outputs E.164 format: +14035551234, or empty string if unparseable.
+  function normalizePhone(raw) {
+    if (!raw) return "";
+    // Strip everything except digits and leading +
+    var digits = raw.replace(/[^\d]/g, "");
+    if (!digits) return "";
+    // If 10 digits, assume Canadian/US — prepend +1
+    if (digits.length === 10) return "+1" + digits;
+    // If 11 digits starting with 1, prepend +
+    if (digits.length === 11 && digits[0] === "1") return "+" + digits;
+    // If already has + prefix and 11+ digits, keep as-is
+    if (raw.trim()[0] === "+" && digits.length >= 11) return "+" + digits;
+    // Fallback: return what we have prefixed with +1
+    return "+1" + digits;
+  }
 
   // ── Save ─────────────────────────────────────────────────────
   document.getElementById("modalSaveBtn").addEventListener("click", async function () {
@@ -798,6 +834,18 @@
 
     var apptType = document.querySelector('input[name="m_appt_type"]:checked').value;
 
+    // Normalize phone number — strip everything except digits and leading +
+    var rawPhone = document.getElementById("m_phone_number").value.trim();
+    var phone_number = normalizePhone(rawPhone);
+
+    // Warn (non-blocking) if saving new appointment without a phone number
+    if (!editingId && !phone_number) {
+      document.getElementById("m_phone_no_number_warn").style.display = "block";
+      showToast("No phone number entered — SMS reminders won't be sent.", "info");
+    } else {
+      document.getElementById("m_phone_no_number_warn").style.display = "none";
+    }
+
     // Build the final comments string
     var finalComments = comments;
     if (editingId) {
@@ -820,7 +868,7 @@
     }
 
     var bookingTz = document.getElementById("m_timezone").value || "America/Edmonton";
-    var payload = { lead_name: lead_name, comments: finalComments, scheduled_for: scheduledFor, appt_type: apptType, booking_tz: bookingTz };
+    var payload = { lead_name: lead_name, phone_number: phone_number, comments: finalComments, scheduled_for: scheduledFor, appt_type: apptType, booking_tz: bookingTz };
 
     try {
       var res;
@@ -1249,6 +1297,7 @@
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
         body: JSON.stringify({
           lead_name:     appt.lead_name,
+          phone_number:  appt.phone_number || "",
           comments:      appt.comments || "",
           scheduled_for: changes.scheduled_for || appt.scheduled_for,
           appt_type:     appt.appt_type || "appointment",

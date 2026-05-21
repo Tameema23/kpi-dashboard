@@ -91,16 +91,41 @@ class Appointment(Base):
     created_by    = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner_id      = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     lead_name     = Column(String(200), nullable=False)
+    phone_number  = Column(String(30),  default="")   # normalized E.164, e.g. +14035551234
     comments      = Column(Text,        default="")
     scheduled_for = Column(String(16),  nullable=False)  # YYYY-MM-DDTHH:MM
     booked_at     = Column(String(16),  nullable=False)
     appt_type     = Column(String(20),  default="appointment")
     booking_tz    = Column(String(50),  default="America/Edmonton")
 
+    # SMS automation fields
+    # sms_status: "" (pending) | "confirmed" | "rescheduled"
+    sms_status       = Column(String(20),  default="")
+    sms_sent_evening = Column(Boolean,     default=False)  # night-before 8pm sent
+    sms_sent_morning = Column(Boolean,     default=False)  # day-of 9am sent
+
     created_by_user = relationship(
         "User", foreign_keys=[created_by],
         back_populates="appointments_created"
     )
+
+
+class RcToken(Base):
+    """
+    Stores a single admin user's RingCentral OAuth tokens.
+    One row per admin. Tokens are refreshed automatically before expiry.
+    The owner_user_id links to the admin who connected their RC account.
+    """
+    __tablename__ = "rc_tokens"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    owner_user_id     = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    access_token      = Column(Text,    nullable=False)
+    refresh_token     = Column(Text,    nullable=False)
+    token_expiry      = Column(String(30), nullable=False)   # ISO datetime string
+    rc_phone_number   = Column(String(30), default="")       # the RC number to send FROM
+    dry_run           = Column(Boolean, default=True)         # True = log only, no real SMS
+    connected_at      = Column(String(20), default="")       # when OAuth was completed
 
 
 class QualityEntry(Base):
