@@ -1899,6 +1899,26 @@ async def test_sms_trigger(user: User = Depends(get_current_user),
     await _run_sms_job("morning")
     return {"status": "SMS jobs fired — check Render logs for output."}
 
+# ── RC debug: list available phone numbers for connected extension ─────────────
+
+@app.get("/rc/debug-numbers")
+async def rc_debug_numbers(user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """Lists all phone numbers on the connected RC extension so we can find the right one."""
+    _require_admin(user)
+    token_row = _get_rc_token(db, user.id)
+    if not token_row:
+        token_row = db.query(RcToken).first()
+    if not token_row:
+        raise HTTPException(404, "No RC token found.")
+    await _refresh_rc_token_if_needed(db, token_row)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{RC_AUTH_BASE}/restapi/v1.0/account/~/extension/~/phone-number",
+            headers={"Authorization": f"Bearer {token_row.access_token}"},
+        )
+    return {"status": resp.status_code, "body": resp.json()}
+
 # ── Confirmations HTML page ───────────────────────────────────────────────────
 
 @app.get("/confirmations.html")
