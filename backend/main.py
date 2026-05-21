@@ -1462,17 +1462,26 @@ async def _refresh_rc_token_if_needed(db: Session, token_row: RcToken) -> bool:
 # ── OAuth: start flow ─────────────────────────────────────────────────────────
 
 @app.get("/rc/connect")
-def rc_connect(user: User = Depends(get_current_user)):
+def rc_connect(token: str, db: Session = Depends(get_db)):
     """Admin clicks 'Connect RingCentral' → redirects to RC login page."""
-    _require_admin(user)
+    # Validate token manually since we can't use Header() in a redirect
+    try:
+        from jose import jwt as _jwt, JWTError as _JWTError
+        payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        uid = payload.get("user_id")
+        user = db.query(User).filter(User.id == uid).first()
+        if not user or user.role != "admin":
+            raise HTTPException(403, "Admin only.")
+    except Exception:
+        raise HTTPException(401, "Invalid token.")
     import urllib.parse
+    from fastapi.responses import RedirectResponse
     params = urllib.parse.urlencode({
         "response_type": "code",
         "client_id":     RC_CLIENT_ID,
         "redirect_uri":  RC_REDIRECT_URI,
-        "state":         str(user.id),   # we pass user ID so callback knows who to store tokens for
+        "state":         str(user.id),
     })
-    from fastapi.responses import RedirectResponse
     return RedirectResponse(f"{RC_AUTH_BASE}/restapi/oauth/authorize?{params}")
 
 # ── OAuth: callback ───────────────────────────────────────────────────────────

@@ -164,10 +164,10 @@
           Connect your RingCentral account to automatically send SMS reminders to clients
           the evening before and morning of their appointment.
         </p>
-        <a href="/rc/connect" class="btn" id="rcConnectBtn" style="display:inline-flex;text-decoration:none;">
+        <button class="btn" id="rcConnectBtn" onclick="rcStartConnect()">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
           Connect RingCentral
-        </a>
+        </button>
       </div>
 
       <!-- Connected state -->
@@ -638,6 +638,11 @@
     var urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get("rc") === "connected") showToast("RingCentral connected successfully!");
     if (urlParams.get("rc") === "error")     showToast("RingCentral connection failed. Please try again.", "error");
+  }
+
+  function rcStartConnect() {
+    // Pass JWT token as query param — browser redirects can't set headers
+    window.location.href = "/rc/connect?token=" + encodeURIComponent(TOKEN);
   }
 
   async function loadRcStatus() {
