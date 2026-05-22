@@ -1778,11 +1778,17 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     find the appointment matching the sender's number and mark it confirmed.
     Also handles RC's validation challenge (first-time webhook registration).
     """
+    from fastapi.responses import Response
+
     # RC sends a validation challenge header on first registration
+    # Must echo it back in BOTH the response header AND body
     challenge = request.headers.get("Validation-Token")
     if challenge:
-        from fastapi.responses import Response
-        return Response(content=challenge, media_type="text/plain")
+        return Response(
+            content=challenge,
+            media_type="text/plain",
+            headers={"Validation-Token": challenge}
+        )
 
     try:
         body = await request.json()
