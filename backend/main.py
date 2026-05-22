@@ -137,22 +137,11 @@ async def _run_sms_job(job_type: str):
             if already_sent:
                 continue
 
-            # Format time for message (e.g. "10:00 AM")
-            time_part = (appt.scheduled_for or "T").split("T")[1] if "T" in (appt.scheduled_for or "") else ""
-            try:
-                h, m  = map(int, time_part.split(":"))
-                ampm  = "AM" if h < 12 else "PM"
-                h12   = h % 12 or 12
-                time_display = f"{h12}:{m:02d} {ampm}"
-            except Exception:
-                time_display = time_part or "your scheduled time"
-
-            # Format date for message (e.g. "May 22, 2026")
-            try:
-                appt_date = datetime.strptime(target_date, "%Y-%m-%d")
-                date_display = appt_date.strftime("%B %-d, %Y")
-            except Exception:
-                date_display = target_date
+            # Format time and date in the booking timezone
+            time_display, date_display = _fmt_appt_time_for_tz(
+                appt.scheduled_for,
+                appt.booking_tz or "America/Edmonton"
+            )
 
             first_name = appt.lead_name.split()[0] if appt.lead_name else "there"
             message    = template.format(name=first_name, time=time_display, date=date_display)
@@ -170,6 +159,59 @@ async def _run_sms_job(job_type: str):
 
     except Exception as e:
         logger.error(f"SMS job ({job_type}) error: {e}")
+    finally:
+        db.close()
+
+
+async def _run_reminder_job():
+    """
+    Fires every minute (called from scheduler).
+    Finds appointments starting in exactly 60 minutes that are NOT confirmed
+    and have a phone number, and sends them a quick reminder text.
+    Tracks sent reminders via a new sms_sent_reminder flag.
+    """
+    db = SessionLocal()
+    try:
+        mt     = ZoneInfo("America/Edmonton")
+        now_mt = datetime.now(mt)
+
+        # Target window: appointments starting between 59-61 minutes from now
+        target_start = now_mt + timedelta(minutes=59)
+        target_end   = now_mt + timedelta(minutes=61)
+
+        # Format as YYYY-MM-DDTHH:MM for string comparison
+        start_str = target_start.strftime("%Y-%m-%dT%H:%M")
+        end_str   = target_end.strftime("%Y-%m-%dT%H:%M")
+
+        appts = db.query(Appointment).filter(
+            Appointment.scheduled_for >= start_str,
+            Appointment.scheduled_for <= end_str,
+            Appointment.phone_number != "",
+            Appointment.phone_number != None,
+            Appointment.appt_type != "callback",
+            Appointment.sms_status != "confirmed",
+            Appointment.sms_sent_reminder == False,
+        ).all()
+
+        for appt in appts:
+            time_display, _ = _fmt_appt_time_for_tz(
+                appt.scheduled_for,
+                appt.booking_tz or "America/Edmonton"
+            )
+            first_name = appt.lead_name.split()[0] if appt.lead_name else "there"
+            message    = SMS_REMINDER_TEMPLATE.format(name=first_name, time=time_display)
+
+            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            appt.sms_sent_reminder = True
+            db.commit()
+
+            logger.info(
+                f"[SMS REMINDER] Appt {appt.id} ({appt.lead_name}) "
+                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
+            )
+
+    except Exception as e:
+        logger.error(f"Reminder job error: {e}")
     finally:
         db.close()
 
@@ -206,6 +248,9 @@ async def _scheduler_loop():
                 fired["morning"] = today
                 logger.info("Scheduler: firing morning SMS job")
                 await _run_sms_job("morning")
+
+            # Reminder job: every minute — checks for unconfirmed appts 1hr away
+            await _run_reminder_job()
 
         except Exception as e:
             logger.error(f"Scheduler loop error: {e}")
@@ -923,7 +968,8 @@ def _appt_dict(appt, db):
             "booking_tz": appt.booking_tz or "America/Edmonton",
             "sms_status": appt.sms_status or "",
             "sms_sent_evening": bool(appt.sms_sent_evening),
-            "sms_sent_morning": bool(appt.sms_sent_morning)}
+            "sms_sent_morning": bool(appt.sms_sent_morning),
+            "sms_sent_reminder": bool(appt.sms_sent_reminder)}
 
 # ── Blocked Days (Unavailable Days) ────────────────────────────────────────────
 
@@ -1549,7 +1595,7 @@ SMS_EVENING_TEMPLATE = (
     "This is a confirmation for your zoom call meeting with American Income Life.\n\n"
     "Here are the details:\n\n"
     "Date: {date}\n"
-    "Time: {time} MST\n"
+    "Time: {time}\n"
     "Manager: Hazem\n"
     "Number: 403-305-2652\n\n"
     "Go to www.zoom.com\n"
@@ -1561,7 +1607,7 @@ SMS_MORNING_TEMPLATE = (
     "This is a confirmation for your zoom call meeting with American Income Life.\n\n"
     "Here are the details:\n\n"
     "Date: {date}\n"
-    "Time: {time} MST\n"
+    "Time: {time}\n"
     "Manager: Hazem\n"
     "Number: 403-305-2652\n\n"
     "Go to www.zoom.com\n"
@@ -1570,6 +1616,58 @@ SMS_MORNING_TEMPLATE = (
     "Kindly confirm your attendance by replying YES.\n\n"
     "See you soon!"
 )
+SMS_REMINDER_TEMPLATE = "Hi {name}! Just a quick reminder about your {time}."
+
+# Timezone abbreviation map for display in SMS
+TZ_ABBREV = {
+    "America/Edmonton":    "MT",
+    "America/Winnipeg":    "CT",
+    "America/Toronto":     "ET",
+    "America/Vancouver":   "PT",
+    "America/Halifax":     "AT",
+    "America/St_Johns":    "NT",
+}
+
+def _fmt_appt_time_for_tz(scheduled_for_mt: str, booking_tz: str) -> tuple[str, str]:
+    """
+    Convert an appointment's stored MT datetime back to the booking timezone
+    for display in SMS messages.
+
+    scheduled_for_mt: "YYYY-MM-DDTHH:MM" in Mountain Time
+    booking_tz: IANA timezone string e.g. "America/Vancouver"
+
+    Returns: (time_display, date_display)
+    e.g. ("12:00 PM PT", "May 22, 2026")
+    """
+    try:
+        mt      = ZoneInfo("America/Edmonton")
+        btz     = ZoneInfo(booking_tz or "America/Edmonton")
+        abbrev  = TZ_ABBREV.get(booking_tz or "America/Edmonton", "MT")
+
+        # Parse MT time and localize it
+        naive_mt  = datetime.strptime(scheduled_for_mt, "%Y-%m-%dT%H:%M")
+        aware_mt  = naive_mt.replace(tzinfo=mt)
+
+        # Convert to booking timezone
+        aware_btz = aware_mt.astimezone(btz)
+
+        h    = aware_btz.hour
+        m    = aware_btz.minute
+        ampm = "AM" if h < 12 else "PM"
+        h12  = h % 12 or 12
+        time_display = f"{h12}:{m:02d} {ampm} {abbrev}"
+        date_display = aware_btz.strftime("%B %-d, %Y")
+        return time_display, date_display
+    except Exception:
+        # Fallback: just use MT
+        try:
+            parts = scheduled_for_mt.split("T")[1].split(":")
+            h, m  = int(parts[0]), int(parts[1])
+            ampm  = "AM" if h < 12 else "PM"
+            h12   = h % 12 or 12
+            return f"{h12}:{m:02d} {ampm} MT", scheduled_for_mt[:10]
+        except Exception:
+            return "your scheduled time", ""
 
 # ── RC token helpers ──────────────────────────────────────────────────────────
 
