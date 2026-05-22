@@ -1828,9 +1828,11 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     # Normalize sender number for matching (last 10 digits)
     sender_digits = re.sub(r"[^\d]", "", sender)
 
-    # Search all unconfirmed appointments across all admins
+    # Only confirm appointments that have received the morning text
+    # (that's the only message that asks them to reply YES)
     appts = db.query(Appointment).filter(
-        Appointment.sms_status != "confirmed"
+        Appointment.sms_status != "confirmed",
+        Appointment.sms_sent_morning == True,
     ).all()
 
     matched = None
