@@ -1862,7 +1862,7 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
 # ── Confirmations page API — Tameema23 only ───────────────────────────────────
 
 CONFIRMATIONS_USERNAME = "Tameema23"
-TAMEEMA_PHONE         = "+14038189006"   # daily summary destination
+TAMEEMA_PHONE = os.environ.get("TAMEEMA_SUMMARY_PHONE", "")   # daily summary destination
 
 # ── Daily summary job ─────────────────────────────────────────────────────────
 
