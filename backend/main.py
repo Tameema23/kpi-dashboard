@@ -143,7 +143,7 @@ async def _run_sms_job(job_type: str):
                 appt.booking_tz or "America/Edmonton"
             )
 
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0] if (appt.attendee_name or appt.lead_name) else "there"
+            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
             message    = template.format(name=first_name, time=time_display, date=date_display)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -198,7 +198,7 @@ async def _run_reminder_job():
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0] if (appt.attendee_name or appt.lead_name) else "there"
+            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
             message    = SMS_REMINDER_TEMPLATE.format(name=first_name, time=time_display)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -411,12 +411,14 @@ def get_db():
 def sanitize_str(value: str, max_len: int = 500) -> str:
     if not value:
         return ""
-    # Strip HTML tags to prevent XSS — but do NOT html.escape() the result.
-    # html.escape() encodes & → &amp;, which corrupts data stored in the DB
-    # and displayed in the frontend via JSON (not HTML). Escaping must happen
-    # at render time in the browser, not at storage time on the server.
     cleaned = re.sub(r"<[^>]+>", "", value)
     return cleaned[:max_len].strip()
+
+def title_case(s: str) -> str:
+    """Normalize name capitalization: 'JIMMY TANDAWADON' → 'Jimmy Tandawadon'."""
+    if not s:
+        return s
+    return " ".join(word.capitalize() for word in s.strip().split())
 
 def validate_date(value: str) -> str:
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", value):
@@ -912,8 +914,8 @@ def create_appointment(data: AppointmentPayload,
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     appt  = Appointment(
         created_by=user.id, owner_id=owner,
-        lead_name=lead_name,
-        attendee_name=sanitize_str(data.attendee_name or "", 200),
+        lead_name=title_case(sanitize_str(data.lead_name, 200)),
+        attendee_name=title_case(sanitize_str(data.attendee_name or "", 200)),
         phone_number=raw_phone[:20],
         comments=sanitize_str(data.comments or "", 2000),
         scheduled_for=validate_datetime(data.scheduled_for),
@@ -959,8 +961,8 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     ).first()
     if blocked_date:
         raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
-    appt.lead_name     = sanitize_str(data.lead_name, 200)
-    appt.attendee_name = sanitize_str(data.attendee_name or "", 200)
+    appt.lead_name     = title_case(sanitize_str(data.lead_name, 200))
+    appt.attendee_name = title_case(sanitize_str(data.attendee_name or "", 200))
     appt.phone_number  = re.sub(r"[^\d+]", "", data.phone_number or "")[:20]
     appt.comments      = sanitize_str(data.comments or "", 2000)
     appt.scheduled_for = validate_datetime(data.scheduled_for)
