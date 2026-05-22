@@ -1795,41 +1795,58 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception:
         return {"status": "ignored"}
 
+    # Log full payload for debugging
+    logger.info(f"RC webhook payload: {body}")
+
     # Navigate RC's event payload structure
     body_data = body.get("body", {})
     msg_type  = body_data.get("type", "")
     direction = body_data.get("direction", "")
 
-    if msg_type != "SMS" or direction != "Inbound":
-        return {"status": "ignored"}
+    logger.info(f"RC webhook: type={msg_type} direction={direction}")
 
-    text   = (body_data.get("subject", "") or "").strip().upper()
+    if msg_type != "SMS" or direction != "Inbound":
+        # Also try top-level structure in case RC nests differently
+        msg_type  = body.get("type", "")
+        direction = body.get("direction", "")
+        if msg_type != "SMS" or direction != "Inbound":
+            logger.info(f"RC webhook ignored: type={msg_type} direction={direction}")
+            return {"status": "ignored"}
+        body_data = body
+
+    text   = (body_data.get("subject", "") or body_data.get("text", "") or "").strip().upper()
     sender = body_data.get("from", {}).get("phoneNumber", "")
 
+    logger.info(f"RC webhook: text='{text}' sender='{sender}'")
+
     if text != "YES" or not sender:
+        logger.info(f"RC webhook ignored: text not YES or no sender")
         return {"status": "ignored"}
 
     # Normalize sender number for matching
     sender_digits = re.sub(r"[^\d]", "", sender)
 
-    # Find today's appointment for this phone number across all admins
-    today_str = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+    # Search all unconfirmed appointments (no date restriction — covers timezone edge cases)
     appts = db.query(Appointment).filter(
-        Appointment.scheduled_for.startswith(today_str),
         Appointment.sms_status != "confirmed"
     ).all()
+
+    logger.info(f"RC webhook: searching {len(appts)} unconfirmed appointments for sender {sender_digits[-10:]}")
 
     matched = None
     for a in appts:
         appt_digits = re.sub(r"[^\d]", "", a.phone_number or "")
         if appt_digits and appt_digits[-10:] == sender_digits[-10:]:
             matched = a
+            logger.info(f"RC webhook: matched appointment {a.id} ({a.lead_name})")
             break
 
     if matched:
         matched.sms_status = "confirmed"
         db.commit()
         logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via SMS reply YES from {sender}")
+    else:
+        logger.info(f"RC webhook: no matching appointment found for {sender}")
 
     return {"status": "ok"}
 
