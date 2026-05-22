@@ -180,13 +180,19 @@ async def _scheduler_loop():
     """
     mt = ZoneInfo("America/Edmonton")
     # Track which dates we've already fired each job for
-    fired = {"evening": None, "morning": None}
+    fired = {"evening": None, "morning": None, "summary": None}
 
     while True:
         try:
             now    = datetime.now(mt)
             today  = now.strftime("%Y-%m-%d")
             h, min_ = now.hour, now.minute
+
+            # Daily summary to Tameema: 08:00 MT (8:00 AM)
+            if h == 8 and min_ == 0 and fired["summary"] != today:
+                fired["summary"] = today
+                logger.info("Scheduler: firing daily summary job")
+                await _send_daily_summary()
 
             # Evening job: 20:00 MT (8:00 PM)
             if h == 20 and min_ == 0 and fired["evening"] != today:
@@ -1854,6 +1860,83 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
 # ── Confirmations page API — Tameema23 only ───────────────────────────────────
 
 CONFIRMATIONS_USERNAME = "Tameema23"
+TAMEEMA_PHONE         = "+14038189006"   # daily summary destination
+
+# ── Daily summary job ─────────────────────────────────────────────────────────
+
+async def _send_daily_summary():
+    """
+    Sends Tameema a daily SMS at 8am MT listing all of today's appointments
+    with name, time, and status.
+
+    Format:
+        May 22, 2026
+
+        Glen 10am - ✅
+        Bryce 11am
+        Jennifer 12pm - rs
+    """
+    db = SessionLocal()
+    try:
+        mt         = ZoneInfo("America/Edmonton")
+        now_mt     = datetime.now(mt)
+        today_str  = now_mt.strftime("%Y-%m-%d")
+        date_label = now_mt.strftime("%B %-d, %Y")
+
+        # Get all admin appointments for today
+        admins = db.query(User).filter(User.role == "admin").all()
+        rows   = []
+        for admin in admins:
+            appts = db.query(Appointment).filter(
+                Appointment.owner_id == admin.id,
+                Appointment.scheduled_for.startswith(today_str),
+            ).order_by(Appointment.scheduled_for).all()
+            rows.extend(appts)
+
+        rows.sort(key=lambda a: a.scheduled_for)
+
+        if not rows:
+            logger.info("Daily summary: no appointments today, skipping.")
+            return
+
+        lines = [date_label, ""]
+        for a in rows:
+            # Format time (e.g. "10am", "2pm", "12pm")
+            try:
+                time_part = a.scheduled_for.split("T")[1]
+                h, m      = map(int, time_part.split(":"))
+                ampm      = "am" if h < 12 else "pm"
+                h12       = h % 12 or 12
+                time_str  = f"{h12}{':{:02d}'.format(m) if m else ''}{ampm}"
+            except Exception:
+                time_str = "?"
+
+            # Status suffix
+            status = a.sms_status or ""
+            if status == "confirmed":
+                suffix = " - ✅"
+            elif status == "rescheduled":
+                suffix = " - rs"
+            else:
+                suffix = ""
+
+            lines.append(f"{a.lead_name.split()[0]} {time_str}{suffix}")
+
+        message = "\n".join(lines)
+
+        # Find any connected RC token to send from
+        token_row = db.query(RcToken).first()
+        if not token_row:
+            logger.warning("Daily summary: no RC token found, cannot send.")
+            return
+
+        result = await send_sms(db, token_row.owner_user_id, TAMEEMA_PHONE, message)
+        logger.info(f"Daily summary sent → {TAMEEMA_PHONE} | {result.get('detail')}")
+
+    except Exception as e:
+        logger.error(f"Daily summary job error: {e}")
+    finally:
+        db.close()
 
 @app.get("/confirmations")
 def get_confirmations(date: Optional[str] = None,
@@ -1969,15 +2052,15 @@ async def rc_register_webhook(user: User = Depends(get_current_user),
 async def test_sms_trigger(user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):
     """
-    Manually fire both SMS jobs right now — for testing only.
+    Manually fire SMS jobs and daily summary — for testing only.
     Only Tameema23 can call this.
-    Runs in whatever mode (dry_run or live) is currently set.
     """
     if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
         raise HTTPException(403, "Access denied.")
     await _run_sms_job("evening")
     await _run_sms_job("morning")
-    return {"status": "SMS jobs fired — check Render logs for output."}
+    await _send_daily_summary()
+    return {"status": "SMS jobs and daily summary fired."}
 
 # ── Confirmations HTML page ───────────────────────────────────────────────────
 
