@@ -470,17 +470,20 @@
         return;
       }
       container.innerHTML = list.map(function(a) {
+        var isSuspended = a.is_suspended;
         return '<div class="settings-field" style="align-items:flex-start;">' +
           '<div style="display:flex;flex-direction:column;gap:6px;">' +
             '<div style="display:flex;align-items:center;gap:10px;">' +
-              '<div style="width:32px;height:32px;border-radius:50%;background:#f5f3ff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
-                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
+              '<div style="width:32px;height:32px;border-radius:50%;background:' + (isSuspended ? '#f1f5f9' : '#f5f3ff') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="' + (isSuspended ? '#94a3b8' : '#7c3aed') + '" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
               '</div>' +
-              '<div style="font-size:14px;font-weight:700;color:#0f172a;">' + a.username + '</div>' +
+              '<div style="font-size:14px;font-weight:700;color:' + (isSuspended ? '#94a3b8' : '#0f172a') + ';text-decoration:' + (isSuspended ? 'line-through' : 'none') + ';">' + a.username + '</div>' +
+              (isSuspended ? '<span style="font-size:11px;font-weight:700;background:#fee2e2;color:#dc2626;border-radius:6px;padding:2px 7px;">Suspended</span>' : '') +
             '</div>' +
-            '<div style="display:flex;gap:5px;flex-wrap:wrap;">' + permBadge(a.can_planner, a.can_quality) + '</div>' +
+            '<div style="display:flex;gap:5px;flex-wrap:wrap;">' + (isSuspended ? '' : permBadge(a.can_planner, a.can_quality)) + '</div>' +
             '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-              '<button class="btn small" style="background:#f5f3ff;color:#5b21b6;font-size:11px;" onclick="editPermissions(' + a.id + ',\'' + a.username + '\',' + a.can_planner + ',' + a.can_quality + ')">Edit Permissions</button>' +
+              (!isSuspended ? '<button class="btn small" style="background:#f5f3ff;color:#5b21b6;font-size:11px;" onclick="editPermissions(' + a.id + ',\'' + a.username + '\',' + a.can_planner + ',' + a.can_quality + ')">Edit Permissions</button>' : '') +
+              '<button class="btn small" style="background:' + (isSuspended ? '#f0fdf4' : '#fff7ed') + ';color:' + (isSuspended ? '#15803d' : '#c2410c') + ';font-size:11px;" onclick="toggleSuspend(' + a.id + ',\'' + a.username + '\',' + isSuspended + ')">' + (isSuspended ? 'Unsuspend' : 'Suspend') + '</button>' +
               '<button class="btn small" style="background:#fee2e2;color:#dc2626;font-size:11px;" onclick="removeAssistant(' + a.id + ',\'' + a.username + '\')">Remove</button>' +
             '</div>' +
           '</div>' +
@@ -587,6 +590,28 @@
   document.getElementById("permissionsModal").addEventListener("click", function(e) {
     if (e.target === this) closePermModal();
   });
+
+  async function toggleSuspend(id, name, currentlySuspended) {
+    var action = currentlySuspended ? "unsuspend" : "suspend";
+    var msg    = currentlySuspended
+      ? "Unsuspend <strong>" + name + "</strong>? They will be able to log in again."
+      : "Suspend <strong>" + name + "</strong>? They will be immediately logged out and unable to log in.";
+    showConfirm(msg, async function() {
+      try {
+        const res = await fetch("/assistants/" + id + "/suspend", {
+          method: "PATCH",
+          headers: { Authorization: "Bearer " + TOKEN }
+        });
+        if (res.ok) {
+          var data = await res.json();
+          showToast(name + (data.is_suspended ? " suspended." : " unsuspended."));
+          loadAssistants();
+        } else {
+          showToast("Failed to " + action + ".", "error");
+        }
+      } catch { showToast("Server error.", "error"); }
+    }, { confirmText: currentlySuspended ? "Unsuspend" : "Suspend" });
+  }
 
   function removeAssistant(id, name) {
     showConfirm(
