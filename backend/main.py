@@ -146,8 +146,15 @@ async def _run_sms_job(job_type: str):
             except Exception:
                 time_display = time_part or "your scheduled time"
 
+            # Format date for message (e.g. "May 22, 2026")
+            try:
+                appt_date = datetime.strptime(target_date, "%Y-%m-%d")
+                date_display = appt_date.strftime("%B %-d, %Y")
+            except Exception:
+                date_display = target_date
+
             first_name = appt.lead_name.split()[0] if appt.lead_name else "there"
-            message    = template.format(name=first_name, time=time_display)
+            message    = template.format(name=first_name, time=time_display, date=date_display)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
 
@@ -1531,12 +1538,30 @@ RC_AUTH_BASE = "https://platform.ringcentral.com"  # production
 
 # Placeholder SMS scripts — replace with real scripts when ready
 SMS_EVENING_TEMPLATE = (
-    "Hi {name}, this is a reminder that you have an appointment tomorrow at {time}. "
-    "Please reply YES to confirm."
+    "Hi {name}!\n\n"
+    "This is a confirmation for your zoom call meeting with American Income Life.\n\n"
+    "Here are the details:\n\n"
+    "Date: {date}\n"
+    "Time: {time} MST\n"
+    "Manager: Hazem\n"
+    "Number: 403-305-2652\n\n"
+    "Go to www.zoom.com\n"
+    "Click Meet then Join a meeting\n"
+    "Meeting ID: 403-305-2652"
 )
 SMS_MORNING_TEMPLATE = (
-    "Good morning {name}! Just a reminder of your appointment today at {time}. "
-    "We look forward to seeing you!"
+    "Hi {name}!\n\n"
+    "This is a confirmation for your zoom call meeting with American Income Life.\n\n"
+    "Here are the details:\n\n"
+    "Date: {date}\n"
+    "Time: {time} MST\n"
+    "Manager: Hazem\n"
+    "Number: 403-305-2652\n\n"
+    "Go to www.zoom.com\n"
+    "Click Meet then Join a meeting\n"
+    "Meeting ID: 403-305-2652\n\n"
+    "Kindly confirm your attendance by replying YES.\n\n"
+    "See you soon!"
 )
 
 # ── RC token helpers ──────────────────────────────────────────────────────────
