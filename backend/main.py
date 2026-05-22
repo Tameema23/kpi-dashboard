@@ -1885,6 +1885,64 @@ def set_confirmation_status(appt_id: int,
 
 # ── Manual SMS test trigger (Tameema23 only) ──────────────────────────────────
 
+# ── RC: register inbound SMS webhook ─────────────────────────────────────────
+
+@app.post("/rc/register-webhook")
+async def rc_register_webhook(user: User = Depends(get_current_user),
+                               db: Session = Depends(get_db)):
+    """
+    Registers a RingCentral webhook subscription so inbound SMS replies
+    are posted to /rc/webhook. Call this once after connecting RC.
+    Only Tameema23 or admins can call this.
+    """
+    _require_admin(user)
+    token_row = _get_rc_token(db, user.id)
+    if not token_row:
+        # Try any connected token
+        token_row = db.query(RcToken).first()
+    if not token_row:
+        raise HTTPException(404, "RingCentral not connected.")
+
+    ok = await _refresh_rc_token_if_needed(db, token_row)
+    if not ok:
+        raise HTTPException(500, "Token refresh failed.")
+
+    webhook_url = f"{RC_REDIRECT_URI.replace('/rc/callback', '')}/rc/webhook"
+
+    payload = {
+        "eventFilters": [
+            "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
+        ],
+        "deliveryMode": {
+            "transportType": "WebHook",
+            "address": webhook_url,
+        },
+        "expiresIn": 630720000,  # max ~20 years in seconds
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{RC_AUTH_BASE}/restapi/v1.0/subscription",
+            headers={
+                "Authorization": f"Bearer {token_row.access_token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+    if resp.status_code in (200, 201):
+        data = resp.json()
+        logger.info(f"RC webhook registered: {data.get('id')} → {webhook_url}")
+        return {
+            "status": "registered",
+            "webhook_url": webhook_url,
+            "subscription_id": data.get("id"),
+            "expires_at": data.get("expirationTime"),
+        }
+
+    logger.error(f"RC webhook registration failed {resp.status_code}: {resp.text}")
+    raise HTTPException(500, f"RC error: {resp.text}")
+
 @app.post("/rc/test-sms")
 async def test_sms_trigger(user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):

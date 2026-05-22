@@ -276,12 +276,21 @@
         <label style="font-size:12px;font-weight:700;color:#64748b;">Date:</label>
         <input type="date" id="confDateInput" onchange="loadConfirmations()">
       </div>
-      <button class="conf-test-btn" onclick="triggerTestSms()" title="Fire SMS jobs now (dry run)">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <polygon points="5 3 19 12 5 21 5 3"/>
-        </svg>
-        Trigger SMS Test
-      </button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+        <button class="conf-test-btn" onclick="registerWebhook()" title="Register inbound SMS webhook (one-time setup)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          Register Webhook
+        </button>
+        <button class="conf-test-btn" onclick="triggerTestSms()" title="Fire SMS jobs now (dry run)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          Trigger SMS Test
+        </button>
+      </div>
     </div>
   </div>
 
@@ -495,6 +504,23 @@
         loadConfirmations(); // refresh list
       } else {
         showToast("Failed to update.", "error");
+      }
+    } catch(e) { showToast("Server error.", "error"); }
+  };
+
+  // ── Register webhook ──────────────────────────────────────────
+  window.registerWebhook = async function() {
+    try {
+      var res = await fetch("/rc/register-webhook", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      var data = await res.json();
+      if (res.ok) {
+        showToast("Webhook registered! YES replies will now auto-confirm.");
+        console.log("Webhook details:", data);
+      } else {
+        showToast("Failed: " + (data.detail || "Unknown error"), "error");
       }
     } catch(e) { showToast("Server error.", "error"); }
   };
