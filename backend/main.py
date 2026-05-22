@@ -20,7 +20,8 @@ Security:
   ✓ Timing-safe login (prevents username enumeration)
 """
 
-import os, re, html, logging, shutil, hashlib
+import os, re, html, logging, shutil, hashlib, asyncio, urllib.parse
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 import httpx
@@ -28,7 +29,7 @@ import httpx
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
@@ -93,9 +94,6 @@ def hash_password(plain: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
-
-import asyncio
-from contextlib import asynccontextmanager
 
 # ── Scheduler ──────────────────────────────────────────────────────────────────
 # Runs two daily SMS jobs in Mountain Time:
@@ -1584,23 +1582,14 @@ def rc_connect(token: str, db: Session = Depends(get_db)):
     """Admin clicks 'Connect RingCentral' → redirects to RC login page."""
     # Validate token manually since we can't use Header() in a redirect
     try:
-        from jose import jwt as _jwt, JWTError as _JWTError
-        payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        uid = payload.get("user_id")
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        uid  = payload.get("user_id")
         user = db.query(User).filter(User.id == uid).first()
         if not user or user.role != "admin":
             raise HTTPException(403, "Admin only.")
     except Exception:
         raise HTTPException(401, "Invalid token.")
-    import urllib.parse
-    from fastapi.responses import RedirectResponse
-    params = urllib.parse.urlencode({
-        "response_type": "code",
-        "client_id":     RC_CLIENT_ID,
-        "redirect_uri":  RC_REDIRECT_URI,
-        "state":         str(user.id),
-    })
-    return RedirectResponse(f"{RC_AUTH_BASE}/restapi/oauth/authorize?{params}")
+    return RedirectResponse(f"{RC_AUTH_BASE}/restapi/oauth/authorize?{urllib.parse.urlencode({'response_type': 'code', 'client_id': RC_CLIENT_ID, 'redirect_uri': RC_REDIRECT_URI, 'state': str(user.id)})}")
 
 # ── OAuth: callback ───────────────────────────────────────────────────────────
 
@@ -1611,7 +1600,6 @@ async def rc_callback(code: str, state: str, db: Session = Depends(get_db)):
     Exchanges the code for tokens and stores them in rc_tokens table.
     Then redirects back to settings page.
     """
-    from fastapi.responses import RedirectResponse
     user_id = int(state)
     user = db.query(User).filter(User.id == user_id).first()
     if not user or user.role != "admin":
@@ -1778,10 +1766,8 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     find the appointment matching the sender's number and mark it confirmed.
     Also handles RC's validation challenge (first-time webhook registration).
     """
-    from fastapi.responses import Response
-
     # RC sends a validation challenge header on first registration
-    # Must echo it back in BOTH the response header AND body
+    # Must echo it back in both the response header AND body
     challenge = request.headers.get("Validation-Token")
     if challenge:
         return Response(
@@ -1795,58 +1781,46 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception:
         return {"status": "ignored"}
 
-    # Log full payload for debugging
-    logger.info(f"RC webhook payload: {body}")
-
-    # Navigate RC's event payload structure
+    # Navigate RC's event payload structure (body nested under "body" key)
     body_data = body.get("body", {})
     msg_type  = body_data.get("type", "")
     direction = body_data.get("direction", "")
 
-    logger.info(f"RC webhook: type={msg_type} direction={direction}")
-
     if msg_type != "SMS" or direction != "Inbound":
-        # Also try top-level structure in case RC nests differently
+        # Fallback: try top-level structure
         msg_type  = body.get("type", "")
         direction = body.get("direction", "")
         if msg_type != "SMS" or direction != "Inbound":
-            logger.info(f"RC webhook ignored: type={msg_type} direction={direction}")
             return {"status": "ignored"}
         body_data = body
 
     text   = (body_data.get("subject", "") or body_data.get("text", "") or "").strip().upper()
     sender = body_data.get("from", {}).get("phoneNumber", "")
 
-    logger.info(f"RC webhook: text='{text}' sender='{sender}'")
-
     if text != "YES" or not sender:
-        logger.info(f"RC webhook ignored: text not YES or no sender")
         return {"status": "ignored"}
 
-    # Normalize sender number for matching
+    # Normalize sender number for matching (last 10 digits)
     sender_digits = re.sub(r"[^\d]", "", sender)
 
-    # Search all unconfirmed appointments (no date restriction — covers timezone edge cases)
+    # Search all unconfirmed appointments across all admins
     appts = db.query(Appointment).filter(
         Appointment.sms_status != "confirmed"
     ).all()
-
-    logger.info(f"RC webhook: searching {len(appts)} unconfirmed appointments for sender {sender_digits[-10:]}")
 
     matched = None
     for a in appts:
         appt_digits = re.sub(r"[^\d]", "", a.phone_number or "")
         if appt_digits and appt_digits[-10:] == sender_digits[-10:]:
             matched = a
-            logger.info(f"RC webhook: matched appointment {a.id} ({a.lead_name})")
             break
 
     if matched:
         matched.sms_status = "confirmed"
         db.commit()
-        logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via SMS reply YES from {sender}")
+        logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via YES from {sender}")
     else:
-        logger.info(f"RC webhook: no matching appointment found for {sender}")
+        logger.warning(f"RC webhook: no appointment matched sender {sender}")
 
     return {"status": "ok"}
 
@@ -1905,8 +1879,6 @@ def set_confirmation_status(appt_id: int,
     appt.sms_status = data.status
     db.commit()
     return {"id": appt_id, "sms_status": appt.sms_status}
-
-# ── Manual SMS test trigger (Tameema23 only) ──────────────────────────────────
 
 # ── RC: register inbound SMS webhook ─────────────────────────────────────────
 
@@ -1979,26 +1951,6 @@ async def test_sms_trigger(user: User = Depends(get_current_user),
     await _run_sms_job("evening")
     await _run_sms_job("morning")
     return {"status": "SMS jobs fired — check Render logs for output."}
-
-# ── RC debug: list available phone numbers for connected extension ─────────────
-
-@app.get("/rc/debug-numbers")
-async def rc_debug_numbers(user: User = Depends(get_current_user),
-                            db: Session = Depends(get_db)):
-    """Lists all phone numbers on the connected RC extension so we can find the right one."""
-    _require_admin(user)
-    token_row = _get_rc_token(db, user.id)
-    if not token_row:
-        token_row = db.query(RcToken).first()
-    if not token_row:
-        raise HTTPException(404, "No RC token found.")
-    await _refresh_rc_token_if_needed(db, token_row)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{RC_AUTH_BASE}/restapi/v1.0/account/~/extension/~/phone-number",
-            headers={"Authorization": f"Bearer {token_row.access_token}"},
-        )
-    return {"status": resp.status_code, "body": resp.json()}
 
 # ── Confirmations HTML page ───────────────────────────────────────────────────
 

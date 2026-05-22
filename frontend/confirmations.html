@@ -3,11 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <link rel="icon" type="image/png" href="/static/images/ApexTrack.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ApexTrack">
+  <link rel="apple-touch-icon" href="/static/images/ApexTrack.png">
   <meta name="api-base" content="https://data-log.onrender.com">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="/static/style.css?v=1">
+  <link rel="preconnect" href="https://data-log.onrender.com">
+  <link rel="stylesheet" href="/static/style.css">
   <title>Confirmations — ApexTrack</title>
   <style>
     .conf-header {
@@ -329,7 +335,7 @@
 
 </div>
 
-<script src="/static/app.js?v=1"></script>
+<script src="/static/app.js"></script>
 <script>
 (function() {
 
@@ -361,11 +367,10 @@
   }
 
   function fmtTime(iso) {
-    if (!iso || !iso.includes("T")) return "";
-    var t = iso.split("T")[1];
-    var parts = t.split(":");
-    var h = parseInt(parts[0]);
-    var m = parts[1];
+    if (!iso || !iso.includes("T")) return "?";
+    var parts = iso.split("T")[1].split(":");
+    var h    = parseInt(parts[0]);
+    var m    = parts[1];
     var ampm = h >= 12 ? "PM" : "AM";
     var h12  = h % 12 || 12;
     return h12 + ":" + m + " " + ampm;
@@ -420,25 +425,20 @@
     }
 
     list.innerHTML = appts.map(function(a) {
-      var status    = a.sms_status || "";
-      var rowClass  = status ? "conf-row status-" + status : "conf-row";
-      var timeStr   = fmtTime(a.sms_status, a.scheduled_for) || fmtTime2(a.scheduled_for);
-      var pillHtml  = statusPill(status);
-      var noPhone   = !a.phone_number;
+      var status   = a.sms_status || "";
+      var rowClass = status ? "conf-row status-" + status : "conf-row";
+      var noPhone  = !a.phone_number;
 
-      var smsBadges = "";
-      if (!noPhone) {
-        smsBadges = '<div class="conf-sms-badges">' +
-          '<span class="conf-sms-badge ' + (a.sms_sent_evening ? "sent" : "unsent") + '">Evening ' + (a.sms_sent_evening ? "✓" : "–") + '</span>' +
-          '<span class="conf-sms-badge ' + (a.sms_sent_morning ? "sent" : "unsent") + '">Morning ' + (a.sms_sent_morning ? "✓" : "–") + '</span>' +
-        '</div>';
-      } else {
-        smsBadges = '<div style="font-size:11px;color:#f59e0b;font-weight:600;margin-top:3px;">⚠ No phone number</div>';
-      }
+      var smsBadges = noPhone
+        ? '<div style="font-size:11px;color:#f59e0b;font-weight:600;margin-top:3px;">⚠ No phone number</div>'
+        : '<div class="conf-sms-badges">' +
+            '<span class="conf-sms-badge ' + (a.sms_sent_evening ? "sent" : "unsent") + '">Evening ' + (a.sms_sent_evening ? "✓" : "–") + '</span>' +
+            '<span class="conf-sms-badge ' + (a.sms_sent_morning ? "sent" : "unsent") + '">Morning '  + (a.sms_sent_morning ? "✓" : "–") + '</span>' +
+          '</div>';
 
       return '<div class="' + rowClass + '" id="row-' + a.id + '">' +
         '<div class="conf-row-left">' +
-          '<div class="conf-time-badge">' + fmtTime2(a.scheduled_for) + '</div>' +
+          '<div class="conf-time-badge">' + fmtTime(a.scheduled_for) + '</div>' +
           '<div>' +
             '<div class="conf-name">' + esc(a.lead_name) + '</div>' +
             '<div class="conf-phone">' + (a.phone_number || "No phone") + '</div>' +
@@ -446,43 +446,14 @@
           '</div>' +
         '</div>' +
         '<div class="conf-row-right">' +
-          pillHtml +
           '<select class="conf-status-select" onchange="setStatus(' + a.id + ', this.value)">' +
-            '<option value="" '          + (status === ""            ? "selected" : "") + '>— Set status</option>' +
-            '<option value="confirmed" ' + (status === "confirmed"   ? "selected" : "") + '>✓ Confirmed</option>' +
-            '<option value="rescheduled"'+ (status === "rescheduled" ? "selected" : "") + '>↻ Rescheduled</option>' +
+            '<option value="" '           + (status === ""            ? "selected" : "") + '>— Pending</option>' +
+            '<option value="confirmed" '  + (status === "confirmed"   ? "selected" : "") + '>✓ Confirmed</option>' +
+            '<option value="rescheduled" '+ (status === "rescheduled" ? "selected" : "") + '>↻ Rescheduled</option>' +
           '</select>' +
         '</div>' +
       '</div>';
     }).join("");
-  }
-
-  function fmtTime2(iso) {
-    if (!iso || !iso.includes("T")) return "?";
-    var t = iso.split("T")[1];
-    if (!t) return "?";
-    var parts = t.split(":");
-    var h = parseInt(parts[0]);
-    var m = parts[1];
-    var ampm = h >= 12 ? "PM" : "AM";
-    var h12  = h % 12 || 12;
-    return h12 + ":" + m + " " + ampm;
-  }
-
-  function statusPill(status) {
-    if (status === "confirmed") {
-      return '<span class="status-pill confirmed">' +
-        '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>' +
-        'Confirmed</span>';
-    }
-    if (status === "rescheduled") {
-      return '<span class="status-pill rescheduled">' +
-        '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/></svg>' +
-        'Rescheduled</span>';
-    }
-    return '<span class="status-pill pending">' +
-      '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
-      'Pending</span>';
   }
 
   function esc(str) {
