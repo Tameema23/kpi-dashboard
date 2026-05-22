@@ -16,6 +16,67 @@
   <link rel="preconnect" href="https://data-log.onrender.com">
   <link rel="stylesheet" href="/static/style.css?v=5">
   <title>Timesheet</title>
+  <style>
+    /* ── Timesheet table ────────────────────────────── */
+    .ts2-wrap { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.05); }
+    .ts2-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .ts2-table th { background:#f8fafc; color:#64748b; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:10px 12px; border-bottom:1.5px solid #e2e8f0; white-space:nowrap; }
+    .ts2-table td { padding:9px 12px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+    .ts2-table tr:last-child td { border-bottom:none; }
+
+    /* Date cell — only shown on first punch row */
+    .ts2-date { font-weight:700; color:#0f172a; white-space:nowrap; font-size:13px; }
+    .ts2-date-empty { color:transparent; }
+
+    /* Clock times */
+    .ts2-time { font-family:monospace; font-size:13px; color:#2563eb; font-weight:700; }
+    .ts2-time-empty { color:#cbd5e1; font-family:monospace; font-size:13px; }
+
+    /* Hours cell */
+    .ts2-hrs { font-weight:700; color:#2563eb; text-align:right; font-size:13px; }
+    .ts2-hrs-zero { color:#cbd5e1; text-align:right; font-size:13px; }
+
+    /* Daily total row */
+    .ts2-day-total { background:#f0f9ff; }
+    .ts2-day-total td { font-weight:700; color:#0f172a; font-size:13px; border-top:1.5px solid #bae6fd; border-bottom:1.5px solid #e2e8f0; }
+    .ts2-day-total .ts2-total-label { color:#0369a1; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; }
+    .ts2-day-total .ts2-total-hrs { color:#0369a1; font-weight:800; text-align:right; }
+
+    /* Period total row */
+    .ts2-period-total { background:#eff6ff; }
+    .ts2-period-total td { font-weight:800; color:#1d4ed8; font-size:14px; border-top:2px solid #93c5fd; padding:12px; }
+    .ts2-period-total .ts2-period-label { font-size:11px; text-transform:uppercase; letter-spacing:0.06em; }
+
+    /* Metrics cells */
+    .ts2-metric { text-align:center; font-weight:600; color:#475569; }
+    .ts2-metric-val { display:inline-flex; align-items:center; justify-content:center; background:#f1f5f9; border-radius:6px; padding:2px 8px; font-size:12px; font-weight:700; color:#0f172a; min-width:28px; }
+    .ts2-notes-cell { color:#64748b; font-size:12px; max-width:180px; white-space:normal; line-height:1.4; }
+
+    /* Action buttons in table */
+    .ts2-actions { white-space:nowrap; text-align:center; }
+    .ts2-btn { background:none; border:none; cursor:pointer; padding:4px 6px; border-radius:6px; color:#94a3b8; transition:background 0.15s, color 0.15s; }
+    .ts2-btn:hover { background:#eff6ff; color:#2563eb; }
+    .ts2-btn.del:hover { background:#fee2e2; color:#dc2626; }
+
+    /* Add punch row */
+    .ts2-add-punch td { background:#f8fafc; padding:6px 12px; }
+
+    /* Employee selector (admin) */
+    .ts2-emp-select { padding:8px 12px; border-radius:10px; border:1.5px solid #e2e8f0; font-size:13px; font-weight:600; color:#0f172a; background:#f8fafc; cursor:pointer; min-width:180px; }
+
+    /* Week ending label */
+    .ts2-week-ending { font-size:12px; color:#64748b; font-weight:600; }
+
+    /* Summary strip */
+    .ts2-strip { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px; }
+    .ts2-strip-card { flex:1; min-width:90px; background:white; border:1.5px solid #f1f5f9; border-radius:12px; padding:12px 14px; text-align:center; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+    .ts2-strip-num { font-size:24px; font-weight:900; color:#0f172a; line-height:1; }
+    .ts2-strip-label { font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em; margin-top:3px; }
+
+    /* Closed period badge */
+    .ts2-closed { display:inline-block; background:#fee2e2; color:#dc2626; font-size:11px; font-weight:700; border-radius:6px; padding:2px 8px; margin-left:8px; }
+    .ts2-open   { display:inline-block; background:#dcfce7; color:#15803d; font-size:11px; font-weight:700; border-radius:6px; padding:2px 8px; margin-left:8px; }
+  </style>
 </head>
 <body>
 
@@ -52,173 +113,223 @@
     Back to Dashboard
   </a>
 
-  <!-- ══ ADMIN VIEW ══════════════════════════════════════════ -->
+  <!-- ══ ADMIN VIEW ════════════════════════════════════ -->
   <div id="adminView" style="display:none;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
       <div>
-        <h2 style="margin:0 0 3px 0;font-size:20px;font-weight:800;color:#0f172a;">Team Timesheet</h2>
-        <p style="margin:0;font-size:13px;color:#64748b;">All assistant work logs for your team</p>
+        <h2 style="margin:0 0 3px;font-size:20px;font-weight:800;color:#0f172a;">Team Timesheet</h2>
+        <p style="margin:0;font-size:13px;color:#64748b;">All assistant work logs</p>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <!-- Week navigator -->
         <div class="ts-week-nav" id="adminWeekNav">
-          <button class="ts-week-arrow" id="adminPrevWeek" onclick="shiftAdminWeek(-1)" title="Previous week">
+          <button class="ts-week-arrow" onclick="shiftAdminWeek(-1)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <span class="ts-week-label" id="adminWeekLabel">—</span>
-          <button class="ts-week-arrow" id="adminNextWeek" onclick="shiftAdminWeek(1)" title="Next week">
+          <button class="ts-week-arrow" onclick="shiftAdminWeek(1)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
         <div class="ts-period-toggle">
           <button class="ts-period-btn active" id="adminWeekBtn" onclick="setAdminPeriod('week')">Week</button>
-          <button class="ts-period-btn"        id="adminYtdBtn"  onclick="setAdminPeriod('ytd')">Year to Date</button>
+          <button class="ts-period-btn" id="adminYtdBtn" onclick="setAdminPeriod('ytd')">Year to Date</button>
         </div>
       </div>
     </div>
 
-    <!-- Team-wide totals strip -->
-    <div class="ts-summary-strip" id="adminSummaryStrip">
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Total Hours</div>
-        <div class="ts-summary-value" id="adminTotalHours">—</div>
-      </div>
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Appts Booked</div>
-        <div class="ts-summary-value" id="adminTotalBooked">—</div>
-      </div>
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Appts Resolved</div>
-        <div class="ts-summary-value" id="adminTotalResolved">—</div>
-      </div>
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Callbacks</div>
-        <div class="ts-summary-value" id="adminTotalCallbacks">—</div>
-      </div>
+    <div class="ts2-strip" id="adminStrip">
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="aTotalHrs">—</div><div class="ts2-strip-label">Total Hours</div></div>
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="aTotalBooked">—</div><div class="ts2-strip-label">Appts Booked</div></div>
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="aTotalResolved">—</div><div class="ts2-strip-label">Appts Resolved</div></div>
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="aTotalCallbacks">—</div><div class="ts2-strip-label">Callbacks</div></div>
     </div>
 
-    <!-- Per-assistant accordions -->
-    <div id="adminAccordions">
-      <div class="ts-empty">Loading...</div>
-    </div>
+    <div id="adminAccordions"><div class="ts-empty">Loading...</div></div>
   </div>
 
-  <!-- ══ ASSISTANT VIEW ══════════════════════════════════════ -->
+  <!-- ══ ASSISTANT VIEW ════════════════════════════════ -->
   <div id="assistantView" style="display:none;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
       <div>
-        <h2 style="margin:0 0 3px 0;font-size:20px;font-weight:800;color:#0f172a;">My Timesheet</h2>
+        <h2 style="margin:0 0 3px;font-size:20px;font-weight:800;color:#0f172a;">My Timesheet</h2>
         <p style="margin:0;font-size:13px;color:#64748b;">Your daily work log</p>
       </div>
-      <button class="btn" id="newEntryBtn" onclick="showForm(null)">
+      <button class="btn" onclick="showNewEntryForm()">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Log Today
+        Log New Day
       </button>
     </div>
 
-    <!-- Week navigator + period toggle -->
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
       <div class="ts-week-nav" id="myWeekNav">
-        <button class="ts-week-arrow" onclick="shiftMyWeek(-1)" title="Previous week">
+        <button class="ts-week-arrow" onclick="shiftMyWeek(-1)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
         <span class="ts-week-label" id="myWeekLabel">—</span>
-        <button class="ts-week-arrow" onclick="shiftMyWeek(1)" title="Next week">
+        <button class="ts-week-arrow" onclick="shiftMyWeek(1)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
       <div class="ts-period-toggle">
         <button class="ts-period-btn active" id="myWeekBtn" onclick="setMyPeriod('week')">Week</button>
-        <button class="ts-period-btn"        id="myYtdBtn"  onclick="setMyPeriod('ytd')">Year to Date</button>
-      </div>
-    </div>
-    <div class="ts-summary-strip" style="margin-bottom:24px;">
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Hours Worked</div>
-        <div class="ts-summary-value" id="myTotalHours">—</div>
-      </div>
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Appts Booked</div>
-        <div class="ts-summary-value" id="myTotalBooked">—</div>
-      </div>
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Appts Resolved</div>
-        <div class="ts-summary-value" id="myTotalResolved">—</div>
-      </div>
-      <div class="ts-summary-card">
-        <div class="ts-summary-label">Callbacks</div>
-        <div class="ts-summary-value" id="myTotalCallbacks">—</div>
+        <button class="ts-period-btn" id="myYtdBtn" onclick="setMyPeriod('ytd')">Year to Date</button>
       </div>
     </div>
 
-    <!-- My entries table -->
-    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+    <div class="ts2-strip" style="margin-bottom:24px;">
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="myTotalHours">—</div><div class="ts2-strip-label">Hours Worked</div></div>
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="myTotalBooked">—</div><div class="ts2-strip-label">Appts Booked</div></div>
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="myTotalResolved">—</div><div class="ts2-strip-label">Appts Resolved</div></div>
+      <div class="ts2-strip-card"><div class="ts2-strip-num" id="myTotalCallbacks">—</div><div class="ts2-strip-label">Callbacks</div></div>
+    </div>
+
+    <div class="ts2-wrap">
       <div style="overflow-x:auto;">
-        <table class="ts-table">
+        <table class="ts2-table" id="myTable">
           <thead>
             <tr>
               <th>Date</th>
-              <th style="text-align:center;">Hours</th>
+              <th colspan="2" style="text-align:center;border-left:2px solid #e2e8f0;">IN</th>
+              <th colspan="2" style="text-align:center;border-left:1px solid #e2e8f0;">OUT</th>
+              <th style="text-align:right;border-left:1px solid #e2e8f0;">Total Hrs</th>
               <th style="text-align:center;">Booked</th>
               <th style="text-align:center;">Resolved</th>
               <th style="text-align:center;">Callbacks</th>
               <th>Notes</th>
-              <th style="text-align:center;width:70px;">Edit</th>
+              <th style="text-align:center;width:80px;">Actions</th>
+            </tr>
+            <tr style="background:#f8fafc;">
+              <th></th>
+              <th style="border-left:2px solid #e2e8f0;color:#94a3b8;font-size:10px;">Day</th>
+              <th style="color:#94a3b8;font-size:10px;">Time</th>
+              <th style="border-left:1px solid #e2e8f0;color:#94a3b8;font-size:10px;">Day</th>
+              <th style="color:#94a3b8;font-size:10px;">Time</th>
+              <th></th><th></th><th></th><th></th><th></th><th></th>
             </tr>
           </thead>
-          <tbody id="myEntriesBody"></tbody>
+          <tbody id="myTbody">
+            <tr><td colspan="11" class="ts-empty">Loading...</td></tr>
+          </tbody>
         </table>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ── Submit / Edit Form Modal ──────────────────────────────── -->
-<div class="modal-backdrop hidden" id="tsModal">
-  <div class="modal-card" onclick="event.stopPropagation()" style="max-width:520px;">
+<!-- ── New Day Modal ─────────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="newDayModal">
+  <div class="modal-card" onclick="event.stopPropagation()" style="max-width:480px;">
     <div class="modal-header">
-      <h3 id="tsModalTitle">Log Work Day</h3>
-      <button class="modal-close" onclick="closeForm()">
+      <h3>Log New Day</h3>
+      <button class="modal-close" onclick="closeNewDayModal()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
     <div class="modal-body">
-      <div class="ts-form-card" style="box-shadow:none;border:none;padding:0;max-width:100%;">
-        <div class="ts-form-grid">
-          <div class="ts-form-field ts-form-full">
-            <label>Date <span style="color:#dc2626;">*</span></label>
-            <input type="date" id="ts_date">
-          </div>
-          <div class="ts-form-field">
-            <label>Hours Worked <span style="color:#dc2626;">*</span></label>
-            <input type="number" id="ts_hours" min="0" max="24" step="0.5" placeholder="e.g. 8">
-          </div>
-          <div class="ts-form-field">
-            <label>Appointments Booked</label>
-            <input type="number" id="ts_booked" min="0" placeholder="0">
-          </div>
-          <div class="ts-form-field">
-            <label>Appointments Resolved</label>
-            <input type="number" id="ts_resolved" min="0" placeholder="0">
-          </div>
-          <div class="ts-form-field">
-            <label>Callbacks</label>
-            <input type="number" id="ts_callbacks" min="0" placeholder="0">
-          </div>
-          <div class="ts-form-field ts-form-full">
-            <label>Notes (optional)</label>
-            <textarea id="ts_notes" placeholder="Any notes about your day..."></textarea>
-          </div>
+      <div class="ts-form-grid">
+        <div class="ts-form-field ts-form-full">
+          <label>Date <span style="color:#dc2626;">*</span></label>
+          <input type="date" id="nd_date">
         </div>
-        <div id="tsFormMsg" style="font-size:13px;color:#dc2626;font-weight:600;min-height:18px;margin-top:4px;"></div>
+        <div class="ts-form-field">
+          <label>Clock In <span style="color:#dc2626;">*</span></label>
+          <input type="time" id="nd_clock_in" step="60">
+        </div>
+        <div class="ts-form-field">
+          <label>Clock Out</label>
+          <input type="time" id="nd_clock_out" step="60">
+        </div>
+        <div class="ts-form-field">
+          <label>Appointments Booked</label>
+          <input type="number" id="nd_booked" min="0" placeholder="0">
+        </div>
+        <div class="ts-form-field">
+          <label>Appointments Resolved</label>
+          <input type="number" id="nd_resolved" min="0" placeholder="0">
+        </div>
+        <div class="ts-form-field ts-form-full">
+          <label>Callbacks</label>
+          <input type="number" id="nd_callbacks" min="0" placeholder="0">
+        </div>
+        <div class="ts-form-field ts-form-full">
+          <label>Notes (optional)</label>
+          <textarea id="nd_notes" placeholder="Any notes about your day..."></textarea>
+        </div>
       </div>
+      <div id="ndMsg" style="font-size:13px;color:#dc2626;font-weight:600;min-height:18px;margin-top:4px;"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn" style="background:#f1f5f9;color:#475569;" onclick="closeForm()">Cancel</button>
-      <button class="btn" id="tsSubmitBtn" onclick="submitEntry()">
+      <button class="btn" style="background:#f1f5f9;color:#475569;" onclick="closeNewDayModal()">Cancel</button>
+      <button class="btn" id="ndSubmitBtn" onclick="submitNewDay()">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
-        Save Entry
+        Save
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add/Edit Punch Modal ──────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="punchModal">
+  <div class="modal-card" onclick="event.stopPropagation()" style="max-width:360px;">
+    <div class="modal-header">
+      <h3 id="punchModalTitle">Add Punch</h3>
+      <button class="modal-close" onclick="closePunchModal()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="ts-form-grid">
+        <div class="ts-form-field">
+          <label>Clock In <span style="color:#dc2626;">*</span></label>
+          <input type="time" id="p_clock_in" step="60">
+        </div>
+        <div class="ts-form-field">
+          <label>Clock Out</label>
+          <input type="time" id="p_clock_out" step="60">
+        </div>
+      </div>
+      <div id="punchMsg" style="font-size:13px;color:#dc2626;font-weight:600;min-height:18px;margin-top:4px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" style="background:#f1f5f9;color:#475569;" onclick="closePunchModal()">Cancel</button>
+      <button class="btn" id="punchSaveBtn" onclick="savePunch()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Metrics Modal ────────────────────────────────────── -->
+<div class="modal-backdrop hidden" id="metricsModal">
+  <div class="modal-card" onclick="event.stopPropagation()" style="max-width:420px;">
+    <div class="modal-header">
+      <h3>Edit Day Metrics</h3>
+      <button class="modal-close" onclick="closeMetricsModal()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="ts-form-grid">
+        <div class="ts-form-field">
+          <label>Appointments Booked</label>
+          <input type="number" id="me_booked" min="0" placeholder="0">
+        </div>
+        <div class="ts-form-field">
+          <label>Appointments Resolved</label>
+          <input type="number" id="me_resolved" min="0" placeholder="0">
+        </div>
+        <div class="ts-form-field ts-form-full">
+          <label>Callbacks</label>
+          <input type="number" id="me_callbacks" min="0" placeholder="0">
+        </div>
+        <div class="ts-form-field ts-form-full">
+          <label>Notes</label>
+          <textarea id="me_notes" placeholder="Any notes about your day..."></textarea>
+        </div>
+      </div>
+      <div id="metricsMsg" style="font-size:13px;color:#dc2626;font-weight:600;min-height:18px;margin-top:4px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" style="background:#f1f5f9;color:#475569;" onclick="closeMetricsModal()">Cancel</button>
+      <button class="btn" id="metricsSaveBtn" onclick="saveMetrics()">Save</button>
     </div>
   </div>
 </div>
@@ -261,7 +372,6 @@
 (function () {
   'use strict';
 
-  // ── Init ──────────────────────────────────────────────────────
   var role  = localStorage.getItem('role') || 'admin';
   var uname = localStorage.getItem('username') || '';
   document.getElementById('username-text').innerText = uname;
@@ -276,32 +386,29 @@
 
   // ── State ─────────────────────────────────────────────────────
   var allEntries    = [];
-  var editingId     = null;
   var adminPeriod   = 'week';
   var myPeriod      = 'week';
-  // weekOffset: 0 = current week, -1 = last week, -2 = two weeks ago, etc.
   var adminWeekOffset = 0;
   var myWeekOffset    = 0;
+
+  // For punch/metrics editing
+  var activePunchEntryId = null;
+  var activePunchId      = null;
+  var activeMetricsId    = null;
 
   // ── Date helpers ──────────────────────────────────────────────
   function todayStr() {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' });
   }
 
-  // Returns Monday of the week that is `offset` weeks from today
-  // offset=0 → this week's Monday, offset=-1 → last Monday, etc.
   function mondayOfWeek(offset) {
     var d = new Date(todayStr() + 'T00:00:00');
-    // getDay(): 0=Sun,1=Mon,...,6=Sat
-    // Shift so week starts Monday: Mon=0, Tue=1,..., Sun=6
-    var dow = (d.getDay() + 6) % 7; // days since Monday
+    var dow = (d.getDay() + 6) % 7;
     d.setDate(d.getDate() - dow + (offset * 7));
     return d;
   }
 
-  function dateStr(d) {
-    return d.toLocaleDateString('en-CA'); // YYYY-MM-DD
-  }
+  function dateStr(d) { return d.toLocaleDateString('en-CA'); }
 
   function weekRangeFor(offset) {
     var mon = mondayOfWeek(offset);
@@ -311,36 +418,44 @@
   }
 
   function formatWeekLabel(offset) {
-    var r = weekRangeFor(offset);
+    var r   = weekRangeFor(offset);
     var opts = { month: 'short', day: 'numeric' };
-    var monStr = r.mon.toLocaleDateString('en-US', opts);
-    var sunStr = r.sun.toLocaleDateString('en-US', opts);
-    if (offset === 0) return 'This Week (' + monStr + ' – ' + sunStr + ')';
-    if (offset === -1) return 'Last Week (' + monStr + ' – ' + sunStr + ')';
-    return monStr + ' – ' + sunStr;
+    var s   = r.mon.toLocaleDateString('en-US', opts);
+    var e   = r.sun.toLocaleDateString('en-US', opts);
+    if (offset === 0) return 'This Week (' + s + ' – ' + e + ')';
+    if (offset === -1) return 'Last Week (' + s + ' – ' + e + ')';
+    return s + ' – ' + e;
   }
 
   function thisYear() {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Edmonton' }).slice(0, 4);
   }
 
-  function filterByWeekOffset(entries, offset) {
+  function filterByPeriod(entries, period, offset) {
+    if (period === 'ytd') return entries.filter(function(e) { return e.date >= thisYear() + '-01-01'; });
     var r = weekRangeFor(offset);
     return entries.filter(function(e) { return e.date >= r.start && e.date <= r.end; });
   }
 
-  function filterByPeriod(entries, period, weekOffset) {
-    if (period === 'ytd') {
-      return entries.filter(function(e) { return e.date >= thisYear() + '-01-01'; });
-    }
-    return filterByWeekOffset(entries, weekOffset);
-  }
-
   function fmtDate(d) {
     if (!d) return '';
-    return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
-      weekday: 'short', month: 'short', day: 'numeric'
-    });
+    return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+
+  function fmtDayShort(d) {
+    if (!d) return '';
+    return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+  }
+
+  function fmtTime12(t) {
+    if (!t) return '';
+    try {
+      var parts = t.split(':');
+      var h = parseInt(parts[0]), m = parseInt(parts[1]);
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      var h12 = h % 12 || 12;
+      return h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+    } catch(e) { return t; }
   }
 
   function esc(s) {
@@ -363,14 +478,11 @@
     var nav   = document.getElementById(navId);
     if (!label || !nav) return;
     if (period === 'ytd') {
-      nav.style.opacity        = '0.4';
-      nav.style.pointerEvents  = 'none';
-      label.innerText          = thisYear() + ' Year to Date';
+      nav.style.opacity = '0.4'; nav.style.pointerEvents = 'none';
+      label.innerText = thisYear() + ' Year to Date';
     } else {
-      nav.style.opacity        = '1';
-      nav.style.pointerEvents  = '';
-      label.innerText          = formatWeekLabel(offset);
-      // Disable next arrow if already on current week or beyond
+      nav.style.opacity = '1'; nav.style.pointerEvents = '';
+      label.innerText = formatWeekLabel(offset);
       var nextBtn = nav.querySelector('.ts-week-arrow:last-child');
       if (nextBtn) nextBtn.disabled = offset >= 0;
     }
@@ -379,139 +491,116 @@
   // ── Load ──────────────────────────────────────────────────────
   async function load() {
     try {
-      var res = await fetch(API + '/timesheet', {
-        headers: { Authorization: 'Bearer ' + TOKEN }
-      });
+      var res = await fetch(API + '/timesheet', { headers: { Authorization: 'Bearer ' + TOKEN } });
       if (!res.ok) { showToast('Failed to load timesheet.', 'error'); return; }
       allEntries = await res.json();
       if (role === 'admin') renderAdmin();
       else renderAssistant();
-    } catch(e) {
-      showToast('Server error loading timesheet.', 'error');
-    }
+    } catch(e) { showToast('Server error loading timesheet.', 'error'); }
   }
 
-  // ── ADMIN ─────────────────────────────────────────────────────
-  window.setAdminPeriod = function(p) {
-    adminPeriod = p;
-    document.getElementById('adminWeekBtn').classList.toggle('active', p === 'week');
-    document.getElementById('adminYtdBtn').classList.toggle('active',  p === 'ytd');
-    renderAdmin();
-  };
+  // ── Build timesheet table rows for a list of entries ──────────
+  function buildRows(entries, isAdmin) {
+    // Sort by date descending
+    var sorted = entries.slice().sort(function(a,b) { return b.date.localeCompare(a.date); });
+    if (sorted.length === 0) return '<tr><td colspan="11" class="ts-empty">No entries for this period.</td></tr>';
 
-  window.shiftAdminWeek = function(dir) {
-    if (adminPeriod !== 'week') return;
-    var next = adminWeekOffset + dir;
-    if (next > 0) return; // can't go into the future
-    adminWeekOffset = next;
-    renderAdmin();
-  };
+    var html = '';
+    var periodTotalHrs = 0;
 
-  function renderAdmin() {
-    updateWeekNav('adminWeekLabel', 'adminWeekNav', adminWeekOffset, adminPeriod);
-    var filtered = filterByPeriod(allEntries, adminPeriod, adminWeekOffset);
+    sorted.forEach(function(entry) {
+      var punches = entry.punches || [];
+      var rowCount = Math.max(punches.length, 1);
+      periodTotalHrs += Number(entry.hours_worked) || 0;
 
-    var t = totals(filtered);
-    document.getElementById('adminTotalHours').innerText     = t.hours.toFixed(1);
-    document.getElementById('adminTotalBooked').innerText    = t.booked;
-    document.getElementById('adminTotalResolved').innerText  = t.resolved;
-    document.getElementById('adminTotalCallbacks').innerText = t.callbacks;
+      // Determine if today is past this date (closed period)
+      var today = todayStr();
+      var isClosed = entry.date < today;
 
-    var byUser = {};
-    filtered.forEach(function(e) {
-      if (!byUser[e.username]) byUser[e.username] = [];
-      byUser[e.username].push(e);
+      for (var pi = 0; pi < rowCount; pi++) {
+        var punch     = punches[pi];
+        var isFirst   = pi === 0;
+        var isLast    = pi === rowCount - 1;
+
+        var dateCell = isFirst
+          ? '<td class="ts2-date" rowspan="' + rowCount + '" style="border-right:1px solid #f1f5f9;vertical-align:top;padding-top:12px;">' +
+              fmtDate(entry.date) +
+              (isClosed ? '<span class="ts2-closed">Closed</span>' : '<span class="ts2-open">Open</span>') +
+            '</td>'
+          : '';
+
+        var inDay  = punch ? fmtDayShort(entry.date) : '';
+        var inTime = punch ? fmtTime12(punch.clock_in) : '';
+        var outDay = punch && punch.clock_out ? fmtDayShort(entry.date) : '';
+        var outTime = punch && punch.clock_out ? fmtTime12(punch.clock_out) : '';
+        var hrs    = punch && punch.hours_delta ? punch.hours_delta.toFixed(2) : '';
+
+        // Metrics only on first row
+        var metricCells = isFirst
+          ? '<td class="ts2-metric" rowspan="' + rowCount + '"><span class="ts2-metric-val">' + (entry.appts_booked || 0) + '</span></td>' +
+            '<td class="ts2-metric" rowspan="' + rowCount + '"><span class="ts2-metric-val">' + (entry.appts_resolved || 0) + '</span></td>' +
+            '<td class="ts2-metric" rowspan="' + rowCount + '"><span class="ts2-metric-val">' + (entry.callbacks || 0) + '</span></td>' +
+            '<td class="ts2-notes-cell" rowspan="' + rowCount + '">' + esc(entry.notes) + '</td>'
+          : '';
+
+        // Actions on first row
+        var actionCell = '';
+        if (isFirst) {
+          actionCell = '<td class="ts2-actions" rowspan="' + rowCount + '" style="vertical-align:top;padding-top:8px;">' +
+            (!isAdmin ? '<button class="ts2-btn" title="Add punch" onclick="openAddPunch(' + entry.id + ')">' +
+              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+            '</button>' : '') +
+            (!isAdmin ? '<button class="ts2-btn" title="Edit metrics" onclick="openMetrics(' + entry.id + ')">' +
+              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
+            '</button>' : '') +
+            (isAdmin ? '<button class="ts2-btn del" title="Delete entry" onclick="adminDeleteEntry(' + entry.id + ',event)">' +
+              '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' +
+            '</button>' : '') +
+          '</td>';
+        }
+
+        // Punch edit/delete buttons
+        var punchActions = '';
+        if (punch && !isAdmin) {
+          punchActions = '<button class="ts2-btn" title="Edit punch" onclick="openEditPunch(' + punch.id + ',\'' + punch.clock_in + '\',\'' + (punch.clock_out||'') + '\')">' +
+            '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
+          '</button>' +
+          '<button class="ts2-btn del" title="Delete punch" onclick="deletePunch(' + punch.id + ')">' +
+            '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+          '</button>';
+        }
+
+        html += '<tr>' +
+          dateCell +
+          '<td style="border-left:2px solid #e2e8f0;" class="' + (inDay ? 'ts2-time' : 'ts2-time-empty') + '">' + esc(inDay) + '</td>' +
+          '<td class="' + (inTime ? 'ts2-time' : 'ts2-time-empty') + '">' + esc(inTime) + ' ' + punchActions + '</td>' +
+          '<td style="border-left:1px solid #e2e8f0;" class="' + (outDay ? 'ts2-time' : 'ts2-time-empty') + '">' + esc(outDay) + '</td>' +
+          '<td class="' + (outTime ? 'ts2-time' : 'ts2-time-empty') + '">' + esc(outTime) + '</td>' +
+          '<td class="' + (hrs ? 'ts2-hrs' : 'ts2-hrs-zero') + '" style="border-left:1px solid #f1f5f9;">' + (hrs || '—') + '</td>' +
+          metricCells +
+          actionCell +
+        '</tr>';
+      }
+
+      // Daily total row
+      html += '<tr class="ts2-day-total">' +
+        '<td colspan="5" class="ts2-total-label" style="padding-left:16px;">Daily Total</td>' +
+        '<td class="ts2-total-hrs">' + Number(entry.hours_worked).toFixed(2) + '</td>' +
+        '<td colspan="5"></td>' +
+      '</tr>';
     });
 
-    var container = document.getElementById('adminAccordions');
-    if (Object.keys(byUser).length === 0) {
-      container.innerHTML = '<div class="ts-empty">No entries found for this period.</div>';
-      return;
-    }
+    // Period total row
+    html += '<tr class="ts2-period-total">' +
+      '<td colspan="5" class="ts2-period-label" style="padding-left:16px;">Period Total</td>' +
+      '<td style="font-weight:800;text-align:right;font-size:15px;">' + periodTotalHrs.toFixed(2) + '</td>' +
+      '<td colspan="5"></td>' +
+    '</tr>';
 
-    container.innerHTML = Object.keys(byUser).sort().map(function(username) {
-      var rows     = byUser[username].sort(function(a,b) { return b.date.localeCompare(a.date); });
-      var ut       = totals(rows);
-      var initials = username.slice(0,2).toUpperCase();
-      var uid      = 'acc-' + username.replace(/[^a-z0-9]/gi, '_');
-
-      var tableRows = rows.map(function(e) {
-        return '<tr>' +
-          '<td class="ts-date">'  + esc(fmtDate(e.date)) + '</td>' +
-          '<td class="ts-hours" style="text-align:center;">' + Number(e.hours_worked).toFixed(1) + 'h</td>' +
-          '<td class="ts-num">'   + e.appts_booked   + '</td>' +
-          '<td class="ts-num">'   + e.appts_resolved  + '</td>' +
-          '<td class="ts-num">'   + e.callbacks       + '</td>' +
-          '<td class="ts-notes">' + esc(e.notes)      + '</td>' +
-          '<td style="text-align:center;">' +
-            '<button class="btn small" style="background:#fee2e2;color:#dc2626;" ' +
-              'onclick="adminDeleteEntry(' + e.id + ',event)" title="Delete">' +
-              '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' +
-            '</button>' +
-          '</td>' +
-        '</tr>';
-      }).join('');
-
-      return '<div class="ts-assistant-block" id="' + uid + '">' +
-        '<div class="ts-assistant-header" onclick="toggleAccordion(\'' + uid + '\')">' +
-          '<div class="ts-assistant-name">' +
-            '<div class="ts-assistant-avatar">' + esc(initials) + '</div>' +
-            esc(username) +
-          '</div>' +
-          '<div class="ts-assistant-stats">' +
-            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Hours</div><div class="ts-assistant-stat-val">' + ut.hours.toFixed(1) + '</div></div>' +
-            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Booked</div><div class="ts-assistant-stat-val">' + ut.booked + '</div></div>' +
-            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Resolved</div><div class="ts-assistant-stat-val">' + ut.resolved + '</div></div>' +
-            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Callbacks</div><div class="ts-assistant-stat-val">' + ut.callbacks + '</div></div>' +
-          '</div>' +
-          '<svg class="ts-chevron open" id="chev-' + uid + '" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' +
-        '</div>' +
-        '<div class="ts-assistant-body" id="body-' + uid + '">' +
-          '<table class="ts-table">' +
-            '<thead><tr>' +
-              '<th>Date</th><th style="text-align:center;">Hours</th>' +
-              '<th style="text-align:center;">Booked</th><th style="text-align:center;">Resolved</th>' +
-              '<th style="text-align:center;">Callbacks</th><th>Notes</th>' +
-              '<th style="text-align:center;width:60px;">Del</th>' +
-            '</tr></thead>' +
-            '<tbody>' + tableRows + '</tbody>' +
-            '<tfoot><tr>' +
-              '<td class="ts-foot-label">Totals</td>' +
-              '<td>' + ut.hours.toFixed(1) + 'h</td>' +
-              '<td>' + ut.booked   + '</td>' +
-              '<td>' + ut.resolved + '</td>' +
-              '<td>' + ut.callbacks + '</td>' +
-              '<td colspan="2"></td>' +
-            '</tr></tfoot>' +
-          '</table>' +
-        '</div>' +
-      '</div>';
-    }).join('');
+    return html;
   }
 
-  window.toggleAccordion = function(uid) {
-    var body = document.getElementById('body-' + uid);
-    var chev = document.getElementById('chev-' + uid);
-    var open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : '';
-    chev.classList.toggle('open', !open);
-  };
-
-  window.adminDeleteEntry = function(id, evt) {
-    evt.stopPropagation();
-    showConfirm('Delete this timesheet entry? This cannot be undone.', async function() {
-      try {
-        var res = await fetch(API + '/timesheet/' + id, {
-          method: 'DELETE',
-          headers: { Authorization: 'Bearer ' + TOKEN }
-        });
-        if (res.ok) { showToast('Entry deleted.'); load(); }
-        else showToast('Failed to delete.', 'error');
-      } catch(e) { showToast('Server error.', 'error'); }
-    }, { confirmText: 'Delete' });
-  };
-
-  // ── ASSISTANT ─────────────────────────────────────────────────
+  // ── ASSISTANT render ──────────────────────────────────────────
   window.setMyPeriod = function(p) {
     myPeriod = p;
     document.getElementById('myWeekBtn').classList.toggle('active', p === 'week');
@@ -531,125 +620,314 @@
     updateWeekNav('myWeekLabel', 'myWeekNav', myWeekOffset, myPeriod);
     var filtered = filterByPeriod(allEntries, myPeriod, myWeekOffset);
     var t = totals(filtered);
-    document.getElementById('myTotalHours').innerText     = t.hours.toFixed(1);
-    document.getElementById('myTotalBooked').innerText    = t.booked;
-    document.getElementById('myTotalResolved').innerText  = t.resolved;
-    document.getElementById('myTotalCallbacks').innerText = t.callbacks;
+    document.getElementById('myTotalHours').innerText    = t.hours.toFixed(1);
+    document.getElementById('myTotalBooked').innerText   = t.booked;
+    document.getElementById('myTotalResolved').innerText = t.resolved;
+    document.getElementById('myTotalCallbacks').innerText= t.callbacks;
+    document.getElementById('myTbody').innerHTML = buildRows(allEntries, false);
+  }
 
-    // Table always shows all entries sorted newest first
-    var sorted = allEntries.slice().sort(function(a,b) { return b.date.localeCompare(a.date); });
-    var tbody  = document.getElementById('myEntriesBody');
+  // ── ADMIN render ──────────────────────────────────────────────
+  window.setAdminPeriod = function(p) {
+    adminPeriod = p;
+    document.getElementById('adminWeekBtn').classList.toggle('active', p === 'week');
+    document.getElementById('adminYtdBtn').classList.toggle('active',  p === 'ytd');
+    renderAdmin();
+  };
 
-    if (sorted.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="ts-empty">No entries yet. Click "Log Today" to add your first entry.</td></tr>';
+  window.shiftAdminWeek = function(dir) {
+    if (adminPeriod !== 'week') return;
+    var next = adminWeekOffset + dir;
+    if (next > 0) return;
+    adminWeekOffset = next;
+    renderAdmin();
+  };
+
+  function renderAdmin() {
+    updateWeekNav('adminWeekLabel', 'adminWeekNav', adminWeekOffset, adminPeriod);
+    var filtered = filterByPeriod(allEntries, adminPeriod, adminWeekOffset);
+    var t = totals(filtered);
+    document.getElementById('aTotalHrs').innerText       = t.hours.toFixed(1);
+    document.getElementById('aTotalBooked').innerText    = t.booked;
+    document.getElementById('aTotalResolved').innerText  = t.resolved;
+    document.getElementById('aTotalCallbacks').innerText = t.callbacks;
+
+    var byUser = {};
+    filtered.forEach(function(e) {
+      if (!byUser[e.username]) byUser[e.username] = [];
+      byUser[e.username].push(e);
+    });
+
+    var container = document.getElementById('adminAccordions');
+    if (Object.keys(byUser).length === 0) {
+      container.innerHTML = '<div class="ts-empty">No entries found for this period.</div>';
       return;
     }
 
-    tbody.innerHTML = sorted.map(function(e) {
-      // Highlight rows that fall in the current week view
-      var r = weekRangeFor(myWeekOffset);
-      var inView = myPeriod === 'week' && e.date >= r.start && e.date <= r.end;
-      return '<tr' + (inView ? '' : ' style="opacity:0.45;"') + '>' +
-        '<td class="ts-date">'  + esc(fmtDate(e.date)) + '</td>' +
-        '<td class="ts-hours" style="text-align:center;">' + Number(e.hours_worked).toFixed(1) + 'h</td>' +
-        '<td class="ts-num">'   + e.appts_booked   + '</td>' +
-        '<td class="ts-num">'   + e.appts_resolved  + '</td>' +
-        '<td class="ts-num">'   + e.callbacks       + '</td>' +
-        '<td class="ts-notes">' + esc(e.notes)      + '</td>' +
-        '<td style="text-align:center;">' +
-          '<button class="btn small" style="background:#eff6ff;color:#2563eb;" ' +
-            'onclick="showForm(' + e.id + ')" title="Edit">' +
-            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
-          '</button>' +
-        '</td>' +
-      '</tr>';
+    container.innerHTML = Object.keys(byUser).sort().map(function(username) {
+      var rows     = byUser[username];
+      var ut       = totals(rows);
+      var initials = username.slice(0,2).toUpperCase();
+      var uid      = 'acc-' + username.replace(/[^a-z0-9]/gi, '_');
+
+      return '<div class="ts-assistant-block" id="' + uid + '">' +
+        '<div class="ts-assistant-header" onclick="toggleAccordion(\'' + uid + '\')">' +
+          '<div class="ts-assistant-name">' +
+            '<div class="ts-assistant-avatar">' + esc(initials) + '</div>' +
+            esc(username) +
+          '</div>' +
+          '<div class="ts-assistant-stats">' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Hours</div><div class="ts-assistant-stat-val">' + ut.hours.toFixed(1) + '</div></div>' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Booked</div><div class="ts-assistant-stat-val">' + ut.booked + '</div></div>' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Resolved</div><div class="ts-assistant-stat-val">' + ut.resolved + '</div></div>' +
+            '<div class="ts-assistant-stat"><div class="ts-assistant-stat-label">Callbacks</div><div class="ts-assistant-stat-val">' + ut.callbacks + '</div></div>' +
+          '</div>' +
+          '<svg class="ts-chevron open" id="chev-' + uid + '" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' +
+        '</div>' +
+        '<div class="ts-assistant-body" id="body-' + uid + '">' +
+          '<div style="overflow-x:auto;">' +
+          '<table class="ts2-table">' +
+            '<thead>' +
+              '<tr>' +
+                '<th>Date</th>' +
+                '<th colspan="2" style="text-align:center;border-left:2px solid #e2e8f0;">IN</th>' +
+                '<th colspan="2" style="text-align:center;border-left:1px solid #e2e8f0;">OUT</th>' +
+                '<th style="text-align:right;border-left:1px solid #e2e8f0;">Total Hrs</th>' +
+                '<th style="text-align:center;">Booked</th>' +
+                '<th style="text-align:center;">Resolved</th>' +
+                '<th style="text-align:center;">Callbacks</th>' +
+                '<th>Notes</th>' +
+                '<th style="width:50px;text-align:center;">Del</th>' +
+              '</tr>' +
+            '</thead>' +
+            '<tbody>' + buildRows(rows, true) + '</tbody>' +
+          '</table>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
     }).join('');
   }
 
-  // ── Form ──────────────────────────────────────────────────────
-  window.showForm = function(id) {
-    editingId = id;
-    document.getElementById('tsFormMsg').innerText = '';
-    if (id === null) {
-      document.getElementById('tsModalTitle').innerText  = 'Log Work Day';
-      document.getElementById('ts_date').value          = todayStr();
-      document.getElementById('ts_date').readOnly       = false;
-      document.getElementById('ts_hours').value         = '';
-      document.getElementById('ts_booked').value        = '';
-      document.getElementById('ts_resolved').value      = '';
-      document.getElementById('ts_callbacks').value     = '';
-      document.getElementById('ts_notes').value         = '';
-    } else {
-      var entry = allEntries.find(function(e) { return e.id === id; });
-      if (!entry) return;
-      document.getElementById('tsModalTitle').innerText  = 'Edit Entry';
-      document.getElementById('ts_date').value          = entry.date;
-      document.getElementById('ts_date').readOnly       = true;
-      document.getElementById('ts_hours').value         = entry.hours_worked;
-      document.getElementById('ts_booked').value        = entry.appts_booked;
-      document.getElementById('ts_resolved').value      = entry.appts_resolved;
-      document.getElementById('ts_callbacks').value     = entry.callbacks;
-      document.getElementById('ts_notes').value         = entry.notes;
-    }
-    document.getElementById('tsModal').classList.remove('hidden');
-    setTimeout(function() { document.getElementById('ts_hours').focus(); }, 100);
+  window.toggleAccordion = function(uid) {
+    var body = document.getElementById('body-' + uid);
+    var chev = document.getElementById('chev-' + uid);
+    var open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : '';
+    chev.classList.toggle('open', !open);
   };
 
-  window.closeForm = function() {
-    document.getElementById('tsModal').classList.add('hidden');
-    editingId = null;
+  window.adminDeleteEntry = function(id, evt) {
+    if (evt) evt.stopPropagation();
+    showConfirm('Delete this timesheet entry? This cannot be undone.', async function() {
+      try {
+        var res = await fetch(API + '/timesheet/' + id, {
+          method: 'DELETE', headers: { Authorization: 'Bearer ' + TOKEN }
+        });
+        if (res.ok) { showToast('Entry deleted.'); load(); }
+        else showToast('Failed to delete.', 'error');
+      } catch(e) { showToast('Server error.', 'error'); }
+    }, { confirmText: 'Delete' });
   };
 
-  window.submitEntry = async function() {
-    var msgEl     = document.getElementById('tsFormMsg');
-    var date      = document.getElementById('ts_date').value;
-    var hours     = parseFloat(document.getElementById('ts_hours').value);
-    var booked    = parseInt(document.getElementById('ts_booked').value)    || 0;
-    var resolved  = parseInt(document.getElementById('ts_resolved').value)  || 0;
-    var callbacks = parseInt(document.getElementById('ts_callbacks').value) || 0;
-    var notes     = document.getElementById('ts_notes').value.trim();
+  // ── New Day Form ──────────────────────────────────────────────
+  window.showNewEntryForm = function() {
+    document.getElementById('nd_date').value      = todayStr();
+    document.getElementById('nd_clock_in').value  = '';
+    document.getElementById('nd_clock_out').value = '';
+    document.getElementById('nd_booked').value    = '';
+    document.getElementById('nd_resolved').value  = '';
+    document.getElementById('nd_callbacks').value = '';
+    document.getElementById('nd_notes').value     = '';
+    document.getElementById('ndMsg').innerText    = '';
+    document.getElementById('newDayModal').classList.remove('hidden');
+  };
+
+  window.closeNewDayModal = function() {
+    document.getElementById('newDayModal').classList.add('hidden');
+  };
+
+  window.submitNewDay = async function() {
+    var msgEl     = document.getElementById('ndMsg');
+    var date      = document.getElementById('nd_date').value;
+    var clockIn   = document.getElementById('nd_clock_in').value;
+    var clockOut  = document.getElementById('nd_clock_out').value;
+    var booked    = parseInt(document.getElementById('nd_booked').value)    || 0;
+    var resolved  = parseInt(document.getElementById('nd_resolved').value)  || 0;
+    var callbacks = parseInt(document.getElementById('nd_callbacks').value) || 0;
+    var notes     = document.getElementById('nd_notes').value.trim();
 
     msgEl.innerText = '';
-    if (!date)                    { msgEl.innerText = 'Date is required.'; return; }
-    if (isNaN(hours) || hours < 0){ msgEl.innerText = 'Enter a valid number of hours.'; return; }
+    if (!date)    { msgEl.innerText = 'Date is required.'; return; }
+    if (!clockIn) { msgEl.innerText = 'Clock in time is required.'; return; }
 
-    var btn = document.getElementById('tsSubmitBtn');
-    btn.disabled  = true;
-    btn.innerText = 'Saving...';
+    var btn = document.getElementById('ndSubmitBtn');
+    btn.disabled = true; btn.innerText = 'Saving...';
 
     try {
-      var url     = editingId ? API + '/timesheet/' + editingId : API + '/timesheet';
-      var method  = editingId ? 'PUT' : 'POST';
-      var payload = { hours_worked: hours, appts_booked: booked, appts_resolved: resolved, callbacks: callbacks, notes: notes };
-      if (!editingId) payload.date = date;
-
-      var res = await fetch(url, {
-        method: method,
+      // 1. Create the entry
+      var entryRes = await fetch(API + '/timesheet', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ date: date, hours_worked: 0, appts_booked: booked,
+          appts_resolved: resolved, callbacks: callbacks, notes: notes })
       });
-
-      if (res.ok) {
-        closeForm();
-        showToast(editingId ? 'Entry updated!' : 'Entry saved!');
-        await load();
-      } else {
-        var err = await res.json().catch(function() { return {}; });
-        msgEl.innerText = err.detail || 'Failed to save. Please try again.';
+      if (!entryRes.ok) {
+        var err = await entryRes.json().catch(function() { return {}; });
+        msgEl.innerText = err.detail || 'Failed to create entry.';
+        return;
       }
+      var entry = await entryRes.json();
+
+      // 2. Add punch
+      var punchRes = await fetch(API + '/timesheet/' + entry.id + '/punches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+        body: JSON.stringify({ clock_in: clockIn, clock_out: clockOut || '' })
+      });
+      if (!punchRes.ok) {
+        var err2 = await punchRes.json().catch(function() { return {}; });
+        msgEl.innerText = err2.detail || 'Entry created but punch failed.';
+        return;
+      }
+
+      closeNewDayModal();
+      showToast('Day logged!');
+      await load();
     } catch(e) {
       msgEl.innerText = 'Server error. Please try again.';
     } finally {
-      btn.disabled  = false;
-      btn.innerText = 'Save Entry';
+      btn.disabled = false; btn.innerText = 'Save';
     }
   };
 
-  document.getElementById('tsModal').addEventListener('click', function(e) {
-    if (e.target === this) closeForm();
+  // ── Add Punch ─────────────────────────────────────────────────
+  window.openAddPunch = function(entryId) {
+    activePunchEntryId = entryId;
+    activePunchId      = null;
+    document.getElementById('punchModalTitle').innerText = 'Add Punch';
+    document.getElementById('p_clock_in').value  = '';
+    document.getElementById('p_clock_out').value = '';
+    document.getElementById('punchMsg').innerText = '';
+    document.getElementById('punchModal').classList.remove('hidden');
+  };
+
+  window.openEditPunch = function(punchId, clockIn, clockOut) {
+    activePunchEntryId = null;
+    activePunchId      = punchId;
+    document.getElementById('punchModalTitle').innerText = 'Edit Punch';
+    document.getElementById('p_clock_in').value  = clockIn  || '';
+    document.getElementById('p_clock_out').value = clockOut || '';
+    document.getElementById('punchMsg').innerText = '';
+    document.getElementById('punchModal').classList.remove('hidden');
+  };
+
+  window.closePunchModal = function() {
+    document.getElementById('punchModal').classList.add('hidden');
+  };
+
+  window.savePunch = async function() {
+    var msgEl    = document.getElementById('punchMsg');
+    var clockIn  = document.getElementById('p_clock_in').value;
+    var clockOut = document.getElementById('p_clock_out').value;
+    msgEl.innerText = '';
+    if (!clockIn) { msgEl.innerText = 'Clock in is required.'; return; }
+
+    var btn = document.getElementById('punchSaveBtn');
+    btn.disabled = true; btn.innerText = 'Saving...';
+
+    try {
+      var url, method;
+      if (activePunchId) {
+        url    = API + '/timesheet/punches/' + activePunchId;
+        method = 'PUT';
+      } else {
+        url    = API + '/timesheet/' + activePunchEntryId + '/punches';
+        method = 'POST';
+      }
+      var res = await fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+        body: JSON.stringify({ clock_in: clockIn, clock_out: clockOut || '' })
+      });
+      if (res.ok) {
+        closePunchModal();
+        showToast(activePunchId ? 'Punch updated!' : 'Punch added!');
+        await load();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        msgEl.innerText = err.detail || 'Failed to save punch.';
+      }
+    } catch(e) { msgEl.innerText = 'Server error.'; }
+    finally { btn.disabled = false; btn.innerText = 'Save'; }
+  };
+
+  window.deletePunch = function(punchId) {
+    showConfirm('Delete this punch? The daily total will be recalculated.', async function() {
+      try {
+        var res = await fetch(API + '/timesheet/punches/' + punchId, {
+          method: 'DELETE', headers: { Authorization: 'Bearer ' + TOKEN }
+        });
+        if (res.ok) { showToast('Punch deleted.'); load(); }
+        else showToast('Failed to delete punch.', 'error');
+      } catch(e) { showToast('Server error.', 'error'); }
+    }, { confirmText: 'Delete' });
+  };
+
+  // ── Edit Metrics ──────────────────────────────────────────────
+  window.openMetrics = function(entryId) {
+    var entry = allEntries.find(function(e) { return e.id === entryId; });
+    if (!entry) return;
+    activeMetricsId = entryId;
+    document.getElementById('me_booked').value    = entry.appts_booked   || 0;
+    document.getElementById('me_resolved').value  = entry.appts_resolved || 0;
+    document.getElementById('me_callbacks').value = entry.callbacks      || 0;
+    document.getElementById('me_notes').value     = entry.notes          || '';
+    document.getElementById('metricsMsg').innerText = '';
+    document.getElementById('metricsModal').classList.remove('hidden');
+  };
+
+  window.closeMetricsModal = function() {
+    document.getElementById('metricsModal').classList.add('hidden');
+  };
+
+  window.saveMetrics = async function() {
+    var msgEl     = document.getElementById('metricsMsg');
+    var entry     = allEntries.find(function(e) { return e.id === activeMetricsId; });
+    if (!entry) return;
+    var booked    = parseInt(document.getElementById('me_booked').value)    || 0;
+    var resolved  = parseInt(document.getElementById('me_resolved').value)  || 0;
+    var callbacks = parseInt(document.getElementById('me_callbacks').value) || 0;
+    var notes     = document.getElementById('me_notes').value.trim();
+
+    var btn = document.getElementById('metricsSaveBtn');
+    btn.disabled = true; btn.innerText = 'Saving...';
+
+    try {
+      var res = await fetch(API + '/timesheet/' + activeMetricsId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+        body: JSON.stringify({ hours_worked: entry.hours_worked, appts_booked: booked,
+          appts_resolved: resolved, callbacks: callbacks, notes: notes })
+      });
+      if (res.ok) {
+        closeMetricsModal();
+        showToast('Metrics updated!');
+        await load();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        msgEl.innerText = err.detail || 'Failed to save.';
+      }
+    } catch(e) { msgEl.innerText = 'Server error.'; }
+    finally { btn.disabled = false; btn.innerText = 'Save'; }
+  };
+
+  // Close modals on backdrop click
+  ['newDayModal','punchModal','metricsModal'].forEach(function(id) {
+    document.getElementById(id).addEventListener('click', function(e) {
+      if (e.target === this) this.classList.add('hidden');
+    });
   });
 
-  // ── Boot ──────────────────────────────────────────────────────
   load();
 })();
 </script>

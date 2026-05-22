@@ -40,7 +40,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, TimesheetEntry, RcToken
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, TimesheetEntry, TimesheetPunch, RcToken
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -577,8 +577,10 @@ def login(request: Request, data: UserPayload, db: Session = Depends(get_db)):
 
     if not user or not ok:
         logger.warning(f"Failed login: {username}")
-        # Generic message — never reveal whether the username exists
         raise HTTPException(401, "Invalid username or password.")
+
+    if getattr(user, "is_suspended", False):
+        raise HTTPException(403, "Your account has been suspended. Please contact your manager.")
 
     if user.role == "admin":
         can_planner, can_quality = True, True
@@ -705,8 +707,6 @@ def update_assistant_permissions(assistant_id: int,
                                   user: User = Depends(get_current_user),
                                   db: Session = Depends(get_db)):
     _require_admin(user)
-    if not data.can_planner and not data.can_quality:
-        raise HTTPException(400, "At least one permission must be selected.")
     assistant = db.query(User).filter(
         User.id == assistant_id,
         User.role == "assistant",
@@ -732,8 +732,30 @@ def list_assistants(user: User = Depends(get_current_user),
     ).all()
     return [{"id": a.id, "username": a.username, "role": a.role,
              "can_planner": bool(a.can_planner),
-             "can_quality": bool(a.can_quality)}
+             "can_quality": bool(a.can_quality),
+             "is_suspended": bool(getattr(a, "is_suspended", False))}
             for a in assistants]
+
+@app.patch("/assistants/{assistant_id}/suspend")
+def suspend_assistant(assistant_id: int,
+                      user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """Toggle suspended state for an assistant. No permissions required."""
+    _require_admin(user)
+    assistant = db.query(User).filter(
+        User.id == assistant_id,
+        User.role == "assistant",
+        User.owner_id == user.id
+    ).first()
+    if not assistant:
+        raise HTTPException(404, "Assistant not found.")
+    assistant.is_suspended = not bool(getattr(assistant, "is_suspended", False))
+    # Bump token version so any active session is immediately invalidated
+    assistant.token_version = (assistant.token_version or 0) + 1
+    db.commit()
+    action = "suspended" if assistant.is_suspended else "unsuspended"
+    audit(db, user.id, f"assistant_{action}", assistant.username)
+    return {"is_suspended": bool(assistant.is_suspended)}
 
 @app.delete("/assistants/{assistant_id}")
 def delete_assistant(assistant_id: int,
@@ -1472,6 +1494,14 @@ class TimesheetUpdatePayload(BaseModel):
     notes:          str = ""
 
 def _ts_row(entry: TimesheetEntry, username: str) -> dict:
+    punches = []
+    for p in (entry.punches or []):
+        punches.append({
+            "id":          p.id,
+            "clock_in":    p.clock_in,
+            "clock_out":   p.clock_out or "",
+            "hours_delta": round(p.hours_delta or 0, 2),
+        })
     return {
         "id":             entry.id,
         "username":       username,
@@ -1482,9 +1512,116 @@ def _ts_row(entry: TimesheetEntry, username: str) -> dict:
         "callbacks":      entry.callbacks,
         "notes":          entry.notes,
         "submitted_at":   entry.submitted_at,
+        "punches":        punches,
     }
 
-@app.post("/timesheet", status_code=201)
+def _recalc_hours(entry: TimesheetEntry, db):
+    """Recalculate total hours_worked from all punches on this entry."""
+    total = 0.0
+    for p in entry.punches:
+        if p.clock_in and p.clock_out:
+            try:
+                h_in,  m_in  = map(int, p.clock_in.split(":"))
+                h_out, m_out = map(int, p.clock_out.split(":"))
+                mins = (h_out * 60 + m_out) - (h_in * 60 + m_in)
+                delta = max(0.0, mins / 60.0)
+                p.hours_delta = round(delta, 2)
+                total += delta
+            except Exception:
+                pass
+    entry.hours_worked = round(total, 2)
+    db.commit()
+
+class PunchPayload(BaseModel):
+    clock_in:  str   # HH:MM
+    clock_out: Optional[str] = ""
+
+@app.post("/timesheet/{entry_id}/punches", status_code=201)
+def add_punch(entry_id: int,
+              data: PunchPayload,
+              user: User = Depends(get_current_user),
+              db: Session = Depends(get_db)):
+    """Add a clock-in/out punch to an existing timesheet entry."""
+    entry = db.query(TimesheetEntry).filter(TimesheetEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(404, "Entry not found.")
+    if user.role == "assistant" and entry.user_id != user.id:
+        raise HTTPException(403, "Not your entry.")
+    if user.role == "admin" and entry.owner_id != user.id:
+        raise HTTPException(403, "Entry not in your team.")
+
+    # Validate HH:MM format
+    import re as _re
+    if not _re.match(r"^\d{2}:\d{2}$", data.clock_in):
+        raise HTTPException(422, "clock_in must be HH:MM format.")
+    clock_out = data.clock_out or ""
+    if clock_out and not _re.match(r"^\d{2}:\d{2}$", clock_out):
+        raise HTTPException(422, "clock_out must be HH:MM format.")
+
+    punch = TimesheetPunch(
+        entry_id  = entry_id,
+        clock_in  = data.clock_in,
+        clock_out = clock_out or None,
+        hours_delta = 0.0,
+    )
+    db.add(punch)
+    db.commit()
+    db.refresh(entry)
+    _recalc_hours(entry, db)
+    submitter = db.query(User).filter(User.id == entry.user_id).first()
+    return _ts_row(entry, submitter.username if submitter else "unknown")
+
+@app.put("/timesheet/punches/{punch_id}")
+def update_punch(punch_id: int,
+                 data: PunchPayload,
+                 user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Edit a punch's clock_in / clock_out times."""
+    punch = db.query(TimesheetPunch).filter(TimesheetPunch.id == punch_id).first()
+    if not punch:
+        raise HTTPException(404, "Punch not found.")
+    entry = punch.entry
+    if user.role == "assistant" and entry.user_id != user.id:
+        raise HTTPException(403, "Not your entry.")
+    if user.role == "admin" and entry.owner_id != user.id:
+        raise HTTPException(403, "Entry not in your team.")
+
+    import re as _re
+    if not _re.match(r"^\d{2}:\d{2}$", data.clock_in):
+        raise HTTPException(422, "clock_in must be HH:MM format.")
+    clock_out = data.clock_out or ""
+    if clock_out and not _re.match(r"^\d{2}:\d{2}$", clock_out):
+        raise HTTPException(422, "clock_out must be HH:MM format.")
+
+    punch.clock_in  = data.clock_in
+    punch.clock_out = clock_out or None
+    db.commit()
+    db.refresh(entry)
+    _recalc_hours(entry, db)
+    submitter = db.query(User).filter(User.id == entry.user_id).first()
+    return _ts_row(entry, submitter.username if submitter else "unknown")
+
+@app.delete("/timesheet/punches/{punch_id}")
+def delete_punch(punch_id: int,
+                 user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Delete a punch row."""
+    punch = db.query(TimesheetPunch).filter(TimesheetPunch.id == punch_id).first()
+    if not punch:
+        raise HTTPException(404, "Punch not found.")
+    entry = punch.entry
+    if user.role == "assistant" and entry.user_id != user.id:
+        raise HTTPException(403, "Not your entry.")
+    if user.role == "admin" and entry.owner_id != user.id:
+        raise HTTPException(403, "Entry not in your team.")
+    db.delete(punch)
+    db.commit()
+    db.refresh(entry)
+    _recalc_hours(entry, db)
+    submitter = db.query(User).filter(User.id == entry.user_id).first()
+    return _ts_row(entry, submitter.username if submitter else "unknown")
+
+
 def create_timesheet_entry(data: TimesheetPayload,
                             user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):

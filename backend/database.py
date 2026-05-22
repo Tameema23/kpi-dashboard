@@ -46,6 +46,13 @@ class User(Base):
     # User can still log in — they just see a prompt to update it.
     needs_password_reset = Column(Boolean, default=False, nullable=False)
 
+    # True if admin has suspended this assistant. They cannot log in but data is preserved.
+    is_suspended         = Column(Boolean, default=False, nullable=False)
+
+    # True if admin has suspended this assistant account.
+    # Suspended users cannot log in but their data is preserved.
+    is_suspended         = Column(Boolean, default=False, nullable=False)
+
     # ISO timestamp of the last password change (YYYY-MM-DDTHH:MM:SS).
     # Used to enforce 6-month password expiry.
     password_changed_at  = Column(String(20), nullable=True)
@@ -238,9 +245,9 @@ class AuditLog(Base):
 
 class TimesheetEntry(Base):
     """
-    Daily work log submitted by an assistant.
-    One entry per assistant per date (enforced at API level).
-    Admin sees all entries for their assistants; assistants see only their own.
+    Daily summary submitted by an assistant.
+    One entry per assistant per date.
+    Contains productivity metrics and links to clock punches.
     """
     __tablename__ = "timesheet_entries"
 
@@ -248,12 +255,34 @@ class TimesheetEntry(Base):
     user_id        = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     owner_id       = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     date           = Column(String(10),  nullable=False)   # YYYY-MM-DD
-    hours_worked   = Column(Float,       default=0.0)
+    hours_worked   = Column(Float,       default=0.0)      # auto-calculated from punches
     appts_booked   = Column(Integer,     default=0)
     appts_resolved = Column(Integer,     default=0)
     callbacks      = Column(Integer,     default=0)
     notes          = Column(Text,        default="")
     submitted_at   = Column(String(16),  default="")       # YYYY-MM-DDTHH:MM
+
+    punches = relationship(
+        "TimesheetPunch", back_populates="entry", cascade="all, delete-orphan",
+        order_by="TimesheetPunch.clock_in"
+    )
+
+
+class TimesheetPunch(Base):
+    """
+    A single clock-in / clock-out pair within a TimesheetEntry.
+    Multiple punches per day are allowed (e.g. break in between).
+    hours_delta is auto-calculated from clock_in and clock_out.
+    """
+    __tablename__ = "timesheet_punches"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    entry_id    = Column(Integer, ForeignKey("timesheet_entries.id"), nullable=False, index=True)
+    clock_in    = Column(String(5),  nullable=False)   # HH:MM (24hr)
+    clock_out   = Column(String(5),  nullable=True)    # HH:MM (24hr), nullable if still clocked in
+    hours_delta = Column(Float,      default=0.0)      # calculated hours for this punch
+
+    entry = relationship("TimesheetEntry", back_populates="punches")
 
 
 def create_db():
