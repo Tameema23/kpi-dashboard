@@ -1852,6 +1852,8 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         matched.sms_status = "confirmed"
         db.commit()
         logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via YES from {sender}")
+        # Send Tameema the updated daily summary
+        await _send_daily_summary()
     else:
         logger.warning(f"RC webhook: no appointment matched sender {sender}")
 
