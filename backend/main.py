@@ -1536,92 +1536,7 @@ class PunchPayload(BaseModel):
     clock_in:  str   # HH:MM
     clock_out: Optional[str] = ""
 
-@app.post("/timesheet/{entry_id}/punches", status_code=201)
-def add_punch(entry_id: int,
-              data: PunchPayload,
-              user: User = Depends(get_current_user),
-              db: Session = Depends(get_db)):
-    """Add a clock-in/out punch to an existing timesheet entry."""
-    entry = db.query(TimesheetEntry).filter(TimesheetEntry.id == entry_id).first()
-    if not entry:
-        raise HTTPException(404, "Entry not found.")
-    if user.role == "assistant" and entry.user_id != user.id:
-        raise HTTPException(403, "Not your entry.")
-    if user.role == "admin" and entry.owner_id != user.id:
-        raise HTTPException(403, "Entry not in your team.")
-
-    # Validate HH:MM format
-    import re as _re
-    if not _re.match(r"^\d{2}:\d{2}$", data.clock_in):
-        raise HTTPException(422, "clock_in must be HH:MM format.")
-    clock_out = data.clock_out or ""
-    if clock_out and not _re.match(r"^\d{2}:\d{2}$", clock_out):
-        raise HTTPException(422, "clock_out must be HH:MM format.")
-
-    punch = TimesheetPunch(
-        entry_id  = entry_id,
-        clock_in  = data.clock_in,
-        clock_out = clock_out or None,
-        hours_delta = 0.0,
-    )
-    db.add(punch)
-    db.commit()
-    db.refresh(entry)
-    _recalc_hours(entry, db)
-    submitter = db.query(User).filter(User.id == entry.user_id).first()
-    return _ts_row(entry, submitter.username if submitter else "unknown")
-
-@app.put("/timesheet/punches/{punch_id}")
-def update_punch(punch_id: int,
-                 data: PunchPayload,
-                 user: User = Depends(get_current_user),
-                 db: Session = Depends(get_db)):
-    """Edit a punch's clock_in / clock_out times."""
-    punch = db.query(TimesheetPunch).filter(TimesheetPunch.id == punch_id).first()
-    if not punch:
-        raise HTTPException(404, "Punch not found.")
-    entry = punch.entry
-    if user.role == "assistant" and entry.user_id != user.id:
-        raise HTTPException(403, "Not your entry.")
-    if user.role == "admin" and entry.owner_id != user.id:
-        raise HTTPException(403, "Entry not in your team.")
-
-    import re as _re
-    if not _re.match(r"^\d{2}:\d{2}$", data.clock_in):
-        raise HTTPException(422, "clock_in must be HH:MM format.")
-    clock_out = data.clock_out or ""
-    if clock_out and not _re.match(r"^\d{2}:\d{2}$", clock_out):
-        raise HTTPException(422, "clock_out must be HH:MM format.")
-
-    punch.clock_in  = data.clock_in
-    punch.clock_out = clock_out or None
-    db.commit()
-    db.refresh(entry)
-    _recalc_hours(entry, db)
-    submitter = db.query(User).filter(User.id == entry.user_id).first()
-    return _ts_row(entry, submitter.username if submitter else "unknown")
-
-@app.delete("/timesheet/punches/{punch_id}")
-def delete_punch(punch_id: int,
-                 user: User = Depends(get_current_user),
-                 db: Session = Depends(get_db)):
-    """Delete a punch row."""
-    punch = db.query(TimesheetPunch).filter(TimesheetPunch.id == punch_id).first()
-    if not punch:
-        raise HTTPException(404, "Punch not found.")
-    entry = punch.entry
-    if user.role == "assistant" and entry.user_id != user.id:
-        raise HTTPException(403, "Not your entry.")
-    if user.role == "admin" and entry.owner_id != user.id:
-        raise HTTPException(403, "Entry not in your team.")
-    db.delete(punch)
-    db.commit()
-    db.refresh(entry)
-    _recalc_hours(entry, db)
-    submitter = db.query(User).filter(User.id == entry.user_id).first()
-    return _ts_row(entry, submitter.username if submitter else "unknown")
-
-
+@app.post("/timesheet", status_code=201)
 def create_timesheet_entry(data: TimesheetPayload,
                             user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):
@@ -1677,6 +1592,86 @@ def get_timesheet(user: User = Depends(get_current_user),
             TimesheetEntry.user_id == user.id
         ).order_by(TimesheetEntry.date.desc()).all()
         return [_ts_row(r, user.username) for r in rows]
+
+# ── Punch routes MUST come before /{entry_id} routes to avoid conflicts ────────
+
+@app.put("/timesheet/punches/{punch_id}")
+def update_punch(punch_id: int,
+                 data: PunchPayload,
+                 user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Edit a punch's clock_in / clock_out times."""
+    punch = db.query(TimesheetPunch).filter(TimesheetPunch.id == punch_id).first()
+    if not punch:
+        raise HTTPException(404, "Punch not found.")
+    entry = punch.entry
+    if user.role == "assistant" and entry.user_id != user.id:
+        raise HTTPException(403, "Not your entry.")
+    if user.role == "admin" and entry.owner_id != user.id:
+        raise HTTPException(403, "Entry not in your team.")
+    if not re.match(r"^\d{2}:\d{2}$", data.clock_in):
+        raise HTTPException(422, "clock_in must be HH:MM format.")
+    clock_out = data.clock_out or ""
+    if clock_out and not re.match(r"^\d{2}:\d{2}$", clock_out):
+        raise HTTPException(422, "clock_out must be HH:MM format.")
+    punch.clock_in  = data.clock_in
+    punch.clock_out = clock_out or None
+    db.commit()
+    db.refresh(entry)
+    _recalc_hours(entry, db)
+    submitter = db.query(User).filter(User.id == entry.user_id).first()
+    return _ts_row(entry, submitter.username if submitter else "unknown")
+
+@app.delete("/timesheet/punches/{punch_id}")
+def delete_punch(punch_id: int,
+                 user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Delete a punch row."""
+    punch = db.query(TimesheetPunch).filter(TimesheetPunch.id == punch_id).first()
+    if not punch:
+        raise HTTPException(404, "Punch not found.")
+    entry = punch.entry
+    if user.role == "assistant" and entry.user_id != user.id:
+        raise HTTPException(403, "Not your entry.")
+    if user.role == "admin" and entry.owner_id != user.id:
+        raise HTTPException(403, "Entry not in your team.")
+    db.delete(punch)
+    db.commit()
+    db.refresh(entry)
+    _recalc_hours(entry, db)
+    submitter = db.query(User).filter(User.id == entry.user_id).first()
+    return _ts_row(entry, submitter.username if submitter else "unknown")
+
+@app.post("/timesheet/{entry_id}/punches", status_code=201)
+def add_punch(entry_id: int,
+              data: PunchPayload,
+              user: User = Depends(get_current_user),
+              db: Session = Depends(get_db)):
+    """Add a clock-in/out punch to an existing timesheet entry."""
+    entry = db.query(TimesheetEntry).filter(TimesheetEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(404, "Entry not found.")
+    if user.role == "assistant" and entry.user_id != user.id:
+        raise HTTPException(403, "Not your entry.")
+    if user.role == "admin" and entry.owner_id != user.id:
+        raise HTTPException(403, "Entry not in your team.")
+    if not re.match(r"^\d{2}:\d{2}$", data.clock_in):
+        raise HTTPException(422, "clock_in must be HH:MM format.")
+    clock_out = data.clock_out or ""
+    if clock_out and not re.match(r"^\d{2}:\d{2}$", clock_out):
+        raise HTTPException(422, "clock_out must be HH:MM format.")
+    punch = TimesheetPunch(
+        entry_id    = entry_id,
+        clock_in    = data.clock_in,
+        clock_out   = clock_out or None,
+        hours_delta = 0.0,
+    )
+    db.add(punch)
+    db.commit()
+    db.refresh(entry)
+    _recalc_hours(entry, db)
+    submitter = db.query(User).filter(User.id == entry.user_id).first()
+    return _ts_row(entry, submitter.username if submitter else "unknown")
 
 @app.put("/timesheet/{entry_id}")
 def update_timesheet_entry(entry_id: int,
