@@ -143,7 +143,7 @@ async def _run_sms_job(job_type: str):
                 appt.booking_tz or "America/Edmonton"
             )
 
-            first_name = appt.lead_name.split()[0] if appt.lead_name else "there"
+            first_name = (appt.attendee_name or appt.lead_name or "").split()[0] if (appt.attendee_name or appt.lead_name) else "there"
             message    = template.format(name=first_name, time=time_display, date=date_display)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -198,7 +198,7 @@ async def _run_reminder_job():
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            first_name = appt.lead_name.split()[0] if appt.lead_name else "there"
+            first_name = (appt.attendee_name or appt.lead_name or "").split()[0] if (appt.attendee_name or appt.lead_name) else "there"
             message    = SMS_REMINDER_TEMPLATE.format(name=first_name, time=time_display)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -852,6 +852,7 @@ def delete_days(ids: list[int],
 
 class AppointmentPayload(BaseModel):
     lead_name:     str
+    attendee_name: Optional[str] = ""
     phone_number:  Optional[str] = ""
     comments:      Optional[str] = ""
     scheduled_for: str
@@ -890,6 +891,7 @@ def create_appointment(data: AppointmentPayload,
     appt  = Appointment(
         created_by=user.id, owner_id=owner,
         lead_name=lead_name,
+        attendee_name=sanitize_str(data.attendee_name or "", 200),
         phone_number=raw_phone[:20],
         comments=sanitize_str(data.comments or "", 2000),
         scheduled_for=validate_datetime(data.scheduled_for),
@@ -936,6 +938,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     if blocked_date:
         raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
     appt.lead_name     = sanitize_str(data.lead_name, 200)
+    appt.attendee_name = sanitize_str(data.attendee_name or "", 200)
     appt.phone_number  = re.sub(r"[^\d+]", "", data.phone_number or "")[:20]
     appt.comments      = sanitize_str(data.comments or "", 2000)
     appt.scheduled_for = validate_datetime(data.scheduled_for)
@@ -960,6 +963,7 @@ def delete_appointment(appt_id: int,
 def _appt_dict(appt, db):
     creator = db.query(User).filter(User.id == appt.created_by).first()
     return {"id": appt.id, "lead_name": appt.lead_name,
+            "attendee_name": appt.attendee_name or "",
             "phone_number": appt.phone_number or "",
             "comments": appt.comments, "scheduled_for": appt.scheduled_for,
             "booked_at": appt.booked_at,
@@ -2066,6 +2070,7 @@ def get_confirmations(date: Optional[str] = None,
             result.append({
                 "id":            a.id,
                 "lead_name":     a.lead_name,
+                "attendee_name": a.attendee_name or "",
                 "phone_number":  a.phone_number or "",
                 "scheduled_for": a.scheduled_for,
                 "sms_status":    a.sms_status or "",

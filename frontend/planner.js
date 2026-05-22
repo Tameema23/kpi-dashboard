@@ -535,9 +535,10 @@
   function openAddModal(dateStr, timeStr) {
     editingId = null;
     document.getElementById("modalTitle").innerText = "New Appointment";
-    document.getElementById("m_lead_name").value    = "";
-    document.getElementById("m_phone_number").value = "";
-    document.getElementById("m_comments").value     = "";
+    document.getElementById("m_lead_name").value     = "";
+    document.getElementById("m_attendee_name").value = "";
+    document.getElementById("m_phone_number").value  = "";
+    document.getElementById("m_comments").value      = "";
     document.getElementById("m_phone_no_number_warn").style.display = "none";
     document.getElementById("m_date").value = dateStr || fmtDate(new Date());
     document.getElementById("m_time").value = timeStr || "09:00";
@@ -651,8 +652,9 @@
     // Store original comments on the modal so save can access it
     document.getElementById("modalBackdrop").dataset.existingComments = appt.comments || "";
     document.getElementById("modalTitle").innerText = "Edit Appointment";
-    document.getElementById("m_lead_name").value    = appt.lead_name;
-    document.getElementById("m_phone_number").value = appt.phone_number || "";
+    document.getElementById("m_lead_name").value     = appt.lead_name;
+    document.getElementById("m_attendee_name").value = appt.attendee_name || "";
+    document.getElementById("m_phone_number").value  = appt.phone_number || "";
 
     // Warn if existing appointment has no phone number
     var warnEl = document.getElementById("m_phone_no_number_warn");
@@ -868,7 +870,15 @@
     }
 
     var bookingTz = document.getElementById("m_timezone").value || "America/Edmonton";
-    var payload = { lead_name: lead_name, phone_number: phone_number, comments: finalComments, scheduled_for: scheduledFor, appt_type: apptType, booking_tz: bookingTz };
+    var payload = {
+      lead_name:     lead_name,
+      attendee_name: document.getElementById("m_attendee_name").value.trim(),
+      phone_number:  phone_number,
+      comments:      finalComments,
+      scheduled_for: scheduledFor,
+      appt_type:     apptType,
+      booking_tz:    bookingTz
+    };
 
     try {
       var res;
@@ -1297,6 +1307,7 @@
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
         body: JSON.stringify({
           lead_name:     appt.lead_name,
+          attendee_name: appt.attendee_name || "",
           phone_number:  appt.phone_number || "",
           comments:      appt.comments || "",
           scheduled_for: changes.scheduled_for || appt.scheduled_for,

@@ -91,6 +91,7 @@ class Appointment(Base):
     created_by    = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner_id      = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     lead_name     = Column(String(200), nullable=False)
+    attendee_name = Column(String(200), default="")    # person actually attending the meeting
     phone_number  = Column(String(30),  default="")   # normalized E.164, e.g. +14035551234
     comments      = Column(Text,        default="")
     scheduled_for = Column(String(16),  nullable=False)  # YYYY-MM-DDTHH:MM
