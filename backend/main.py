@@ -128,6 +128,7 @@ async def _run_sms_job(job_type: str):
             Appointment.scheduled_for.startswith(target_date),
             Appointment.phone_number != "",
             Appointment.phone_number != None,
+            Appointment.appt_type != "callback",
         ).all()
 
         for appt in appts:
@@ -1915,6 +1916,7 @@ async def _send_daily_summary():
 
             # Status suffix
             status = a.sms_status or ""
+            is_cb  = a.appt_type == "callback"
             if status == "confirmed":
                 suffix = " - ✅"
             elif status == "rescheduled":
@@ -1922,7 +1924,8 @@ async def _send_daily_summary():
             else:
                 suffix = ""
 
-            lines.append(f"{a.lead_name.split()[0]} {time_str}{suffix}")
+            type_label = " (CB)" if is_cb else ""
+            lines.append(f"{a.lead_name.split()[0]} {time_str}{type_label}{suffix}")
 
         message = "\n".join(lines)
 
