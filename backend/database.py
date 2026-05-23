@@ -49,10 +49,6 @@ class User(Base):
     # True if admin has suspended this assistant. They cannot log in but data is preserved.
     is_suspended         = Column(Boolean, default=False, nullable=False)
 
-    # True if admin has suspended this assistant account.
-    # Suspended users cannot log in but their data is preserved.
-    is_suspended         = Column(Boolean, default=False, nullable=False)
-
     # ISO timestamp of the last password change (YYYY-MM-DDTHH:MM:SS).
     # Used to enforce 6-month password expiry.
     password_changed_at  = Column(String(20), nullable=True)
