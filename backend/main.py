@@ -215,48 +215,65 @@ async def _run_reminder_job():
     finally:
         db.close()
 
-
 async def _scheduler_loop():
-    """
-    Lightweight scheduler — wakes up every minute, checks if it's time
-    to fire a job. Uses Mountain Time for all comparisons.
-    """
     mt = ZoneInfo("America/Edmonton")
-    # Track which dates we've already fired each job for
-    fired = {"evening": None, "morning": None, "summary": None}
+    fired = {
+        "evening":         None,
+        "morning":         None,
+        "summary_morning": None,   # 8am — today's appointments
+        "summary_evening": None,   # 9pm — tomorrow's appointments
+        "summary_retry":   None,   # retry flag for 9pm
+    }
+    summary_evening_sent = {}  # date → bool, tracks if 9pm actually succeeded
 
     while True:
         try:
             now    = datetime.now(mt)
             today  = now.strftime("%Y-%m-%d")
+            tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
             h, min_ = now.hour, now.minute
 
-            # Daily summary to Tameema: 08:00 MT (8:00 AM)
-            if h == 8 and min_ == 0 and fired["summary"] != today:
-                fired["summary"] = today
-                logger.info("Scheduler: firing daily summary job")
-                await _send_daily_summary()
+            # 8:00 AM — send TODAY's appointment list
+            if h == 8 and min_ == 0 and fired["summary_morning"] != today:
+                fired["summary_morning"] = today
+                logger.info("Scheduler: firing 8am daily summary (today's appointments)")
+                await _send_daily_summary(today)
 
-            # Evening job: 20:00 MT (8:00 PM)
-            if h == 20 and min_ == 0 and fired["evening"] != today:
-                fired["evening"] = today
-                logger.info("Scheduler: firing evening SMS job")
-                await _run_sms_job("evening")
-
-            # Morning job: 09:00 MT (9:00 AM)
+            # 9:00 AM — morning client texts
             if h == 9 and min_ == 0 and fired["morning"] != today:
                 fired["morning"] = today
                 logger.info("Scheduler: firing morning SMS job")
                 await _run_sms_job("morning")
 
-            # Reminder job: every minute — checks for unconfirmed appts 1hr away
+            # 8:00 PM — evening client texts (tomorrow's appointments)
+            if h == 20 and min_ == 0 and fired["evening"] != today:
+                fired["evening"] = today
+                logger.info("Scheduler: firing evening SMS job")
+                await _run_sms_job("evening")
+
+            # 9:00 PM — send TOMORROW's appointment list
+            if h == 21 and min_ == 0 and fired["summary_evening"] != today:
+                fired["summary_evening"] = today
+                logger.info("Scheduler: firing 9pm daily summary (tomorrow's appointments)")
+                sent = await _send_daily_summary(tomorrow)
+                summary_evening_sent[today] = sent
+
+            # 9:01 PM — retry once if 9pm summary failed
+            if h == 21 and min_ == 1 and fired["summary_retry"] != today:
+                if not summary_evening_sent.get(today, True):
+                    fired["summary_retry"] = today
+                    logger.info("Scheduler: retrying 9pm summary (previous attempt failed)")
+                    await _send_daily_summary(tomorrow)
+                else:
+                    fired["summary_retry"] = today  # already sent, flag and skip
+
+            # Every minute — 1hr reminder for unconfirmed appointments
             await _run_reminder_job()
 
         except Exception as e:
             logger.error(f"Scheduler loop error: {e}")
 
-        await asyncio.sleep(60)  # check every minute
-
+        await asyncio.sleep(60)
 
 @asynccontextmanager
 async def lifespan(app):
@@ -2103,44 +2120,37 @@ TAMEEMA_PHONE = os.environ.get("TAMEEMA_SUMMARY_PHONE", "")   # daily summary de
 
 # ── Daily summary job ─────────────────────────────────────────────────────────
 
-async def _send_daily_summary():
+async def _send_daily_summary(target_date: Optional[str] = None):
     """
-    Sends Tameema a daily SMS at 8am MT listing all of today's appointments
-    with name, time, and status.
-
-    Format:
-        May 22, 2026
-
-        Glen 10am - ✅
-        Bryce 11am
-        Jennifer 12pm - rs
+    Sends Tameema a daily SMS listing appointments for target_date.
+    If target_date is None, defaults to today (used for YES confirmations).
     """
     db = SessionLocal()
     try:
-        mt         = ZoneInfo("America/Edmonton")
-        now_mt     = datetime.now(mt)
-        today_str  = now_mt.strftime("%Y-%m-%d")
-        date_label = now_mt.strftime("%B %-d, %Y")
+        mt        = ZoneInfo("America/Edmonton")
+        now_mt    = datetime.now(mt)
+        date_str  = target_date or now_mt.strftime("%Y-%m-%d")
+        date_obj  = datetime.strptime(date_str, "%Y-%m-%d")
+        date_label = date_obj.strftime("%B %-d, %Y")
 
-        # Get all admin appointments for today
+        # Get all admin appointments for target_date
         admins = db.query(User).filter(User.role == "admin").all()
         rows   = []
         for admin in admins:
             appts = db.query(Appointment).filter(
                 Appointment.owner_id == admin.id,
-                Appointment.scheduled_for.startswith(today_str),
+                Appointment.scheduled_for.startswith(date_str),
             ).order_by(Appointment.scheduled_for).all()
             rows.extend(appts)
 
         rows.sort(key=lambda a: a.scheduled_for)
 
         if not rows:
-            logger.info("Daily summary: no appointments today, skipping.")
-            return
+            logger.info(f"Daily summary: no appointments on {date_str}, skipping.")
+            return False  # nothing to send
 
         lines = [date_label, ""]
         for a in rows:
-            # Format time (e.g. "10am", "2pm", "12pm")
             try:
                 time_part = a.scheduled_for.split("T")[1]
                 h, m      = map(int, time_part.split(":"))
@@ -2150,7 +2160,6 @@ async def _send_daily_summary():
             except Exception:
                 time_str = "?"
 
-            # Status suffix
             status = a.sms_status or ""
             is_cb  = a.appt_type == "callback"
             if status == "confirmed":
@@ -2165,17 +2174,18 @@ async def _send_daily_summary():
 
         message = "\n".join(lines)
 
-        # Find any connected RC token to send from
         token_row = db.query(RcToken).first()
         if not token_row:
             logger.warning("Daily summary: no RC token found, cannot send.")
-            return
+            return False
 
         result = await send_sms(db, token_row.owner_user_id, TAMEEMA_PHONE, message)
         logger.info(f"Daily summary sent → {TAMEEMA_PHONE} | {result.get('detail')}")
+        return True  # sent successfully
 
     except Exception as e:
         logger.error(f"Daily summary job error: {e}")
+        return False
     finally:
         db.close()
 
