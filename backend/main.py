@@ -2314,6 +2314,35 @@ async def test_sms_trigger(user: User = Depends(get_current_user),
     await _send_daily_summary()
     return {"status": "SMS jobs and daily summary fired."}
 
+class SendSummaryPayload(BaseModel):
+    date: Optional[str] = None  # YYYY-MM-DD, defaults to tomorrow if omitted
+
+@app.post("/rc/send-summary")
+async def manual_send_summary(data: SendSummaryPayload = SendSummaryPayload(),
+                               user: User = Depends(get_current_user),
+                               db: Session = Depends(get_db)):
+    """
+    Manually trigger the daily summary text to Tameema.
+    date: YYYY-MM-DD to send appointments for (defaults to tomorrow).
+    Only Tameema23 or admins can call this.
+    """
+    if user.username.lower() != CONFIRMATIONS_USERNAME.lower() and user.role != "admin":
+        raise HTTPException(403, "Access denied.")
+
+    mt = ZoneInfo("America/Edmonton")
+    if data.date:
+        target_date = validate_date(data.date)
+    else:
+        # Default to tomorrow — mirrors what the 9pm scheduler sends
+        target_date = (datetime.now(mt) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    sent = await _send_daily_summary(target_date)
+    return {
+        "status": "sent" if sent else "no_appointments",
+        "date": target_date,
+        "detail": f"Summary for {target_date} {'sent to ' + TAMEEMA_PHONE if sent else 'skipped (no appointments)'}",
+    }
+
 # ── Confirmations HTML page ───────────────────────────────────────────────────
 
 @app.get("/confirmations.html")
