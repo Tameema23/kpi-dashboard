@@ -169,19 +169,39 @@ async def _run_reminder_job():
     Finds appointments starting in exactly 60 minutes that are NOT confirmed
     and have a phone number, and sends them a quick reminder text.
     Tracks sent reminders via a new sms_sent_reminder flag.
+
+    Special case: appointments at 10:00 AM (or any time where 60 min prior
+    would be at or before 9:00 AM) get their reminder at 30 minutes before
+    instead, so clients aren't hit with two texts back-to-back at 9am.
     """
     db = SessionLocal()
     try:
         mt     = ZoneInfo("America/Edmonton")
         now_mt = datetime.now(mt)
 
-        # Target window: appointments starting between 59-61 minutes from now
-        target_start = now_mt + timedelta(minutes=59)
-        target_end   = now_mt + timedelta(minutes=61)
+        # Standard window: appointments starting 59-61 minutes from now
+        target_start_60 = now_mt + timedelta(minutes=59)
+        target_end_60   = now_mt + timedelta(minutes=61)
+        start_str_60 = target_start_60.strftime("%Y-%m-%dT%H:%M")
+        end_str_60   = target_end_60.strftime("%Y-%m-%dT%H:%M")
 
-        # Format as YYYY-MM-DDTHH:MM for string comparison
-        start_str = target_start.strftime("%Y-%m-%dT%H:%M")
-        end_str   = target_end.strftime("%Y-%m-%dT%H:%M")
+        # Early-morning window: appointments starting 29-31 minutes from now
+        # Only applies when now is between 9:00-9:01am (catches 10am appts)
+        target_start_30 = now_mt + timedelta(minutes=29)
+        target_end_30   = now_mt + timedelta(minutes=31)
+        start_str_30 = target_start_30.strftime("%Y-%m-%dT%H:%M")
+        end_str_30   = target_end_30.strftime("%Y-%m-%dT%H:%M")
+
+        # Determine which window to use:
+        # If the 60-min target falls at or before 9:00 AM, use the 30-min window instead
+        use_30min_window = target_end_60.hour < 9 or (target_end_60.hour == 9 and target_end_60.minute == 0)
+
+        if use_30min_window:
+            start_str = start_str_30
+            end_str   = end_str_30
+        else:
+            start_str = start_str_60
+            end_str   = end_str_60
 
         appts = db.query(Appointment).filter(
             Appointment.scheduled_for >= start_str,
@@ -982,9 +1002,31 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     appt.attendee_name = title_case(sanitize_str(data.attendee_name or "", 200))
     appt.phone_number  = re.sub(r"[^\d+]", "", data.phone_number or "")[:20]
     appt.comments      = sanitize_str(data.comments or "", 2000)
-    appt.scheduled_for = validate_datetime(data.scheduled_for)
     appt.appt_type     = data.appt_type if data.appt_type in ("appointment","callback") else "appointment"
     if data.booking_tz: appt.booking_tz = validate_tz(data.booking_tz)
+
+    # ── Smart SMS reset on reschedule ───────────────────────────
+    new_sched  = validate_datetime(data.scheduled_for)
+    old_date   = appt.scheduled_for[:10] if appt.scheduled_for else ""
+    new_date   = new_sched[:10]
+    old_time   = appt.scheduled_for[11:16] if appt.scheduled_for and len(appt.scheduled_for) > 10 else ""
+    new_time   = new_sched[11:16] if len(new_sched) > 10 else ""
+
+    if old_date != new_date:
+        # Date changed — full reset so they get a fresh evening + morning text
+        appt.sms_sent_evening  = False
+        appt.sms_sent_morning  = False
+        appt.sms_sent_reminder = False
+        appt.sms_status        = ""
+    elif old_time != new_time:
+        # Same date, time changed — reset evening + status only
+        # Morning already sent (client got it), no need to re-send
+        appt.sms_sent_evening  = False
+        appt.sms_sent_reminder = False
+        appt.sms_status        = ""
+    # else: only non-time fields changed — leave SMS fields untouched
+
+    appt.scheduled_for = new_sched
     db.commit()
     return _appt_dict(appt, db)
 
@@ -2082,7 +2124,7 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     text   = (body_data.get("subject", "") or body_data.get("text", "") or "").strip().upper()
     sender = body_data.get("from", {}).get("phoneNumber", "")
 
-    if text != "YES" or not sender:
+    if "YES" not in text or not sender:
         return {"status": "ignored"}
 
     # Normalize sender number for matching (last 10 digits)

@@ -290,11 +290,17 @@
           </svg>
           Register Webhook
         </button>
-        <button class="conf-test-btn" onclick="triggerTestSms()" title="Fire SMS jobs now (dry run)">
+        <button class="conf-test-btn" onclick="triggerClientTexts()" title="Fire evening/morning SMS jobs to clients now">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <polygon points="5 3 19 12 5 21 5 3"/>
           </svg>
-          Trigger SMS Test
+          Trigger Client Texts
+        </button>
+        <button class="conf-test-btn" onclick="sendSummaryList()" title="Send tomorrow's appointment summary to Tameema">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/>
+          </svg>
+          Send Summary List
         </button>
       </div>
     </div>
@@ -496,17 +502,39 @@
     } catch(e) { showToast("Server error.", "error"); }
   };
 
-  // ── Trigger SMS test ──────────────────────────────────────────
-  window.triggerTestSms = async function() {
+  // ── Trigger Client Texts (evening + morning SMS jobs to clients) ──
+  window.triggerClientTexts = async function() {
     try {
       var res = await fetch("/rc/test-sms", {
         method: "POST",
         headers: { Authorization: "Bearer " + TOKEN }
       });
       if (res.ok) {
-        showToast("SMS jobs fired! Check Render logs.");
+        showToast("Client SMS jobs fired! Check Render logs.");
       } else {
         showToast("Failed to trigger.", "error");
+      }
+    } catch(e) { showToast("Server error.", "error"); }
+  };
+
+  // ── Send Summary List (Tameema's daily summary, defaults to tomorrow) ──
+  window.sendSummaryList = async function() {
+    try {
+      var res = await fetch("/rc/send-summary", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + TOKEN
+        },
+        body: JSON.stringify({})
+      });
+      var data = await res.json();
+      if (res.ok && data.status === "sent") {
+        showToast("Summary sent for " + data.date + "!");
+      } else if (res.ok && data.status === "no_appointments") {
+        showToast("No appointments found for " + data.date + ".", "error");
+      } else {
+        showToast("Failed to send summary.", "error");
       }
     } catch(e) { showToast("Server error.", "error"); }
   };
