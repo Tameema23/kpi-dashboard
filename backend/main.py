@@ -2140,6 +2140,7 @@ async def _send_daily_summary(target_date: Optional[str] = None):
             appts = db.query(Appointment).filter(
                 Appointment.owner_id == admin.id,
                 Appointment.scheduled_for.startswith(date_str),
+                Appointment.appt_type != "callback",
             ).order_by(Appointment.scheduled_for).all()
             rows.extend(appts)
 
@@ -2161,7 +2162,6 @@ async def _send_daily_summary(target_date: Optional[str] = None):
                 time_str = "?"
 
             status = a.sms_status or ""
-            is_cb  = a.appt_type == "callback"
             if status == "confirmed":
                 suffix = " - ✅"
             elif status == "rescheduled":
@@ -2169,8 +2169,7 @@ async def _send_daily_summary(target_date: Optional[str] = None):
             else:
                 suffix = ""
 
-            type_label = " (CB)" if is_cb else ""
-            lines.append(f"{a.lead_name.split()[0]} {time_str}{type_label}{suffix}")
+            lines.append(f"{a.lead_name.split()[0]} {time_str}{suffix}")
 
         message = "\n".join(lines)
 
