@@ -130,9 +130,9 @@ async def _run_sms_job(job_type: str):
             Appointment.phone_number != None,
             Appointment.appt_type != "callback",
             Appointment.sms_status != "rescheduled",
-            Appointment.appt_status != "cancelled",
-            Appointment.appt_status != "no_show",
         ).all()
+        # Filter cancelled/no_show safely at Python level (guards against missing column)
+        appts = [a for a in appts if getattr(a, "appt_status", "") not in ("cancelled", "no_show")]
 
         for appt in appts:
             # Skip if already sent this message
@@ -214,10 +214,10 @@ async def _run_reminder_job():
             Appointment.appt_type != "callback",
             Appointment.sms_status != "confirmed",
             Appointment.sms_status != "rescheduled",
-            Appointment.appt_status != "cancelled",
-            Appointment.appt_status != "no_show",
             Appointment.sms_sent_reminder == False,
         ).all()
+        # Filter cancelled/no_show safely at Python level
+        appts = [a for a in appts if getattr(a, "appt_status", "") not in ("cancelled", "no_show")]
 
         for appt in appts:
             time_display, _ = _fmt_appt_time_for_tz(

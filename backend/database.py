@@ -109,6 +109,10 @@ class Appointment(Base):
     sms_sent_morning  = Column(Boolean,     default=False)  # day-of 9am sent
     sms_sent_reminder = Column(Boolean,     default=False)  # 1hr-before reminder sent
 
+    # Appointment outcome status (set manually by admin)
+    # "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
+    appt_status       = Column(String(20),  default="")
+
     created_by_user = relationship(
         "User", foreign_keys=[created_by],
         back_populates="appointments_created"
