@@ -2355,13 +2355,15 @@ class ApptStatusPayload(BaseModel):
     appt_status: str  # "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
 
 @app.patch("/appointments/{appt_id}/appt-status")
-def set_appt_status(appt_id: int,
+async def set_appt_status(appt_id: int,
                     data: ApptStatusPayload,
                     user: User = Depends(get_current_user),
                     db: Session = Depends(get_db)):
     """
     Admin sets the outcome status of an appointment.
     Valid values: "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
+    If the appointment is scheduled for today, automatically re-sends the
+    daily summary text to Tameema with the updated status reflected.
     """
     owner = get_owner_id(user)
     appt  = db.query(Appointment).filter(
@@ -2374,6 +2376,13 @@ def set_appt_status(appt_id: int,
         raise HTTPException(422, "Invalid appt_status.")
     appt.appt_status = data.appt_status
     db.commit()
+
+    # If the appointment is today, resend the summary so Tameema sees the new status
+    mt = ZoneInfo("America/Edmonton")
+    today_str = datetime.now(mt).strftime("%Y-%m-%d")
+    if appt.scheduled_for and appt.scheduled_for.startswith(today_str):
+        await _send_daily_summary(today_str)
+
     return {"id": appt_id, "appt_status": appt.appt_status}
 
 # ── RC: register inbound SMS webhook ─────────────────────────────────────────

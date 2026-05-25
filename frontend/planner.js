@@ -462,7 +462,7 @@
           var smsStatus  = appt.sms_status  || "";
           var apptStatus = appt.appt_status || "";
           var smsBadge = "";
-          if (smsStatus === "confirmed") {
+          if (smsStatus === "confirmed" || apptStatus === "confirmed") {
             smsBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px;">Confirmed</span>';
           }
           var statusBadge = "";

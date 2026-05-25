@@ -1936,12 +1936,20 @@ textarea:focus {
 .planner-summary-sep { width: 1px; height: 16px; background: #e2e8f0; margin: 0 4px; display: inline-block; vertical-align: middle; }
 
 /* Quality row due-date highlighting */
-.quality-row-green  { background: #f0fdf4 !important; }
-.quality-row-yellow { background: #fefce8 !important; }
-.quality-row-red    { background: #fff1f2 !important; }
-.quality-row-green td  { border-bottom-color: #bbf7d0 !important; }
-.quality-row-yellow td { border-bottom-color: #fde68a !important; }
-.quality-row-red td    { border-bottom-color: #fecdd3 !important; }
+.history-table tr.quality-row-green,
+.history-table tr.quality-row-green td { background: #f0fdf4 !important; border-bottom-color: #bbf7d0 !important; }
+.history-table tr.quality-row-yellow,
+.history-table tr.quality-row-yellow td { background: #fefce8 !important; border-bottom-color: #fde68a !important; }
+.history-table tr.quality-row-red,
+.history-table tr.quality-row-red td { background: #fff1f2 !important; border-bottom-color: #fecdd3 !important; }
+
+/* Keep highlight on hover too */
+.history-table tr.quality-row-green:hover,
+.history-table tr.quality-row-green:hover td { background: #dcfce7 !important; }
+.history-table tr.quality-row-yellow:hover,
+.history-table tr.quality-row-yellow:hover td { background: #fef9c3 !important; }
+.history-table tr.quality-row-red:hover,
+.history-table tr.quality-row-red:hover td { background: #ffe4e6 !important; }
 
 /* Due date badge in quality table */
 .due-badge {
