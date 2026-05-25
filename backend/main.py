@@ -40,7 +40,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, TimesheetEntry, TimesheetPunch, RcToken
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -1222,6 +1222,69 @@ def remove_blocked_hour(block_id: int,
     db.delete(row)
     db.commit()
     audit(db, user.id, "unblock_hours", f"Removed hour block {block_id}")
+    return {"status": "removed"}
+
+
+# ── Blocked Hours Recurring (every day, specific hour range) ──────────────────
+
+class BlockedHourRecurringPayload(BaseModel):
+    start_hour: int        # 7–21
+    end_hour:   int        # 7–21, must be > start_hour
+    label:      Optional[str] = ""
+
+@app.get("/blocked-hours-recurring")
+def get_blocked_hours_recurring(user: User = Depends(get_current_user),
+                                 db: Session = Depends(get_db)):
+    """Return all recurring daily hour blocks for this admin's owner."""
+    owner = get_owner_id(user)
+    rows = db.query(BlockedHourRecurring).filter(BlockedHourRecurring.owner_id == owner).all()
+    return [{"id": r.id, "start_hour": r.start_hour,
+             "end_hour": r.end_hour, "label": r.label or ""} for r in rows]
+
+@app.post("/blocked-hours-recurring", status_code=201)
+def add_blocked_hour_recurring(data: BlockedHourRecurringPayload,
+                                user: User = Depends(get_current_user),
+                                db: Session = Depends(get_db)):
+    """Admin-only: block a range of hours every single day (recurring)."""
+    _require_admin(user)
+    if data.start_hour < 7 or data.end_hour > 21 or data.start_hour >= data.end_hour:
+        raise HTTPException(400, "Invalid hour range. Must be within 7–21 and start < end.")
+    # Prevent exact duplicates
+    existing = db.query(BlockedHourRecurring).filter(
+        BlockedHourRecurring.owner_id == user.id,
+        BlockedHourRecurring.start_hour == data.start_hour,
+        BlockedHourRecurring.end_hour   == data.end_hour,
+    ).first()
+    if existing:
+        return {"id": existing.id, "start_hour": existing.start_hour,
+                "end_hour": existing.end_hour, "label": existing.label or ""}
+    row = BlockedHourRecurring(
+        owner_id   = user.id,
+        start_hour = data.start_hour,
+        end_hour   = data.end_hour,
+        label      = sanitize_str(data.label or "", 100)
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    audit(db, user.id, "block_hours_recurring", f"Recurring block {data.start_hour}:00–{data.end_hour}:00 every day")
+    return {"id": row.id, "start_hour": row.start_hour,
+            "end_hour": row.end_hour, "label": row.label or ""}
+
+@app.delete("/blocked-hours-recurring/{block_id}")
+def remove_blocked_hour_recurring(block_id: int,
+                                   user: User = Depends(get_current_user),
+                                   db: Session = Depends(get_db)):
+    """Admin-only: remove a recurring daily hour block."""
+    _require_admin(user)
+    row = db.query(BlockedHourRecurring).filter(
+        BlockedHourRecurring.id == block_id, BlockedHourRecurring.owner_id == user.id
+    ).first()
+    if not row:
+        raise HTTPException(404, "Recurring block not found.")
+    db.delete(row)
+    db.commit()
+    audit(db, user.id, "unblock_hours_recurring", f"Removed recurring block {block_id}")
     return {"status": "removed"}
 
 # ── Quality ────────────────────────────────────────────────────────────────────

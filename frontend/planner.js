@@ -54,11 +54,24 @@
   // Array of {id, date, start_hour, end_hour, label} objects.
   var blockedHours = [];
 
+  // ── Blocked hours recurring (every day) ──────────────────────
+  // Array of {id, start_hour, end_hour, label} objects.
+  var blockedHoursRecurring = [];
+
   // Helper: is a specific hour on a specific date blocked?
+  // Returns the block object (with a .recurring flag) or null.
   function isHourBlocked(dateStr, hour) {
-    return blockedHours.find(function(b) {
+    // Check one-time blocks first
+    var oneTime = blockedHours.find(function(b) {
       return b.date === dateStr && hour >= b.start_hour && hour < b.end_hour;
-    }) || null;
+    });
+    if (oneTime) return oneTime;
+    // Then check recurring blocks
+    var recurring = blockedHoursRecurring.find(function(b) {
+      return hour >= b.start_hour && hour < b.end_hour;
+    });
+    if (recurring) return Object.assign({}, recurring, { recurring: true, date: dateStr });
+    return null;
   }
 
   // Helper: is a specific date blocked? (checks both recurring + one-time)
@@ -96,6 +109,13 @@
       });
       if (res3.ok) blockedHours = await res3.json();
     } catch(e) { console.error("Failed to load blocked hours", e); }
+    // Also load recurring hour blocks
+    try {
+      var res4 = await fetch(API + "/blocked-hours-recurring", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res4.ok) blockedHoursRecurring = await res4.json();
+    } catch(e) { console.error("Failed to load recurring hour blocks", e); }
   }
 
   async function toggleBlockedDay(dow) {
@@ -409,18 +429,25 @@
         if (hourBlock) {
           var lbl = document.createElement("span");
           lbl.className = "pg-hour-block-label";
-          lbl.innerText = hourBlock.label || "Blocked";
+          lbl.innerText = (hourBlock.label || "Blocked") + (hourBlock.recurring ? " (Daily)" : "");
           cell.appendChild(lbl);
           if (role === "admin") {
             cell.title = "Click to remove this block";
             cell.addEventListener("click", (function(hb) {
               return async function(e) {
                 e.stopPropagation();
-                var res = await fetch(API + "/blocked-hours/" + hb.id, {
+                var endpoint = hb.recurring
+                  ? API + "/blocked-hours-recurring/" + hb.id
+                  : API + "/blocked-hours/" + hb.id;
+                var res = await fetch(endpoint, {
                   method: "DELETE", headers: { Authorization: "Bearer " + TOKEN }
                 });
                 if (res.ok) {
-                  blockedHours = blockedHours.filter(function(b) { return b.id !== hb.id; });
+                  if (hb.recurring) {
+                    blockedHoursRecurring = blockedHoursRecurring.filter(function(b) { return b.id !== hb.id; });
+                  } else {
+                    blockedHours = blockedHours.filter(function(b) { return b.id !== hb.id; });
+                  }
                   showToast("Hour block removed.", "info");
                   renderPlanner();
                 } else { showToast("Failed to remove.", "error"); }
@@ -781,54 +808,85 @@
     var dlg = document.createElement("div");
     dlg.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);";
     dlg.innerHTML =
-      '<div style="background:#fff;border-radius:16px;padding:24px;width:320px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">' +
+      '<div style="background:#fff;border-radius:16px;padding:24px;width:340px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">' +
       '<div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:4px;">Block Hours</div>' +
-      '<div style="font-size:13px;color:#64748b;margin-bottom:16px;">' + displayDate + '</div>' +
+      '<div style="font-size:13px;color:#64748b;margin-bottom:16px;" id="bh_date_label">' + displayDate + '</div>' +
       '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">' +
         '<div style="flex:1;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">From</label>' +
         '<select id="bh_start" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;">' + hourOptions + '</select></div>' +
         '<div style="flex:1;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">To</label>' +
         '<select id="bh_end" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;">' + hourOptions + '</select></div>' +
       '</div>' +
-      '<div style="margin-bottom:16px;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Label (optional)</label>' +
-        '<input id="bh_label" type="text" placeholder="e.g. Lunch, Personal, Training" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;box-sizing:border-box;"></div>' +
+      '<div style="margin-bottom:12px;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Label (optional)</label>' +
+        '<input id="bh_label" type="text" placeholder="e.g. Lunch, Personal, 9PM Block" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;box-sizing:border-box;"></div>' +
+      // Repeat toggle
+      '<div style="margin-bottom:16px;padding:12px;background:#f8fafc;border-radius:10px;border:1.5px solid #e2e8f0;">' +
+        '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;">' +
+          '<input type="checkbox" id="bh_repeat" style="width:16px;height:16px;cursor:pointer;">' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:700;color:#0f172a;">Repeat every day</div>' +
+            '<div style="font-size:11px;color:#64748b;margin-top:1px;">Block this time range on all days, permanently</div>' +
+          '</div>' +
+        '</label>' +
+      '</div>' +
       '<div id="bh_error" style="font-size:12px;color:#dc2626;margin-bottom:8px;display:none;"></div>' +
       '<div style="display:flex;gap:8px;">' +
         '<button id="bh_save" style="flex:1;padding:9px;border-radius:8px;background:#2563eb;color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;">Block Hours</button>' +
         '<button id="bh_cancel" style="flex:1;padding:9px;border-radius:8px;background:#f1f5f9;color:#475569;font-size:13px;font-weight:600;border:none;cursor:pointer;">Cancel</button>' +
       '</div></div>';
 
-    // Set default end to start+1
     document.body.appendChild(dlg);
-    var startSel = dlg.querySelector("#bh_start");
-    var endSel   = dlg.querySelector("#bh_end");
-    startSel.value = "9";
-    endSel.value   = "10";
+    var startSel  = dlg.querySelector("#bh_start");
+    var endSel    = dlg.querySelector("#bh_end");
+    var repeatChk = dlg.querySelector("#bh_repeat");
+    var dateLabel = dlg.querySelector("#bh_date_label");
+    startSel.value = "21";
+    endSel.value   = "21";
+    // Make end default to start+1 but cap at 21
+    startSel.addEventListener("change", function() {
+      var s = parseInt(startSel.value);
+      if (parseInt(endSel.value) <= s) endSel.value = Math.min(s + 1, 21);
+    });
+    // Update date label based on repeat toggle
+    repeatChk.addEventListener("change", function() {
+      dateLabel.innerText = repeatChk.checked ? "Every day — repeats indefinitely" : displayDate;
+    });
 
     dlg.querySelector("#bh_cancel").onclick = function() { document.body.removeChild(dlg); };
     dlg.addEventListener("click", function(e) { if (e.target === dlg) document.body.removeChild(dlg); });
 
     dlg.querySelector("#bh_save").onclick = async function() {
-      var startH = parseInt(startSel.value);
-      var endH   = parseInt(endSel.value);
-      var label  = dlg.querySelector("#bh_label").value.trim();
-      var errEl  = dlg.querySelector("#bh_error");
+      var startH  = parseInt(startSel.value);
+      var endH    = parseInt(endSel.value);
+      var label   = dlg.querySelector("#bh_label").value.trim();
+      var repeat  = repeatChk.checked;
+      var errEl   = dlg.querySelector("#bh_error");
       if (endH <= startH) {
         errEl.innerText = "End time must be after start time.";
         errEl.style.display = "block";
         return;
       }
       try {
-        var res = await fetch(API + "/blocked-hours", {
+        var endpoint = repeat ? API + "/blocked-hours-recurring" : API + "/blocked-hours";
+        var payload  = repeat
+          ? { start_hour: startH, end_hour: endH, label: label }
+          : { date: dateStr, start_hour: startH, end_hour: endH, label: label };
+
+        var res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
-          body: JSON.stringify({ date: dateStr, start_hour: startH, end_hour: endH, label: label })
+          body: JSON.stringify(payload)
         });
         if (res.ok) {
           var newBlock = await res.json();
-          blockedHours.push(newBlock);
+          if (repeat) {
+            blockedHoursRecurring.push(newBlock);
+            showToast("Hours blocked every day from " + fmtTime(String(startH).padStart(2,"0") + ":00") + " to " + fmtTime(String(endH).padStart(2,"0") + ":00") + ".", "info");
+          } else {
+            blockedHours.push(newBlock);
+            showToast("Hours blocked on " + displayDate + ".", "info");
+          }
           document.body.removeChild(dlg);
-          showToast("Hours blocked on " + displayDate + ".", "info");
           renderPlanner();
         } else {
           var err = await res.json().catch(function() { return {}; });
