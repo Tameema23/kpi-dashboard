@@ -50,6 +50,17 @@
   // Set of specific date strings "YYYY-MM-DD", persisted in the database via API.
   var blockedDates = new Set();
 
+  // ── Blocked hours (one-time hour ranges) ─────────────────────
+  // Array of {id, date, start_hour, end_hour, label} objects.
+  var blockedHours = [];
+
+  // Helper: is a specific hour on a specific date blocked?
+  function isHourBlocked(dateStr, hour) {
+    return blockedHours.find(function(b) {
+      return b.date === dateStr && hour >= b.start_hour && hour < b.end_hour;
+    }) || null;
+  }
+
   // Helper: is a specific date blocked? (checks both recurring + one-time)
   function isDateBlocked(dateStr) {
     var d = new Date(dateStr + "T00:00:00");
@@ -78,6 +89,13 @@
         blockedDates = new Set(dates);
       }
     } catch(e) { console.error("Failed to load blocked dates", e); }
+    // Also load blocked hour ranges
+    try {
+      var res3 = await fetch(API + "/blocked-hours", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res3.ok) blockedHours = await res3.json();
+    } catch(e) { console.error("Failed to load blocked hours", e); }
   }
 
   async function toggleBlockedDay(dow) {
@@ -318,7 +336,10 @@
                 'Block this day only</button>' +
                 '<button class="pg-popover-btn pg-popover-block-recurring" data-action="block-recurring">' +
                 '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>' +
-                'Block every ' + DAY_NAMES[dayOfWeek] + '</button>';
+                'Block every ' + DAY_NAMES[dayOfWeek] + '</button>' +
+                '<button class="pg-popover-btn" data-action="block-hours" style="color:#7c3aed;border-top:1px solid #f1f5f9;margin-top:2px;">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                'Block specific hours</button>';
             }
 
             popover.innerHTML = '<div class="pg-popover-title">' + title + '</div>' + btns;
@@ -332,6 +353,7 @@
                 if (action === "unblock-date")      toggleBlockedDate(dayDateStr);
                 if (action === "block-recurring")   toggleBlockedDay(dayOfWeek);
                 if (action === "unblock-recurring")  toggleBlockedDay(dayOfWeek);
+                if (action === "block-hours")        openBlockHoursModal(dayDateStr);
               });
             });
 
@@ -374,13 +396,38 @@
         var dow_cell  = day.getDay();
         var cellDateStr = fmtDate(day);
         var isBlocked = !!isDateBlocked(cellDateStr);
+        var hourBlock = !isBlocked ? isHourBlocked(cellDateStr, hour) : null;
         var cell = document.createElement("div");
         cell.className = "pg-cell" +
           (cellDateStr === today ? " pg-cell-today" : "") +
-          (isBlocked ? " pg-cell-blocked" : "");
+          (isBlocked ? " pg-cell-blocked" : "") +
+          (hourBlock  ? " pg-cell-hour-blocked" : "");
         cell.dataset.date = cellDateStr;
         cell.dataset.hour = hour;
 
+        // Hour block label
+        if (hourBlock) {
+          var lbl = document.createElement("span");
+          lbl.className = "pg-hour-block-label";
+          lbl.innerText = hourBlock.label || "Blocked";
+          cell.appendChild(lbl);
+          if (role === "admin") {
+            cell.title = "Click to remove this block";
+            cell.addEventListener("click", (function(hb) {
+              return async function(e) {
+                e.stopPropagation();
+                var res = await fetch(API + "/blocked-hours/" + hb.id, {
+                  method: "DELETE", headers: { Authorization: "Bearer " + TOKEN }
+                });
+                if (res.ok) {
+                  blockedHours = blockedHours.filter(function(b) { return b.id !== hb.id; });
+                  showToast("Hour block removed.", "info");
+                  renderPlanner();
+                } else { showToast("Failed to remove.", "error"); }
+              };
+            })(hourBlock));
+          }
+        } else {
         // Click empty area — blocked days are not bookable
         cell.addEventListener("click", (function (d, hr, blocked) {
           return function () {
@@ -395,6 +442,7 @@
             openAddModal(fmtDate(d), String(hr).padStart(2, "0") + ":00");
           };
         })(day, hour, isBlocked));
+        }
 
         // Appointments in this cell — sorted by time
         var sortedAppts = appointments.slice().sort(function(a, b) {
@@ -411,16 +459,23 @@
           var isCallback = appt.appt_type === "callback";
           block.className = "pg-appt-block" + (isCallback ? " pg-appt-callback" : "");
           block.dataset.apptId = appt.id;
-          var smsStatus = appt.sms_status || "";
+          var smsStatus  = appt.sms_status  || "";
+          var apptStatus = appt.appt_status || "";
           var smsBadge = "";
           if (smsStatus === "confirmed") {
-            smsBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px;">✓ YES</span>';
+            smsBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px;">Confirmed</span>';
+          }
+          var statusBadge = "";
+          if (apptStatus && apptStatus !== "confirmed") {
+            var statusLabels = { rescheduled: "RS", no_show: "NS", cancelled: "CXL" };
+            var lbl = statusLabels[apptStatus] || apptStatus;
+            statusBadge = '<span class="pg-appt-status ' + apptStatus + '">' + lbl + '</span>';
           }
 
           block.innerHTML =
             (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
-            '<span class="pg-appt-name">' + appt.lead_name + smsBadge + "</span>";
+            '<span class="pg-appt-name">' + appt.lead_name + smsBadge + statusBadge + "</span>";
 
           block.addEventListener("mouseenter", function (e) { showTooltip(e, appt); });
           block.addEventListener("mouseleave", hideTooltip);
@@ -545,6 +600,7 @@
     document.getElementById("modalBookedAt").classList.add("hidden");
     document.getElementById("modalDeleteBtn").style.display = "none";
     document.getElementById("modalSaveBtn").innerText = "Save Appointment";
+    document.getElementById("apptStatusSection").style.display = "none";
 
     var d = dateStr ? new Date(dateStr + "T00:00:00") : new Date();
     calYear  = d.getFullYear();
@@ -687,6 +743,11 @@
     document.getElementById("modalDeleteBtn").style.display = "inline-flex";
     document.getElementById("modalSaveBtn").innerText = "Update";
 
+    // Show outcome status section
+    currentApptStatus = appt.appt_status || "";
+    document.getElementById("apptStatusSection").style.display = "block";
+    updateStatusBtns(currentApptStatus);
+
     var d = parts[0] ? new Date(parts[0] + "T00:00:00") : new Date();
     calYear  = d.getFullYear();
     calMonth = d.getMonth();
@@ -704,6 +765,109 @@
   function closeModal() {
     document.getElementById("modalBackdrop").classList.add("hidden");
     hideTooltip();
+  }
+
+  // ── Block Hours Modal ─────────────────────────────────────────
+  function openBlockHoursModal(dateStr) {
+    var displayDate = new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", {
+      weekday: "long", month: "long", day: "numeric"
+    });
+    // Build hour options 7am–9pm
+    var hourOptions = "";
+    for (var h = 7; h <= 21; h++) {
+      var label = fmtTime(String(h).padStart(2,"0") + ":00");
+      hourOptions += '<option value="' + h + '">' + label + '</option>';
+    }
+    var dlg = document.createElement("div");
+    dlg.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);";
+    dlg.innerHTML =
+      '<div style="background:#fff;border-radius:16px;padding:24px;width:320px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">' +
+      '<div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:4px;">Block Hours</div>' +
+      '<div style="font-size:13px;color:#64748b;margin-bottom:16px;">' + displayDate + '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">' +
+        '<div style="flex:1;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">From</label>' +
+        '<select id="bh_start" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;">' + hourOptions + '</select></div>' +
+        '<div style="flex:1;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">To</label>' +
+        '<select id="bh_end" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;">' + hourOptions + '</select></div>' +
+      '</div>' +
+      '<div style="margin-bottom:16px;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Label (optional)</label>' +
+        '<input id="bh_label" type="text" placeholder="e.g. Lunch, Personal, Training" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;box-sizing:border-box;"></div>' +
+      '<div id="bh_error" style="font-size:12px;color:#dc2626;margin-bottom:8px;display:none;"></div>' +
+      '<div style="display:flex;gap:8px;">' +
+        '<button id="bh_save" style="flex:1;padding:9px;border-radius:8px;background:#2563eb;color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;">Block Hours</button>' +
+        '<button id="bh_cancel" style="flex:1;padding:9px;border-radius:8px;background:#f1f5f9;color:#475569;font-size:13px;font-weight:600;border:none;cursor:pointer;">Cancel</button>' +
+      '</div></div>';
+
+    // Set default end to start+1
+    document.body.appendChild(dlg);
+    var startSel = dlg.querySelector("#bh_start");
+    var endSel   = dlg.querySelector("#bh_end");
+    startSel.value = "9";
+    endSel.value   = "10";
+
+    dlg.querySelector("#bh_cancel").onclick = function() { document.body.removeChild(dlg); };
+    dlg.addEventListener("click", function(e) { if (e.target === dlg) document.body.removeChild(dlg); });
+
+    dlg.querySelector("#bh_save").onclick = async function() {
+      var startH = parseInt(startSel.value);
+      var endH   = parseInt(endSel.value);
+      var label  = dlg.querySelector("#bh_label").value.trim();
+      var errEl  = dlg.querySelector("#bh_error");
+      if (endH <= startH) {
+        errEl.innerText = "End time must be after start time.";
+        errEl.style.display = "block";
+        return;
+      }
+      try {
+        var res = await fetch(API + "/blocked-hours", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+          body: JSON.stringify({ date: dateStr, start_hour: startH, end_hour: endH, label: label })
+        });
+        if (res.ok) {
+          var newBlock = await res.json();
+          blockedHours.push(newBlock);
+          document.body.removeChild(dlg);
+          showToast("Hours blocked on " + displayDate + ".", "info");
+          renderPlanner();
+        } else {
+          var err = await res.json().catch(function() { return {}; });
+          errEl.innerText = err.detail || "Failed to save.";
+          errEl.style.display = "block";
+        }
+      } catch(e) { errEl.innerText = "Server error."; errEl.style.display = "block"; }
+    };
+  }
+
+  // ── Appointment outcome status ────────────────────────────────
+  var currentApptStatus = "";
+
+  window.setApptStatus = async function(status) {
+    if (!editingId) return;
+    try {
+      var res = await fetch(API + "/appointments/" + editingId + "/appt-status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify({ appt_status: status })
+      });
+      if (res.ok) {
+        currentApptStatus = status;
+        updateStatusBtns(status);
+        // Update local cache
+        var appt = appointments.find(function(a) { return a.id === editingId; });
+        if (appt) appt.appt_status = status;
+        renderPlanner();
+        showToast(status ? "Status set to " + status.replace("_"," ") + "." : "Status cleared.", "info");
+      } else { showToast("Failed to set status.", "error"); }
+    } catch(e) { showToast("Server error.", "error"); }
+  };
+
+  function updateStatusBtns(status) {
+    ["confirmed","rescheduled","no_show","cancelled"].forEach(function(s) {
+      var btn = document.getElementById("statusBtn_" + s);
+      if (!btn) return;
+      btn.className = "appt-status-btn" + (status === s ? " active-" + s : "");
+    });
   }
 
   // ── Type toggle styling ───────────────────────────────────────

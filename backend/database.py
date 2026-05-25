@@ -109,6 +109,10 @@ class Appointment(Base):
     sms_sent_morning  = Column(Boolean,     default=False)  # day-of 9am sent
     sms_sent_reminder = Column(Boolean,     default=False)  # 1hr-before reminder sent
 
+    # Appointment outcome status (set manually by admin)
+    # appt_status: "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
+    appt_status       = Column(String(20),  default="")
+
     created_by_user = relationship(
         "User", foreign_keys=[created_by],
         back_populates="appointments_created"
@@ -147,6 +151,7 @@ class QualityEntry(Base):
     follow_up     = Column(String(100), default="")
     action        = Column(String(200), default="")
     alp           = Column(String(50),  default="")
+    due_date      = Column(String(10),  default="")   # YYYY-MM-DD — used for row highlighting
     created_at    = Column(String(16),  default="")
 
 
@@ -226,6 +231,23 @@ class BlockedDate(Base):
     id       = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     date     = Column(String(10), nullable=False)  # YYYY-MM-DD
+
+
+class BlockedHour(Base):
+    """
+    A one-time hour-range block on a specific date.
+    Blocks a contiguous range of hours on one day (e.g. 2pm–4pm on May 28).
+    Not recurring — applies only to the specified date.
+    Use case: personal errands, lunch breaks, reserved time slots.
+    """
+    __tablename__ = "blocked_hours"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    owner_id   = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    date       = Column(String(10), nullable=False)   # YYYY-MM-DD
+    start_hour = Column(Integer,    nullable=False)   # 7–21 (hour in MT, 24hr)
+    end_hour   = Column(Integer,    nullable=False)   # 7–21, exclusive (block covers start up to but not including end)
+    label      = Column(String(100), default="")      # optional label e.g. "Lunch", "Personal"
 
 
 class AuditLog(Base):

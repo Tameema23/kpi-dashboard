@@ -40,7 +40,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, TimesheetEntry, TimesheetPunch, RcToken
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, TimesheetEntry, TimesheetPunch, RcToken
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -130,6 +130,8 @@ async def _run_sms_job(job_type: str):
             Appointment.phone_number != None,
             Appointment.appt_type != "callback",
             Appointment.sms_status != "rescheduled",
+            Appointment.appt_status != "cancelled",
+            Appointment.appt_status != "no_show",
         ).all()
 
         for appt in appts:
@@ -212,6 +214,8 @@ async def _run_reminder_job():
             Appointment.appt_type != "callback",
             Appointment.sms_status != "confirmed",
             Appointment.sms_status != "rescheduled",
+            Appointment.appt_status != "cancelled",
+            Appointment.appt_status != "no_show",
             Appointment.sms_sent_reminder == False,
         ).all()
 
@@ -1056,6 +1060,7 @@ def _appt_dict(appt, db):
             "appt_type": appt.appt_type or "appointment",
             "booking_tz": appt.booking_tz or "America/Edmonton",
             "sms_status": appt.sms_status or "",
+            "appt_status": appt.appt_status or "",
             "sms_sent_evening": bool(appt.sms_sent_evening),
             "sms_sent_morning": bool(appt.sms_sent_morning),
             "sms_sent_reminder": bool(appt.sms_sent_reminder)}
@@ -1162,6 +1167,63 @@ def remove_blocked_date(date_str: str,
         audit(db, user.id, "unblock_date", f"Unblocked {date_str}")
     return {"status": "unblocked"}
 
+
+# ── Blocked Hours (one-time hour-range blocks) ────────────────────────────────
+
+class BlockedHourPayload(BaseModel):
+    date:       str        # YYYY-MM-DD
+    start_hour: int        # 7–21
+    end_hour:   int        # 7–21, must be > start_hour
+    label:      Optional[str] = ""
+
+@app.get("/blocked-hours")
+def get_blocked_hours(user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """Return all blocked hour ranges for this admin's owner."""
+    owner = get_owner_id(user)
+    rows = db.query(BlockedHour).filter(BlockedHour.owner_id == owner).all()
+    return [{"id": r.id, "date": r.date, "start_hour": r.start_hour,
+             "end_hour": r.end_hour, "label": r.label or ""} for r in rows]
+
+@app.post("/blocked-hours", status_code=201)
+def add_blocked_hour(data: BlockedHourPayload,
+                     user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Admin-only: block a range of hours on a specific date."""
+    _require_admin(user)
+    if data.start_hour < 7 or data.end_hour > 21 or data.start_hour >= data.end_hour:
+        raise HTTPException(400, "Invalid hour range. Must be within 7–21 and start < end.")
+    date_str = validate_date(data.date)
+    row = BlockedHour(
+        owner_id   = user.id,
+        date       = date_str,
+        start_hour = data.start_hour,
+        end_hour   = data.end_hour,
+        label      = sanitize_str(data.label or "", 100)
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    audit(db, user.id, "block_hours", f"Blocked {date_str} {data.start_hour}:00–{data.end_hour}:00")
+    return {"id": row.id, "date": row.date, "start_hour": row.start_hour,
+            "end_hour": row.end_hour, "label": row.label or ""}
+
+@app.delete("/blocked-hours/{block_id}")
+def remove_blocked_hour(block_id: int,
+                        user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Admin-only: remove a blocked hour range."""
+    _require_admin(user)
+    row = db.query(BlockedHour).filter(
+        BlockedHour.id == block_id, BlockedHour.owner_id == user.id
+    ).first()
+    if not row:
+        raise HTTPException(404, "Blocked hour not found.")
+    db.delete(row)
+    db.commit()
+    audit(db, user.id, "unblock_hours", f"Removed hour block {block_id}")
+    return {"status": "removed"}
+
 # ── Quality ────────────────────────────────────────────────────────────────────
 
 class QualityPayload(BaseModel):
@@ -1173,6 +1235,7 @@ class QualityPayload(BaseModel):
     follow_up:     Optional[str] = ""
     action:        Optional[str] = ""
     alp:           Optional[str] = ""
+    due_date:      Optional[str] = ""   # YYYY-MM-DD
 
 def _sanitize_quality(data: QualityPayload) -> dict:
     return {
@@ -1184,6 +1247,7 @@ def _sanitize_quality(data: QualityPayload) -> dict:
         "follow_up":     sanitize_str(data.follow_up or "", 100),
         "action":        sanitize_str(data.action or "", 200),
         "alp":           sanitize_str(data.alp or "", 50),
+        "due_date":      sanitize_str(data.due_date or "", 10),
     }
 
 def _quality_dict(e):
@@ -1191,7 +1255,8 @@ def _quality_dict(e):
             "policy_number": e.policy_number or "", "remarks": e.remarks or "",
             "date": e.date or "", "phone_number": e.phone_number or "",
             "follow_up": e.follow_up or "", "action": e.action or "",
-            "alp": e.alp or "", "created_at": e.created_at or ""}
+            "alp": e.alp or "", "due_date": e.due_date or "",
+            "created_at": e.created_at or ""}
 
 @app.post("/quality", status_code=201)
 def create_quality(data: QualityPayload,
@@ -2273,7 +2338,7 @@ def set_confirmation_status(appt_id: int,
                              data: ReferralEntryStatusPayload,
                              user: User = Depends(get_current_user),
                              db: Session = Depends(get_db)):
-    """Tameema23 can manually set status: confirmed | rescheduled | (empty)."""
+    """Tameema23 can manually set sms_status: confirmed | rescheduled | (empty)."""
     if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
         raise HTTPException(403, "Access denied.")
     appt = db.query(Appointment).filter(Appointment.id == appt_id).first()
@@ -2284,6 +2349,32 @@ def set_confirmation_status(appt_id: int,
     appt.sms_status = data.status
     db.commit()
     return {"id": appt_id, "sms_status": appt.sms_status}
+
+
+class ApptStatusPayload(BaseModel):
+    appt_status: str  # "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
+
+@app.patch("/appointments/{appt_id}/appt-status")
+def set_appt_status(appt_id: int,
+                    data: ApptStatusPayload,
+                    user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """
+    Admin sets the outcome status of an appointment.
+    Valid values: "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
+    """
+    owner = get_owner_id(user)
+    appt  = db.query(Appointment).filter(
+        Appointment.id == appt_id, Appointment.owner_id == owner
+    ).first()
+    if not appt:
+        raise HTTPException(404, "Appointment not found.")
+    valid = ("", "confirmed", "rescheduled", "no_show", "cancelled")
+    if data.appt_status not in valid:
+        raise HTTPException(422, "Invalid appt_status.")
+    appt.appt_status = data.appt_status
+    db.commit()
+    return {"id": appt_id, "appt_status": appt.appt_status}
 
 # ── RC: register inbound SMS webhook ─────────────────────────────────────────
 

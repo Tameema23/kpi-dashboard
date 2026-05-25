@@ -214,6 +214,18 @@
         Booked at: <span id="modalBookedAtVal"></span>
       </div>
 
+      <!-- Appointment outcome status (edit mode only) -->
+      <div id="apptStatusSection" style="display:none;margin-top:12px;">
+        <label style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:8px;">Outcome Status</label>
+        <div class="appt-status-row">
+          <button class="appt-status-btn" id="statusBtn_confirmed"   onclick="setApptStatus('confirmed')">Confirmed</button>
+          <button class="appt-status-btn" id="statusBtn_rescheduled" onclick="setApptStatus('rescheduled')">Rescheduled</button>
+          <button class="appt-status-btn" id="statusBtn_no_show"     onclick="setApptStatus('no_show')">No Show</button>
+          <button class="appt-status-btn" id="statusBtn_cancelled"   onclick="setApptStatus('cancelled')">Cancelled</button>
+          <button class="appt-status-btn" id="statusBtn_clear"       onclick="setApptStatus('')" style="flex:0;min-width:60px;">Clear</button>
+        </div>
+      </div>
+
     </div>
     <div class="modal-footer">
       <button class="btn" style="background:#f1f5f9;color:#475569;" id="modalCancelBtn">Cancel</button>

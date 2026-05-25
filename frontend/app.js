@@ -1293,21 +1293,31 @@ function updatePlannerSummary(appointments, weekStart) {
     var dt = new Date(d + "T00:00:00");
     return dt >= weekStart && dt <= weekEnd;
   });
-  var todayAppts = appointments.filter(function(a) {
+  var todayAll   = appointments.filter(function(a) {
     return (a.scheduled_for || "").split("T")[0] === today;
   });
   var callbacks  = weekAppts.filter(function(a) { return a.appt_type === "callback"; });
   var appts      = weekAppts.filter(function(a) { return a.appt_type !== "callback"; });
+  var todayAppts = todayAll.filter(function(a)  { return a.appt_type !== "callback"; });
+  var todayCbs   = todayAll.filter(function(a)  { return a.appt_type === "callback"; });
 
   if (weekAppts.length === 0) {
     bar.innerHTML = '<span class="planner-summary-badge empty">No appointments this week</span>';
     return;
   }
 
-  var html = '<span class="planner-summary-label">This week:</span>';
+  var html = '<span class="planner-summary-label">Week:</span>';
   if (appts.length    > 0) html += '<span class="planner-summary-badge appt">' + appts.length + (appts.length === 1 ? " appt" : " appts") + '</span>';
   if (callbacks.length > 0) html += '<span class="planner-summary-badge cb">' + callbacks.length + (callbacks.length === 1 ? " callback" : " callbacks") + '</span>';
-  if (todayAppts.length > 0) html += '<span class="planner-summary-badge today">' + todayAppts.length + ' today</span>';
+
+  // Separator between week and today counters
+  if (todayAll.length > 0) {
+    html += '<span class="planner-summary-sep"></span>';
+    html += '<span class="planner-summary-label">Today:</span>';
+    if (todayAppts.length > 0) html += '<span class="planner-summary-badge today">' + todayAppts.length + (todayAppts.length === 1 ? " appt" : " appts") + '</span>';
+    if (todayCbs.length   > 0) html += '<span class="planner-summary-badge today-cb">' + todayCbs.length + (todayCbs.length === 1 ? " callback" : " callbacks") + '</span>';
+  }
+
   bar.innerHTML = html;
 }
 

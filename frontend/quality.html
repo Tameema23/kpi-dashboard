@@ -74,6 +74,15 @@
       </div>
     </div>
 
+    <!-- Due date filter buttons -->
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <button id="filterAllBtn" class="btn small filter-btn filter-btn-active" onclick="setFilter('all')">All Entries</button>
+      <button id="filterDueSoonBtn" class="btn small filter-btn" onclick="setFilter('due-soon')" style="background:#fffbeb;color:#92400e;border-color:#fde68a;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Due Soon <span class="filter-count" style="font-size:11px;background:#f59e0b;color:#fff;border-radius:10px;padding:0 5px;margin-left:3px;"></span>
+      </button>
+    </div>
+
     <!-- Analytics summary -->
     <div id="qualitySummary" class="quality-summary">
       <div class="quality-stat"><div class="quality-stat-label">Total Entries</div><div class="quality-stat-value">—</div></div>
@@ -109,12 +118,13 @@
             <th>Policy #</th>
             <th>Remarks</th>
             <th>Date</th>
+            <th>Due Date</th>
             <th>Phone</th>
             <th>Follow Up</th>
             <th>Action</th>
             <th>ALP</th>
-            <th style="width:80px;text-align:center;">Edit</th>
-            <th style="width:80px;text-align:center;">Delete</th>
+            <th style="width:60px;text-align:center;">Edit</th>
+            <th style="width:60px;text-align:center;">Delete</th>
           </tr>
         </thead>
         <tbody id="qualityBody"></tbody>
@@ -181,6 +191,11 @@
       <div class="form-field">
         <label>Date</label>
         <input id="f_date" type="date">
+      </div>
+      <div class="form-field">
+        <label>Due Date <span style="font-size:11px;font-weight:500;color:#94a3b8;">used for follow-up reminders</span></label>
+        <input id="f_due_date" type="date">
+        <div style="margin-top:4px;font-size:11px;color:#94a3b8;">Row turns yellow within 9 days, red within 4 days.</div>
       </div>
       <div class="form-field">
         <label>Phone Number</label>
