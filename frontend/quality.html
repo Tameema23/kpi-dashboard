@@ -16,7 +16,15 @@
   <link rel="preconnect" href="https://data-log.onrender.com">
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/static/xlsx.full.min.js"></script>
+  <script>
+    // Fallback: if self-hosted fails (file not yet uploaded), load from CDN
+    if (typeof XLSX === 'undefined') {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      document.head.appendChild(s);
+    }
+  </script>
   <title>Quality Tracker</title>
 </head>
 <body>

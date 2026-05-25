@@ -808,46 +808,36 @@
     var dlg = document.createElement("div");
     dlg.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);";
     dlg.innerHTML =
-      '<div style="background:#fff;border-radius:16px;padding:24px;width:340px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">' +
-      '<div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:4px;">Block Hours</div>' +
+      '<div style="background:#fff;border-radius:16px;padding:24px;width:320px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">' +
+      '<div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:4px;">Block Hour</div>' +
       '<div style="font-size:13px;color:#64748b;margin-bottom:16px;" id="bh_date_label">' + displayDate + '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">' +
-        '<div style="flex:1;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">From</label>' +
-        '<select id="bh_start" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;">' + hourOptions + '</select></div>' +
-        '<div style="flex:1;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">To</label>' +
-        '<select id="bh_end" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;">' + hourOptions + '</select></div>' +
+      '<div style="margin-bottom:12px;">' +
+        '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Hour to Block</label>' +
+        '<select id="bh_start" style="width:100%;padding:9px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;">' + hourOptions + '</select>' +
+        '<div style="margin-top:4px;font-size:11px;color:#94a3b8;">Blocks the full 1-hour slot (e.g. 9:00 PM blocks 9:00–10:00 PM)</div>' +
       '</div>' +
       '<div style="margin-bottom:12px;"><label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Label (optional)</label>' +
-        '<input id="bh_label" type="text" placeholder="e.g. Lunch, Personal, 9PM Block" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;box-sizing:border-box;"></div>' +
-      // Repeat toggle
+        '<input id="bh_label" type="text" placeholder="e.g. Personal, 9PM Block" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;box-sizing:border-box;"></div>' +
       '<div style="margin-bottom:16px;padding:12px;background:#f8fafc;border-radius:10px;border:1.5px solid #e2e8f0;">' +
         '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;">' +
           '<input type="checkbox" id="bh_repeat" style="width:16px;height:16px;cursor:pointer;">' +
           '<div>' +
             '<div style="font-size:13px;font-weight:700;color:#0f172a;">Repeat every day</div>' +
-            '<div style="font-size:11px;color:#64748b;margin-top:1px;">Block this time range on all days, permanently</div>' +
+            '<div style="font-size:11px;color:#64748b;margin-top:1px;">Block this hour on all days, permanently</div>' +
           '</div>' +
         '</label>' +
       '</div>' +
       '<div id="bh_error" style="font-size:12px;color:#dc2626;margin-bottom:8px;display:none;"></div>' +
       '<div style="display:flex;gap:8px;">' +
-        '<button id="bh_save" style="flex:1;padding:9px;border-radius:8px;background:#2563eb;color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;">Block Hours</button>' +
+        '<button id="bh_save" style="flex:1;padding:9px;border-radius:8px;background:#2563eb;color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;">Block Hour</button>' +
         '<button id="bh_cancel" style="flex:1;padding:9px;border-radius:8px;background:#f1f5f9;color:#475569;font-size:13px;font-weight:600;border:none;cursor:pointer;">Cancel</button>' +
       '</div></div>';
 
     document.body.appendChild(dlg);
     var startSel  = dlg.querySelector("#bh_start");
-    var endSel    = dlg.querySelector("#bh_end");
     var repeatChk = dlg.querySelector("#bh_repeat");
     var dateLabel = dlg.querySelector("#bh_date_label");
     startSel.value = "21";
-    endSel.value   = "21";
-    // Make end default to start+1 but cap at 21
-    startSel.addEventListener("change", function() {
-      var s = parseInt(startSel.value);
-      if (parseInt(endSel.value) <= s) endSel.value = Math.min(s + 1, 21);
-    });
-    // Update date label based on repeat toggle
     repeatChk.addEventListener("change", function() {
       dateLabel.innerText = repeatChk.checked ? "Every day — repeats indefinitely" : displayDate;
     });
@@ -857,15 +847,10 @@
 
     dlg.querySelector("#bh_save").onclick = async function() {
       var startH  = parseInt(startSel.value);
-      var endH    = parseInt(endSel.value);
+      var endH    = startH + 1;  // always block exactly one hour
       var label   = dlg.querySelector("#bh_label").value.trim();
       var repeat  = repeatChk.checked;
       var errEl   = dlg.querySelector("#bh_error");
-      if (endH <= startH) {
-        errEl.innerText = "End time must be after start time.";
-        errEl.style.display = "block";
-        return;
-      }
       try {
         var endpoint = repeat ? API + "/blocked-hours-recurring" : API + "/blocked-hours";
         var payload  = repeat
@@ -881,10 +866,10 @@
           var newBlock = await res.json();
           if (repeat) {
             blockedHoursRecurring.push(newBlock);
-            showToast("Hours blocked every day from " + fmtTime(String(startH).padStart(2,"0") + ":00") + " to " + fmtTime(String(endH).padStart(2,"0") + ":00") + ".", "info");
+            showToast(fmtTime(String(startH).padStart(2,"0") + ":00") + " blocked every day.", "info");
           } else {
             blockedHours.push(newBlock);
-            showToast("Hours blocked on " + displayDate + ".", "info");
+            showToast(fmtTime(String(startH).padStart(2,"0") + ":00") + " blocked on " + displayDate + ".", "info");
           }
           document.body.removeChild(dlg);
           renderPlanner();

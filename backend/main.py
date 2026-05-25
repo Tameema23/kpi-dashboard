@@ -1060,7 +1060,7 @@ def _appt_dict(appt, db):
             "appt_type": appt.appt_type or "appointment",
             "booking_tz": appt.booking_tz or "America/Edmonton",
             "sms_status": appt.sms_status or "",
-            "appt_status": appt.appt_status or "",
+            "appt_status": getattr(appt, "appt_status", "") or "",
             "sms_sent_evening": bool(appt.sms_sent_evening),
             "sms_sent_morning": bool(appt.sms_sent_morning),
             "sms_sent_reminder": bool(appt.sms_sent_reminder)}
@@ -1318,7 +1318,7 @@ def _quality_dict(e):
             "policy_number": e.policy_number or "", "remarks": e.remarks or "",
             "date": e.date or "", "phone_number": e.phone_number or "",
             "follow_up": e.follow_up or "", "action": e.action or "",
-            "alp": e.alp or "", "due_date": e.due_date or "",
+            "alp": e.alp or "", "due_date": getattr(e, "due_date", "") or "",
             "created_at": e.created_at or ""}
 
 @app.post("/quality", status_code=201)
@@ -1331,7 +1331,12 @@ def create_quality(data: QualityPayload,
         raise HTTPException(400, "Insured name is required.")
     owner = get_owner_id(user)
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    due_date = fields.pop("due_date", "")
     entry = QualityEntry(owner_id=owner, created_by=user.id, created_at=now, **fields)
+    try:
+        entry.due_date = due_date
+    except Exception:
+        pass
     db.add(entry); db.commit(); db.refresh(entry)
     return _quality_dict(entry)
 
@@ -1354,8 +1359,14 @@ def update_quality(entry_id: int, data: QualityPayload,
         QualityEntry.id == entry_id, QualityEntry.owner_id == owner
     ).first()
     if not entry: raise HTTPException(404, "Entry not found.")
-    for k, v in _sanitize_quality(data).items():
+    fields = _sanitize_quality(data)
+    due_date = fields.pop("due_date", "")
+    for k, v in fields.items():
         setattr(entry, k, v)
+    try:
+        entry.due_date = due_date
+    except Exception:
+        pass
     db.commit()
     return _quality_dict(entry)
 
