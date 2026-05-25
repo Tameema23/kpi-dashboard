@@ -105,13 +105,9 @@ class Appointment(Base):
     # SMS automation fields
     # sms_status: "" (pending) | "confirmed" | "rescheduled"
     sms_status        = Column(String(20),  default="")
-    sms_sent_evening  = Column(Boolean,     default=False)
-    sms_sent_morning  = Column(Boolean,     default=False)
-    sms_sent_reminder = Column(Boolean,     default=False)
-
-    # Appointment outcome status (set manually by admin)
-    # "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
-    appt_status       = Column(String(20),  default="")
+    sms_sent_evening  = Column(Boolean,     default=False)  # night-before 8pm sent
+    sms_sent_morning  = Column(Boolean,     default=False)  # day-of 9am sent
+    sms_sent_reminder = Column(Boolean,     default=False)  # 1hr-before reminder sent
 
     created_by_user = relationship(
         "User", foreign_keys=[created_by],
@@ -149,9 +145,8 @@ class QualityEntry(Base):
     date          = Column(String(20),  default="")
     phone_number  = Column(String(30),  default="")
     follow_up     = Column(String(100), default="")
-    action        = Column(String(200), default="")
+    action        = Column(Text,        default="")
     alp           = Column(String(50),  default="")
-    due_date      = Column(String(10),  default="")   # YYYY-MM-DD — row highlighting
     created_at    = Column(String(16),  default="")
 
 

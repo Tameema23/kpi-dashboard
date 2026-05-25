@@ -453,6 +453,13 @@
                 } else { showToast("Failed to remove.", "error"); }
               };
             })(hourBlock));
+          } else {
+            // Assistants cannot book during blocked hours
+            cell.title = "This time is unavailable.";
+            cell.addEventListener("click", function(e) {
+              e.stopPropagation();
+              showToast("This time slot is unavailable. No appointments can be scheduled.", "error");
+            });
           }
         } else {
         // Click empty area — blocked days are not bookable
@@ -1040,6 +1047,18 @@
       return;
     }
 
+    // ── Blocked hour check ────────────────────────────────────
+    var saveHour = parseInt(timeParts[0]);
+    var hourBlockCheck = isHourBlocked(date, saveHour);
+    if (hourBlockCheck) {
+      var timeEl2 = document.getElementById("m_time");
+      timeEl2.style.borderColor = "#dc2626";
+      setTimeout(function() { timeEl2.style.borderColor = ""; }, 2000);
+      var blockLabel = hourBlockCheck.label ? " (" + hourBlockCheck.label + ")" : "";
+      showToast("This time slot is unavailable" + blockLabel + ". Please choose a different time.", "error");
+      return;
+    }
+
     // Convert entered time from selected timezone to Mountain (America/Edmonton)
     var scheduledFor;
     if (tz === "America/Edmonton") {
@@ -1543,6 +1562,14 @@
           ? DAY_FULL[dropDow] + " is unavailable. Cannot reschedule to this day."
           : fmtDisplay(dropDateStr) + " is unavailable. Cannot reschedule to this date.";
         showToast(msg, "error");
+        return null;
+      }
+      // ── Blocked-hour enforcement for drag-drop ──
+      var dropHour = parseInt((changes.scheduled_for.split("T")[1] || "0").split(":")[0]);
+      var dragHourBlock = isHourBlocked(dropDateStr, dropHour);
+      if (dragHourBlock) {
+        var blockLabel = dragHourBlock.label ? " (" + dragHourBlock.label + ")" : "";
+        showToast("That time slot is unavailable" + blockLabel + ". Cannot reschedule to this time.", "error");
         return null;
       }
     }
