@@ -129,6 +129,7 @@ async def _run_sms_job(job_type: str):
             Appointment.phone_number != "",
             Appointment.phone_number != None,
             Appointment.appt_type != "callback",
+            Appointment.sms_status != "rescheduled",
         ).all()
 
         for appt in appts:
@@ -210,6 +211,7 @@ async def _run_reminder_job():
             Appointment.phone_number != None,
             Appointment.appt_type != "callback",
             Appointment.sms_status != "confirmed",
+            Appointment.sms_status != "rescheduled",
             Appointment.sms_sent_reminder == False,
         ).all()
 
