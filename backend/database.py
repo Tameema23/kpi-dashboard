@@ -147,6 +147,7 @@ class QualityEntry(Base):
     follow_up     = Column(String(100), default="")
     action        = Column(Text,        default="")
     alp           = Column(String(50),  default="")
+    due_date      = Column(String(10),  default="")   # YYYY-MM-DD
     created_at    = Column(String(16),  default="")
 
 

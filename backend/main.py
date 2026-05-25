@@ -1337,10 +1337,7 @@ def create_quality(data: QualityPayload,
         fields["date"] = now_date
     due_date = fields.pop("due_date", "")
     entry = QualityEntry(owner_id=owner, created_by=user.id, created_at=now, **fields)
-    try:
-        entry.due_date = due_date
-    except Exception:
-        pass
+    entry.due_date = due_date
     db.add(entry); db.commit(); db.refresh(entry)
     return _quality_dict(entry)
 
@@ -1367,10 +1364,7 @@ def update_quality(entry_id: int, data: QualityPayload,
     due_date = fields.pop("due_date", "")
     for k, v in fields.items():
         setattr(entry, k, v)
-    try:
-        entry.due_date = due_date
-    except Exception:
-        pass
+    entry.due_date = due_date
     db.commit()
     return _quality_dict(entry)
 
