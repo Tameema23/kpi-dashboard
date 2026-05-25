@@ -1330,7 +1330,11 @@ def create_quality(data: QualityPayload,
     if not fields["insured_name"]:
         raise HTTPException(400, "Insured name is required.")
     owner = get_owner_id(user)
-    now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    now     = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    now_date = now[:10]  # YYYY-MM-DD
+    # If user left date blank, auto-fill with the actual insertion date
+    if not fields.get("date"):
+        fields["date"] = now_date
     due_date = fields.pop("due_date", "")
     entry = QualityEntry(owner_id=owner, created_by=user.id, created_at=now, **fields)
     try:
