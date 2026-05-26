@@ -51,12 +51,10 @@
 
   function dueBadgeHtml(dueDateStr) {
     if (!dueDateStr) return '<span class="due-badge none">No due date</span>';
-    var days = daysUntilDue(dueDateStr);
-    var cls  = getDueClass(dueDateStr);
-    var label;
-    if (days < 0)       label = Math.abs(days) + "d overdue";
-    else if (days === 0) label = "Due today";
-    else                 label = days + "d left";
+    var cls = getDueClass(dueDateStr);
+    // Format as MM/DD/YY
+    var d = new Date(dueDateStr + "T00:00:00");
+    var label = (d.getMonth() + 1) + "/" + d.getDate() + "/" + String(d.getFullYear()).slice(2);
     return '<span class="due-badge ' + cls + '">' +
       '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
       label + '</span>';
