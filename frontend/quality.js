@@ -255,8 +255,8 @@
      "f_due_date","f_phone_number","f_follow_up","f_action","f_alp"].forEach(function(id) {
       document.getElementById(id).value = "";
     });
-    // Leave date blank — backend auto-fills with the actual insertion date
-    document.getElementById("f_date").value = "";
+    // Auto-fill with today's date in Mountain Time
+    document.getElementById("f_date").value = new Date().toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
     // Hide action history
     document.getElementById("f_action_history_wrap").style.display = "none";
     document.getElementById("f_action_label").innerText = "Action";
