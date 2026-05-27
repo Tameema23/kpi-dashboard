@@ -1342,8 +1342,8 @@ def add_blocked_hour(data: BlockedHourPayload,
                      db: Session = Depends(get_db)):
     """Admin-only: block a range of hours on a specific date."""
     _require_admin(user)
-    if data.start_hour < 7 or data.end_hour > 21 or data.start_hour >= data.end_hour:
-        raise HTTPException(400, "Invalid hour range. Must be within 7–21 and start < end.")
+    if data.start_hour < 7 or data.end_hour > 22 or data.start_hour >= data.end_hour:
+        raise HTTPException(400, "Invalid hour range. Start must be 7–21, end must be 8–22, and start < end.")
     date_str = validate_date(data.date)
     row = BlockedHour(
         owner_id   = user.id,
@@ -1398,8 +1398,8 @@ def add_blocked_hour_recurring(data: BlockedHourRecurringPayload,
                                 db: Session = Depends(get_db)):
     """Admin-only: block a range of hours every single day (recurring)."""
     _require_admin(user)
-    if data.start_hour < 7 or data.end_hour > 21 or data.start_hour >= data.end_hour:
-        raise HTTPException(400, "Invalid hour range. Must be within 7–21 and start < end.")
+    if data.start_hour < 7 or data.end_hour > 22 or data.start_hour >= data.end_hour:
+        raise HTTPException(400, "Invalid hour range. Start must be 7–21, end must be 8–22, and start < end.")
     # Prevent exact duplicates
     existing = db.query(BlockedHourRecurring).filter(
         BlockedHourRecurring.owner_id == user.id,

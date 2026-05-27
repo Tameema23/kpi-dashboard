@@ -835,7 +835,7 @@
           '<select id="bh_end" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;">' + endOptions + '</select>' +
         '</div>' +
       '</div>' +
-      '<div style="margin-top:-8px;margin-bottom:12px;font-size:11px;color:#94a3b8;">For a single hour (e.g. 9 PM only), set From and To one apart.</div>' +
+      '<div style="margin-top:-8px;margin-bottom:12px;font-size:11px;color:#94a3b8;">Select any range. To block just 9 PM, set From: 9:00 PM → To: 10:00 PM.</div>' +
 
       '<div style="margin-bottom:12px;">' +
         '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Label (optional)</label>' +
