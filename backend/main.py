@@ -302,7 +302,55 @@ async def _run_booking_job():
         db.close()
 
 
-async def _run_midpoint_job():
+async def _run_booking_job_catchup():
+    """
+    One-time catch-up: sends booking confirmation to ALL future appointments
+    that haven't received one yet, regardless of when they were originally booked.
+    Used when appointments are rescheduled or when the feature is first deployed.
+    """
+    db = SessionLocal()
+    try:
+        mt    = ZoneInfo("America/Edmonton")
+        today = datetime.now(mt).strftime("%Y-%m-%d")
+
+        # All future appointments (scheduled_for >= today) without booking text
+        appts = db.query(Appointment).filter(
+            Appointment.scheduled_for >= today,
+            Appointment.phone_number != "",
+            Appointment.phone_number != None,
+            Appointment.appt_type != "callback",
+        ).all()
+        appts = [a for a in appts
+                 if not getattr(a, "sms_sent_booking", False)
+                 and getattr(a, "appt_status", "") not in ("cancelled", "no_show", "rescheduled")
+                 and a.sms_status not in ("rescheduled",)]
+
+        sent_count = 0
+        for appt in appts:
+            time_display, date_display = _fmt_appt_time_for_tz(
+                appt.scheduled_for,
+                appt.booking_tz or "America/Edmonton"
+            )
+            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
+            confirmed  = (appt.sms_status == "confirmed")
+            message    = _build_sms(first_name, time_display, date_display, confirmed)
+
+            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            appt.sms_sent_booking = True
+            db.commit()
+            sent_count += 1
+
+            logger.info(
+                f"[SMS BOOKING CATCHUP] Appt {appt.id} ({appt.lead_name}) "
+                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
+            )
+
+        logger.info(f"[SMS BOOKING CATCHUP] Sent to {sent_count} appointment(s).")
+
+    except Exception as e:
+        logger.error(f"Booking catchup job error: {e}")
+    finally:
+        db.close()
     """
     Fires once daily. Sends a reminder to appointments whose midpoint_send_date
     is today — i.e. halfway between booking and appointment date.
@@ -2727,15 +2775,15 @@ async def manual_send_summary(data: SendSummaryPayload = SendSummaryPayload(),
 async def manual_send_booking_texts(user: User = Depends(get_current_user),
                                      db: Session = Depends(get_db)):
     """
-    Manually trigger the booking confirmation job.
-    Sends booking confirmation texts to any appointment booked today
-    that hasn't received one yet (4+ minutes since booking).
+    Manually trigger booking confirmation texts.
+    Sends to ALL future appointments that haven't received a booking text yet,
+    regardless of when they were booked. Use this for catch-up after reschedules.
     Only Tameema23 or admins can call this.
     """
     if user.username.lower() != CONFIRMATIONS_USERNAME.lower() and user.role != "admin":
         raise HTTPException(403, "Access denied.")
-    await _run_booking_job()
-    return {"status": "fired", "detail": "Booking confirmation job triggered."}
+    await _run_booking_job_catchup()
+    return {"status": "fired", "detail": "Booking confirmation sent to all eligible future appointments."}
 
 # ── Confirmations HTML page ───────────────────────────────────────────────────
 
