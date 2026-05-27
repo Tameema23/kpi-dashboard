@@ -108,6 +108,9 @@ class Appointment(Base):
     sms_sent_evening  = Column(Boolean,     default=False)  # night-before 8pm sent
     sms_sent_morning  = Column(Boolean,     default=False)  # day-of 9am sent
     sms_sent_reminder = Column(Boolean,     default=False)  # 1hr-before reminder sent
+    sms_sent_booking  = Column(Boolean,     default=False)  # ~5min after booking sent
+    sms_sent_midpoint = Column(Boolean,     default=False)  # halfway-point reminder sent
+    midpoint_send_date = Column(String(10), default="")     # YYYY-MM-DD when midpoint fires
 
     # Appointment outcome status (set manually by admin)
     # "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
