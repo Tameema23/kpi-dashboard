@@ -204,6 +204,8 @@ class ReferralEntry(Base):
     rel_to_sponsor  = Column(String(100), default="")
     occupation      = Column(String(200), default="")
     sig_other       = Column(String(200), default="")
+    spouse_name     = Column(String(200), default="")   # spouse / significant other name
+    num_children    = Column(Integer,     default=0)    # number of children
     status          = Column(String(20),  default="")  # "met" | "pending" | "skip" | ""
 
     program = relationship("ReferralProgram", back_populates="referrals")

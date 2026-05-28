@@ -1683,6 +1683,8 @@ class ReferralEntryPayload(BaseModel):
     rel_to_sponsor: Optional[str] = ""
     occupation:     Optional[str] = ""
     sig_other:      Optional[str] = ""
+    spouse_name:    Optional[str] = ""
+    num_children:   Optional[int] = 0
     status:         Optional[str] = ""  # "met" | "pending" | "skip" | ""
 
 class ReferralProgramPayload(BaseModel):
@@ -1713,6 +1715,8 @@ def _sanitize_referral_entry(d: ReferralEntryPayload) -> dict:
         "occupation":    sanitize_str(d.occupation or "", 200),
         "status":        d.status if d.status in ("met", "pending", "skip") else "",
         "sig_other":     sanitize_str(d.sig_other or "", 200),
+        "spouse_name":   sanitize_str(d.spouse_name or "", 200),
+        "num_children":  max(0, int(d.num_children or 0)),
     }
 
 def _program_dict(p: ReferralProgram) -> dict:
@@ -1745,6 +1749,8 @@ def _program_dict(p: ReferralProgram) -> dict:
                 "occupation":    r.occupation or "",
                 "status":        getattr(r, "status", "") or "",
                 "sig_other":     r.sig_other or "",
+                "spouse_name":   getattr(r, "spouse_name", "") or "",
+                "num_children":  getattr(r, "num_children", 0) or 0,
             }
             for r in p.referrals
         ]

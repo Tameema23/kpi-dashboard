@@ -659,6 +659,12 @@
           '<div class="ref-field" style="grid-column:span 2;"><label>Relationship to Sponsor</label>'+
             '<input class="ef_rel" placeholder="e.g. Spouse, Coworker" value="'+rEsc(data.rel_to_sponsor||"")+'"></div>'+
         '</div>'+
+        '<div class="ref-entry-mid">'+
+          '<div class="ref-field"><label>Spouse Name</label>'+
+            '<input class="ef_spouse" placeholder="Spouse / partner name" value="'+rEsc(data.spouse_name||"")+'"></div>'+
+          '<div class="ref-field"><label>No. of Children</label>'+
+            '<input class="ef_children" type="number" min="0" placeholder="0" value="'+(data.num_children!=null?data.num_children:0)+'"></div>'+
+        '</div>'+
         '<div class="ref-entry-bot ref-field"><label>Notes</label>'+
           '<textarea class="ef_notes" placeholder="Any notes about this referral…" rows="2">'+rEsc(data.notes||"")+'</textarea></div>'+
         '<input type="hidden" class="ef_status" value="'+rEsc(data.status||"")+'">';
@@ -698,6 +704,8 @@
             occupation:     r.querySelector(".ef_occ").value.trim(),
             rel_to_sponsor: r.querySelector(".ef_rel").value.trim(),
             notes:          r.querySelector(".ef_notes").value.trim(),
+            spouse_name:    r.querySelector(".ef_spouse").value.trim(),
+            num_children:   parseInt(r.querySelector(".ef_children").value) || 0,
             status:         r.querySelector(".ef_status").value
           };
         })
