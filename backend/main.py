@@ -2475,17 +2475,21 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     text   = (body_data.get("subject", "") or body_data.get("text", "") or "").strip().upper()
     sender = body_data.get("from", {}).get("phoneNumber", "")
 
-    if "YES" not in text or not sender:
+    # Case-insensitive: "Yes", "YES!", "yes thank you", "yes see you soon" all match
+    if "YES" not in text.upper() or not sender:
         return {"status": "ignored"}
 
     # Normalize sender number for matching (last 10 digits)
     sender_digits = re.sub(r"[^\d]", "", sender)
 
-    # Only confirm appointments that have received the morning text
-    # (that's the only message that asks them to reply YES)
+    # Match any unconfirmed appointment that has received ANY outbound SMS
+    # (booking, evening, or morning — all of them include the YES prompt for unconfirmed clients)
     appts = db.query(Appointment).filter(
         Appointment.sms_status != "confirmed",
-        Appointment.sms_sent_morning == True,
+    ).filter(
+        (Appointment.sms_sent_morning == True) |
+        (Appointment.sms_sent_evening == True) |
+        (Appointment.sms_sent_booking == True)
     ).all()
 
     matched = None
@@ -2499,8 +2503,9 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         matched.sms_status = "confirmed"
         db.commit()
         logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via YES from {sender}")
-        # Send Tameema the updated daily summary
-        await _send_daily_summary()
+        # Send Tameema the updated daily summary with today's date in Mountain Time
+        today_mt = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+        await _send_daily_summary(today_mt)
     else:
         logger.warning(f"RC webhook: no appointment matched sender {sender}")
 
@@ -2554,10 +2559,16 @@ async def _send_daily_summary(target_date: Optional[str] = None):
             except Exception:
                 time_str = "?"
 
-            status = a.sms_status or ""
-            if status == "confirmed":
+            sms_st  = a.sms_status  or ""
+            appt_st = getattr(a, "appt_status", "") or ""
+            # Confirmed if EITHER sms_status or appt_status is confirmed
+            if sms_st == "confirmed" or appt_st == "confirmed":
                 suffix = " - ✅"
-            elif status == "rescheduled":
+            elif appt_st == "no_show":
+                suffix = " - NS"
+            elif appt_st == "cancelled":
+                suffix = " - CXL"
+            elif appt_st == "rescheduled" or sms_st == "rescheduled":
                 suffix = " - rs"
             else:
                 suffix = ""
@@ -2610,6 +2621,7 @@ def get_confirmations(date: Optional[str] = None,
                 "phone_number":  a.phone_number or "",
                 "scheduled_for": a.scheduled_for,
                 "sms_status":    a.sms_status or "",
+                "appt_status":   getattr(a, "appt_status", "") or "",
                 "sms_sent_evening": bool(a.sms_sent_evening),
                 "sms_sent_morning": bool(a.sms_sent_morning),
                 "owner":         admin.username,

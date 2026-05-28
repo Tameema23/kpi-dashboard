@@ -127,6 +127,8 @@
     }
     .conf-row.status-confirmed  { border-color: #bbf7d0; background: #f0fdf4; }
     .conf-row.status-rescheduled { border-color: #fde68a; background: #fffbeb; }
+    .conf-row.status-no_show    { border-color: #fecaca; background: #fff1f2; }
+    .conf-row.status-cancelled  { border-color: #e2e8f0; background: #f8fafc; opacity: 0.7; }
 
     .conf-row-left {
       display: flex;
@@ -196,6 +198,8 @@
     .status-pill.pending      { background: #f1f5f9; color: #64748b; }
     .status-pill.confirmed    { background: #dcfce7; color: #15803d; }
     .status-pill.rescheduled  { background: #fef9c3; color: #a16207; }
+    .status-pill.no_show      { background: #fee2e2; color: #b91c1c; }
+    .status-pill.cancelled    { background: #f1f5f9; color: #94a3b8; }
 
     .conf-status-select {
       padding: 6px 10px;
@@ -324,6 +328,14 @@
       <div class="conf-stat-num" style="color:#d97706;" id="statRescheduled">—</div>
       <div class="conf-stat-label">Rescheduled</div>
     </div>
+    <div class="conf-stat">
+      <div class="conf-stat-num" style="color:#b91c1c;" id="statNoShow">—</div>
+      <div class="conf-stat-label">No Show</div>
+    </div>
+    <div class="conf-stat">
+      <div class="conf-stat-num" style="color:#94a3b8;" id="statCancelled">—</div>
+      <div class="conf-stat-label">Cancelled</div>
+    </div>
   </div>
 
   <!-- Appointment list -->
@@ -341,7 +353,7 @@
 
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=3"></script>
 <script>
 (function() {
 
@@ -406,13 +418,30 @@
   };
 
   function updateStats(appts) {
-    var confirmed   = appts.filter(function(a) { return a.sms_status === "confirmed"; }).length;
-    var rescheduled = appts.filter(function(a) { return a.sms_status === "rescheduled"; }).length;
-    var pending     = appts.filter(function(a) { return !a.sms_status || a.sms_status === ""; }).length;
+    // Confirmed = sms_status OR appt_status is confirmed
+    var confirmed   = appts.filter(function(a) {
+      return a.sms_status === "confirmed" || a.appt_status === "confirmed";
+    }).length;
+    var rescheduled = appts.filter(function(a) {
+      return a.sms_status === "rescheduled" || a.appt_status === "rescheduled";
+    }).length;
+    var no_show     = appts.filter(function(a) {
+      return a.appt_status === "no_show";
+    }).length;
+    var cancelled   = appts.filter(function(a) {
+      return a.appt_status === "cancelled";
+    }).length;
+    var pending     = appts.filter(function(a) {
+      var sms  = a.sms_status  || "";
+      var appt = a.appt_status || "";
+      return sms === "" && appt === "";
+    }).length;
     document.getElementById("statTotal").innerText       = appts.length;
     document.getElementById("statConfirmed").innerText   = confirmed;
     document.getElementById("statPending").innerText     = pending;
     document.getElementById("statRescheduled").innerText = rescheduled;
+    document.getElementById("statNoShow").innerText      = no_show;
+    document.getElementById("statCancelled").innerText   = cancelled;
   }
 
   function renderList(appts) {
@@ -431,9 +460,32 @@
     }
 
     list.innerHTML = appts.map(function(a) {
-      var status   = a.sms_status || "";
-      var rowClass = status ? "conf-row status-" + status : "conf-row";
+      var smsStatus  = a.sms_status  || "";
+      var apptStatus = a.appt_status || "";
+
+      // Combined display status — appt_status (set by Hazem) takes priority over sms_status
+      // except confirmed: either field being confirmed shows as confirmed
+      var displayStatus;
+      if (apptStatus === "no_show")    displayStatus = "no_show";
+      else if (apptStatus === "cancelled")  displayStatus = "cancelled";
+      else if (apptStatus === "rescheduled" || smsStatus === "rescheduled") displayStatus = "rescheduled";
+      else if (apptStatus === "confirmed"   || smsStatus === "confirmed")   displayStatus = "confirmed";
+      else displayStatus = "";
+
+      var rowClass = displayStatus ? "conf-row status-" + displayStatus : "conf-row";
       var noPhone  = !a.phone_number;
+
+      // Status pill label for appt_status (manually set by Hazem on planner)
+      var apptBadge = "";
+      if (apptStatus === "no_show") {
+        apptBadge = '<span style="font-size:10px;font-weight:700;background:#fee2e2;color:#b91c1c;border-radius:4px;padding:2px 6px;margin-left:4px;">NS</span>';
+      } else if (apptStatus === "cancelled") {
+        apptBadge = '<span style="font-size:10px;font-weight:700;background:#f1f5f9;color:#64748b;border-radius:4px;padding:2px 6px;margin-left:4px;">CXL</span>';
+      } else if (apptStatus === "rescheduled") {
+        apptBadge = '<span style="font-size:10px;font-weight:700;background:#fef9c3;color:#a16207;border-radius:4px;padding:2px 6px;margin-left:4px;">RS</span>';
+      } else if (apptStatus === "confirmed") {
+        apptBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:2px 6px;margin-left:4px;">✓ Planner</span>';
+      }
 
       var smsBadges = noPhone
         ? '<div style="font-size:11px;color:#f59e0b;font-weight:600;margin-top:3px;">⚠ No phone number</div>'
@@ -442,21 +494,26 @@
             '<span class="conf-sms-badge ' + (a.sms_sent_morning ? "sent" : "unsent") + '">Morning '  + (a.sms_sent_morning ? "✓" : "–") + '</span>' +
           '</div>';
 
+      // SMS status dropdown — what Tameema can set (sms_status field)
+      var selVal = smsStatus;
+      var dropdown =
+        '<select class="conf-status-select" onchange="setStatus(' + a.id + ', this.value)">' +
+          '<option value=""'             + (selVal === ""            ? " selected" : "") + '>— Pending</option>' +
+          '<option value="confirmed"'    + (selVal === "confirmed"   ? " selected" : "") + '>✓ Confirmed (SMS)</option>' +
+          '<option value="rescheduled"'  + (selVal === "rescheduled" ? " selected" : "") + '>↻ Rescheduled</option>' +
+        '</select>';
+
       return '<div class="' + rowClass + '" id="row-' + a.id + '">' +
         '<div class="conf-row-left">' +
           '<div class="conf-time-badge">' + fmtTime(a.scheduled_for) + '</div>' +
           '<div>' +
-            '<div class="conf-name">' + esc(a.lead_name) + '</div>' +
+            '<div class="conf-name">' + esc(a.lead_name) + apptBadge + '</div>' +
             '<div class="conf-phone">' + (a.phone_number || "No phone") + '</div>' +
             smsBadges +
           '</div>' +
         '</div>' +
         '<div class="conf-row-right">' +
-          '<select class="conf-status-select" onchange="setStatus(' + a.id + ', this.value)">' +
-            '<option value="" '           + (status === ""            ? "selected" : "") + '>— Pending</option>' +
-            '<option value="confirmed" '  + (status === "confirmed"   ? "selected" : "") + '>✓ Confirmed</option>' +
-            '<option value="rescheduled" '+ (status === "rescheduled" ? "selected" : "") + '>↻ Rescheduled</option>' +
-          '</select>' +
+          dropdown +
         '</div>' +
       '</div>';
     }).join("");
