@@ -147,7 +147,8 @@ async def _run_sms_job(job_type: str):
             )
 
             first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
-            confirmed  = (appt.sms_status == "confirmed")
+            confirmed  = (appt.sms_status == "confirmed" or
+                          getattr(appt, "appt_status", "") == "confirmed")
             message    = _build_sms(first_name, time_display, date_display, confirmed)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -284,7 +285,8 @@ async def _run_booking_job():
                 appt.booking_tz or "America/Edmonton"
             )
             first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
-            confirmed  = (appt.sms_status == "confirmed")
+            confirmed  = (appt.sms_status == "confirmed" or
+                          getattr(appt, "appt_status", "") == "confirmed")
             message    = _build_sms(first_name, time_display, date_display, confirmed)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -332,7 +334,8 @@ async def _run_booking_job_catchup():
                 appt.booking_tz or "America/Edmonton"
             )
             first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
-            confirmed  = (appt.sms_status == "confirmed")
+            confirmed  = (appt.sms_status == "confirmed" or
+                          getattr(appt, "appt_status", "") == "confirmed")
             message    = _build_sms(first_name, time_display, date_display, confirmed)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -378,7 +381,8 @@ async def _run_booking_job_catchup():
                 appt.booking_tz or "America/Edmonton"
             )
             first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
-            confirmed  = (appt.sms_status == "confirmed")
+            confirmed  = (appt.sms_status == "confirmed" or
+                          getattr(appt, "appt_status", "") == "confirmed")
             message    = _build_sms(first_name, time_display, date_display, confirmed)
 
             result = await send_sms(db, appt.owner_id, appt.phone_number, message)
@@ -2506,7 +2510,8 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
             break
 
     if matched:
-        matched.sms_status = "confirmed"
+        matched.sms_status  = "confirmed"
+        matched.appt_status = "confirmed"
         db.commit()
         logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via YES from {sender}")
         # Send Tameema the updated daily summary with today's date in Mountain Time
