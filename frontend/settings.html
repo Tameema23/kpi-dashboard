@@ -37,6 +37,7 @@
       <a href="/timesheet.html" class="assistant-visible">Timesheet</a>
       <a href="/confirmations.html" class="tameema-only" style="display:none;">Confirmations</a>
       <a href="/settings.html" class="active">Settings</a>
+      <a href="/confirmations.html" class="confirmations-link" style="display:none;">Confirmations</a>
     </nav>
   </div>
   <div class="topbar-right">
@@ -251,6 +252,11 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
               Quality
             </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:2px solid #e2e8f0;background:#fafafa;cursor:pointer;font-size:13px;font-weight:600;color:#475569;flex:1;transition:all 0.15s;" id="perm_confirmations_label">
+              <input type="checkbox" id="new_can_confirmations" style="accent-color:#2563eb;width:16px;height:16px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Confirmations
+            </label>
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:14px; margin-top:4px;">
@@ -299,6 +305,9 @@
     <a href="/settings.html" class="bottom-nav-item active assistant-visible">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings
     </a>
+    <a href="/confirmations.html" class="bottom-nav-item confirmations-link" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Confirmations
+    </a>
   </div>
 </nav>
 
@@ -335,6 +344,18 @@
             <div>
               <div style="font-size:14px;font-weight:700;color:#0f172a;">Quality Tracker</div>
               <div style="font-size:12px;color:#94a3b8;">Policy retention tracking</div>
+            </div>
+          </div>
+        </label>
+        <label id="perm_modal_confirmations_label" style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;border:2px solid #e2e8f0;background:#fafafa;cursor:pointer;transition:all 0.15s;">
+          <input type="checkbox" id="perm_modal_confirmations" style="width:18px;height:18px;accent-color:#2563eb;flex-shrink:0;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:34px;height:34px;border-radius:8px;background:#eff6ff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div>
+              <div style="font-size:14px;font-weight:700;color:#0f172a;">Confirmations</div>
+              <div style="font-size:12px;color:#94a3b8;">SMS confirmation dashboard</div>
             </div>
           </div>
         </label>
@@ -414,8 +435,12 @@
   document.getElementById("new_can_quality").addEventListener("change", function() {
     updatePermLabel("new_can_quality", "perm_quality_label", "#16a34a");
   });
+  document.getElementById("new_can_confirmations").addEventListener("change", function() {
+    updatePermLabel("new_can_confirmations", "perm_confirmations_label", "#2563eb");
+  });
   // Set initial state
   updatePermLabel("new_can_planner", "perm_planner_label", "#7c3aed");
+  updatePermLabel("new_can_confirmations", "perm_confirmations_label", "#2563eb");
 
   // ── Password ───────────────────────────────────────────────────
   async function changePassword() {
@@ -452,10 +477,11 @@
     loadAssistants();
   }
 
-  function permBadge(can_planner, can_quality) {
+  function permBadge(can_planner, can_quality, can_confirmations) {
     var badges = [];
     if (can_planner) badges.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f5f3ff;color:#5b21b6;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Planner</span>');
     if (can_quality) badges.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#f0fdf4;color:#166534;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/></svg>Quality</span>');
+    if (can_confirmations) badges.push('<span style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Confirmations</span>');
     return badges.join(" ");
   }
 
@@ -480,9 +506,9 @@
               '<div style="font-size:14px;font-weight:700;color:' + (isSuspended ? '#94a3b8' : '#0f172a') + ';text-decoration:' + (isSuspended ? 'line-through' : 'none') + ';">' + a.username + '</div>' +
               (isSuspended ? '<span style="font-size:11px;font-weight:700;background:#fee2e2;color:#dc2626;border-radius:6px;padding:2px 7px;">Suspended</span>' : '') +
             '</div>' +
-            '<div style="display:flex;gap:5px;flex-wrap:wrap;">' + (isSuspended ? '' : permBadge(a.can_planner, a.can_quality)) + '</div>' +
+            '<div style="display:flex;gap:5px;flex-wrap:wrap;">' + (isSuspended ? '' : permBadge(a.can_planner, a.can_quality, a.can_confirmations)) + '</div>' +
             '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-              (!isSuspended ? '<button class="btn small" style="background:#f5f3ff;color:#5b21b6;font-size:11px;" onclick="editPermissions(' + a.id + ',\'' + a.username + '\',' + a.can_planner + ',' + a.can_quality + ')">Edit Permissions</button>' : '') +
+              (!isSuspended ? '<button class="btn small" style="background:#f5f3ff;color:#5b21b6;font-size:11px;" onclick="editPermissions(' + a.id + ',\'' + a.username + '\',' + a.can_planner + ',' + a.can_quality + ',' + a.can_confirmations + ')">Edit Permissions</button>' : '') +
               '<button class="btn small" style="background:' + (isSuspended ? '#f0fdf4' : '#fff7ed') + ';color:' + (isSuspended ? '#15803d' : '#c2410c') + ';font-size:11px;" onclick="toggleSuspend(' + a.id + ',\'' + a.username + '\',' + isSuspended + ')">' + (isSuspended ? 'Unsuspend' : 'Suspend') + '</button>' +
               '<button class="btn small" style="background:#fee2e2;color:#dc2626;font-size:11px;" onclick="removeAssistant(' + a.id + ',\'' + a.username + '\')">Remove</button>' +
             '</div>' +
@@ -497,17 +523,18 @@
     const password    = document.getElementById("new_assistant_password").value;
     const can_planner = document.getElementById("new_can_planner").checked;
     const can_quality = document.getElementById("new_can_quality").checked;
+    const can_confirmations = document.getElementById("new_can_confirmations").checked;
     const msg         = document.getElementById("assistant-msg");
 
     if (!username || !password) { msg.innerText = "Please fill in both fields."; msg.style.color = "#dc2626"; return; }
     if (password.length < 4) { msg.innerText = "Password must be at least 4 characters."; msg.style.color = "#dc2626"; return; }
-    if (!can_planner && !can_quality) { msg.innerText = "Select at least one permission."; msg.style.color = "#dc2626"; return; }
+    if (!can_planner && !can_quality && !can_confirmations) { msg.innerText = "Select at least one permission."; msg.style.color = "#dc2626"; return; }
 
     try {
       const res = await fetch("/create-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
-        body: JSON.stringify({ username, password, can_planner, can_quality })
+        body: JSON.stringify({ username, password, can_planner, can_quality, can_confirmations })
       });
       if (res.ok) {
         showToast("Assistant created!");
@@ -515,8 +542,10 @@
         document.getElementById("new_assistant_password").value = "";
         document.getElementById("new_can_planner").checked = true;
         document.getElementById("new_can_quality").checked = false;
+        document.getElementById("new_can_confirmations").checked = false;
         updatePermLabel("new_can_planner", "perm_planner_label", "#7c3aed");
         updatePermLabel("new_can_quality", "perm_quality_label", "#16a34a");
+        updatePermLabel("new_can_confirmations", "perm_confirmations_label", "#2563eb");
         msg.innerText = "";
         loadAssistants();
       } else {
@@ -530,14 +559,16 @@
   var _permEditId = null;
   var _permEditUsername = null;
 
-  function editPermissions(id, username, currentPlanner, currentQuality) {
+  function editPermissions(id, username, currentPlanner, currentQuality, currentConfirmations) {
     _permEditId = id;
     _permEditUsername = username;
     document.getElementById("permModalTitle").innerText = "Edit — " + username;
     document.getElementById("perm_modal_planner").checked = !!(currentPlanner);
     document.getElementById("perm_modal_quality").checked = !!(currentQuality);
+    document.getElementById("perm_modal_confirmations").checked = !!(currentConfirmations);
     updatePermModalStyle("perm_modal_planner", "perm_modal_planner_label", "#7c3aed", "#f5f3ff");
     updatePermModalStyle("perm_modal_quality", "perm_modal_quality_label", "#16a34a", "#f0fdf4");
+    updatePermModalStyle("perm_modal_confirmations", "perm_modal_confirmations_label", "#2563eb", "#eff6ff");
     document.getElementById("permissionsModal").classList.remove("hidden");
   }
 
@@ -559,6 +590,9 @@
   document.getElementById("perm_modal_quality").addEventListener("change", function() {
     updatePermModalStyle("perm_modal_quality", "perm_modal_quality_label", "#16a34a", "#f0fdf4");
   });
+  document.getElementById("perm_modal_confirmations").addEventListener("change", function() {
+    updatePermModalStyle("perm_modal_confirmations", "perm_modal_confirmations_label", "#2563eb", "#eff6ff");
+  });
 
   function closePermModal() {
     document.getElementById("permissionsModal").classList.add("hidden");
@@ -569,12 +603,13 @@
   async function savePermissions() {
     var pl = document.getElementById("perm_modal_planner").checked;
     var ql = document.getElementById("perm_modal_quality").checked;
-    if (!pl && !ql) { showToast("Select at least one permission.", "error"); return; }
+    var cf = document.getElementById("perm_modal_confirmations").checked;
+    if (!pl && !ql && !cf) { showToast("Select at least one permission.", "error"); return; }
     try {
       const res = await fetch("/assistants/" + _permEditId + "/permissions", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
-        body: JSON.stringify({ can_planner: pl, can_quality: ql })
+        body: JSON.stringify({ can_planner: pl, can_quality: ql, can_confirmations: cf })
       });
       if (res.ok) {
         closePermModal();

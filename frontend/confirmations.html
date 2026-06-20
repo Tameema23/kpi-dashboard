@@ -242,6 +242,49 @@
     }
     .conf-test-btn:hover { background: #e2e8f0; }
 
+    /* Primary action buttons — clearly separated, independent actions */
+    .conf-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .conf-action-btn {
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 10px;
+      padding: 10px 16px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1.5px solid transparent;
+      transition: transform 0.08s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+    .conf-action-btn:active { transform: scale(0.97); }
+    .conf-action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .conf-action-primary {
+      background: #2563eb;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(37,99,235,0.3);
+    }
+    .conf-action-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .conf-action-summary {
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
+    }
+    .conf-action-summary:hover:not(:disabled) { background: #d1fae5; }
+    .conf-setup-row {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 600px) {
+      .conf-actions { width: 100%; }
+      .conf-action-btn { flex: 1; justify-content: center; }
+    }
+
     @media (max-width: 600px) {
       .conf-row { flex-direction: column; align-items: flex-start; }
       .conf-row-right { width: 100%; justify-content: flex-end; }
@@ -281,30 +324,35 @@
         Auto-refreshes every 30 seconds
       </div>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px;">
       <div class="conf-date-picker">
         <label style="font-size:12px;font-weight:700;color:#64748b;">Date:</label>
         <input type="date" id="confDateInput" onchange="loadConfirmations()">
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-        <button class="conf-test-btn" onclick="registerWebhook()" title="Register inbound SMS webhook (one-time setup)">
+      <div class="conf-actions">
+        <button class="conf-action-btn conf-action-primary" onclick="sendConfirmationTexts()"
+                title="Send appointment confirmation texts to clients on the selected date only">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          Send Confirmation Texts
+        </button>
+        <button class="conf-action-btn conf-action-summary" onclick="sendSummaryText()"
+                title="Send the appointment summary text for the selected date">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/>
+          </svg>
+          Send Summary Text
+        </button>
+      </div>
+      <div class="conf-setup-row">
+        <button class="conf-test-btn" onclick="registerWebhook()"
+                title="One-time setup: register inbound SMS webhook so YES replies auto-confirm">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
           </svg>
           Register Webhook
-        </button>
-        <button class="conf-test-btn" onclick="triggerClientTexts()" title="Fire evening/morning SMS jobs to clients now">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          Trigger Client Texts
-        </button>
-        <button class="conf-test-btn" onclick="sendSummaryList()" title="Send tomorrow's appointment summary to Tameema">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/>
-          </svg>
-          Send Summary List
         </button>
       </div>
     </div>
@@ -357,9 +405,11 @@
 <script>
 (function() {
 
-  // ── Auth guard — only Tameema23 ───────────────────────────────
+  // ── Auth guard — admins + users with can_confirmations ────────
   var username = localStorage.getItem("username") || "";
-  if (username.toLowerCase() !== "tameema23") {
+  var role     = localStorage.getItem("role") || "";
+  var canConfirmations = localStorage.getItem("can_confirmations") === "1";
+  if (role !== "admin" && !canConfirmations) {
     document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Inter,sans-serif;flex-direction:column;gap:12px;">' +
       '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
       '<div style="font-size:18px;font-weight:800;color:#0f172a;">Access Denied</div>' +
@@ -559,23 +609,40 @@
     } catch(e) { showToast("Server error.", "error"); }
   };
 
-  // ── Trigger Client Texts (evening + morning SMS jobs to clients) ──
-  window.triggerClientTexts = async function() {
+  // ── Send Confirmation Texts — selected date only, independent ──
+  window.sendConfirmationTexts = async function() {
+    var dateVal = document.getElementById("confDateInput").value || today;
+    var btn = document.querySelector(".conf-action-primary");
+    if (btn) { btn.disabled = true; }
     try {
-      var res = await fetch("/rc/test-sms", {
+      var res = await fetch("/rc/send-confirmation-texts", {
         method: "POST",
-        headers: { Authorization: "Bearer " + TOKEN }
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + TOKEN
+        },
+        body: JSON.stringify({ date: dateVal })
       });
+      var data = await res.json();
       if (res.ok) {
-        showToast("Client SMS jobs fired! Check Render logs.");
+        var n = (data.sent != null) ? data.sent : 0;
+        showToast("Confirmation texts sent for " + dateVal + " (" + n + " client" + (n === 1 ? "" : "s") + ").");
+        loadConfirmations();
       } else {
-        showToast("Failed to trigger.", "error");
+        showToast(data.detail || "Failed to send confirmation texts.", "error");
       }
-    } catch(e) { showToast("Server error.", "error"); }
+    } catch(e) {
+      showToast("Server error.", "error");
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
   };
 
-  // ── Send Summary List (Tameema's daily summary, defaults to tomorrow) ──
-  window.sendSummaryList = async function() {
+  // ── Send Summary Text — selected date only, independent ──
+  window.sendSummaryText = async function() {
+    var dateVal = document.getElementById("confDateInput").value || today;
+    var btn = document.querySelector(".conf-action-summary");
+    if (btn) { btn.disabled = true; }
     try {
       var res = await fetch("/rc/send-summary", {
         method: "POST",
@@ -583,17 +650,21 @@
           "Content-Type": "application/json",
           Authorization: "Bearer " + TOKEN
         },
-        body: JSON.stringify({})
+        body: JSON.stringify({ date: dateVal })
       });
       var data = await res.json();
       if (res.ok && data.status === "sent") {
-        showToast("Summary sent for " + data.date + "!");
+        showToast("Summary text sent for " + data.date + ".");
       } else if (res.ok && data.status === "no_appointments") {
         showToast("No appointments found for " + data.date + ".", "error");
       } else {
-        showToast("Failed to send summary.", "error");
+        showToast(data.detail || "Failed to send summary.", "error");
       }
-    } catch(e) { showToast("Server error.", "error"); }
+    } catch(e) {
+      showToast("Server error.", "error");
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
   };
 
   // ── Auto-refresh every 30 seconds ─────────────────────────────

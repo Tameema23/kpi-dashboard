@@ -145,6 +145,7 @@ async function submitAuth() {
     localStorage.setItem("role", data.role || "admin");
     localStorage.setItem("can_planner", data.can_planner ? "1" : "0");
     localStorage.setItem("can_quality", data.can_quality ? "1" : "0");
+    localStorage.setItem("can_confirmations", data.can_confirmations ? "1" : "0");
     // Store password expiry date so app.js can warn the user
     if (data.password_expires_at) {
       localStorage.setItem("pw_expires_at", data.password_expires_at);

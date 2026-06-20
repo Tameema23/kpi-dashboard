@@ -168,6 +168,70 @@ async def _run_sms_job(job_type: str):
         db.close()
 
 
+async def _send_confirmation_texts_for_date(target_date: str) -> dict:
+    """
+    Send the appointment confirmation SMS to every eligible client whose
+    appointment falls on target_date (YYYY-MM-DD), regardless of which
+    scheduled job (evening/morning) would normally cover them.
+
+    This powers the manual "Send Confirmation Texts" button on the
+    confirmations page, scoped to the selected day only.
+
+    Eligibility mirrors the scheduled jobs:
+      - has a phone number
+      - not a callback
+      - not rescheduled / cancelled / no_show
+    Confirmed clients still receive the message, but without the
+    'reply YES' line (handled by _build_sms via the confirmed flag).
+
+    Does NOT consult or set the evening/morning sent-flags, so it can be
+    used as a manual catch-up without interfering with the automated jobs.
+    Returns a small summary dict for UI feedback.
+    """
+    db = SessionLocal()
+    sent = 0
+    skipped = 0
+    failed = 0
+    try:
+        appts = db.query(Appointment).filter(
+            Appointment.scheduled_for.startswith(target_date),
+            Appointment.phone_number != "",
+            Appointment.phone_number != None,
+            Appointment.appt_type != "callback",
+            Appointment.sms_status != "rescheduled",
+        ).all()
+        appts = [a for a in appts
+                 if getattr(a, "appt_status", "") not in ("cancelled", "no_show", "rescheduled")]
+
+        for appt in appts:
+            time_display, date_display = _fmt_appt_time_for_tz(
+                appt.scheduled_for,
+                appt.booking_tz or "America/Edmonton"
+            )
+            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() \
+                if (appt.attendee_name or appt.lead_name) else "there"
+            confirmed  = (appt.sms_status == "confirmed" or
+                          getattr(appt, "appt_status", "") == "confirmed")
+            message    = _build_sms(first_name, time_display, date_display, confirmed)
+
+            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            if result.get("sent") or result.get("dry_run"):
+                sent += 1
+            else:
+                failed += 1
+            logger.info(
+                f"[SMS MANUAL-CONFIRM {target_date}] Appt {appt.id} ({appt.lead_name}) "
+                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
+            )
+
+        return {"sent": sent, "failed": failed, "skipped": skipped, "total": len(appts)}
+    except Exception as e:
+        logger.error(f"Manual confirmation texts error ({target_date}): {e}")
+        return {"sent": sent, "failed": failed, "skipped": skipped, "total": sent + failed, "error": str(e)}
+    finally:
+        db.close()
+
+
 async def _run_reminder_job():
     """
     Fires every minute (called from scheduler).
@@ -694,6 +758,7 @@ def _midnight_utc() -> datetime:
 
 def create_token(user_id: int, role: str, token_version: int,
                  can_planner: bool = True, can_quality: bool = False,
+                 can_confirmations: bool = False,
                  password_expires_at: Optional[str] = None) -> str:
     return jwt.encode({
         "user_id":             user_id,
@@ -701,6 +766,7 @@ def create_token(user_id: int, role: str, token_version: int,
         "token_version":       token_version,
         "can_planner":         can_planner,
         "can_quality":         can_quality,
+        "can_confirmations":   can_confirmations,
         # Token expires at midnight Mountain Time — forces daily re-login
         "exp":                 _midnight_utc(),
         "iat":                 datetime.utcnow(),
@@ -748,6 +814,16 @@ def _check_quality_access(user: User):
     if user.role == "admin" or bool(user.can_quality):
         return
     raise HTTPException(403, "No quality access.")
+
+def _check_confirmations_access(user: User):
+    """
+    Confirmations page access. Allowed for:
+      - any admin
+      - any user with can_confirmations = True (e.g. Tameema23, Yousef)
+    """
+    if user.role == "admin" or bool(getattr(user, "can_confirmations", False)):
+        return
+    raise HTTPException(403, "No confirmations access.")
 
 def get_owner_id(user: User) -> int:
     return user.owner_id if user.role == "assistant" else user.id
@@ -798,9 +874,11 @@ def login(request: Request, data: UserPayload, db: Session = Depends(get_db)):
 
     if user.role == "admin":
         can_planner, can_quality = True, True
+        can_confirmations = True
     else:
         can_planner = bool(user.can_planner)
         can_quality = bool(user.can_quality)
+        can_confirmations = bool(getattr(user, "can_confirmations", False))
 
     # ── Password expiry check (6 months) ─────────────────────────────────────
     now_mt = datetime.now(ZoneInfo("America/Edmonton"))
@@ -830,11 +908,13 @@ def login(request: Request, data: UserPayload, db: Session = Depends(get_db)):
                                     user.id, user.role or "admin",
                                     user.token_version or 0,
                                     can_planner, can_quality,
+                                    can_confirmations,
                                     password_expires_at
                                 ),
         "role":                 user.role or "admin",
         "can_planner":          can_planner,
         "can_quality":          can_quality,
+        "can_confirmations":    can_confirmations,
         "username":             user.username,
         # ← True only for accounts whose original password was under 8 chars.
         "needs_password_reset": bool(getattr(user, "needs_password_reset", False)),
@@ -885,10 +965,12 @@ class AssistantPayload(BaseModel):
     password:    str
     can_planner: bool = True
     can_quality: bool = False
+    can_confirmations: bool = False
 
 class AssistantPermissionsPayload(BaseModel):
     can_planner: bool
     can_quality: bool
+    can_confirmations: bool = False
 
 @app.post("/create-assistant", status_code=201)
 def create_assistant(data: AssistantPayload,
@@ -897,7 +979,7 @@ def create_assistant(data: AssistantPayload,
     _require_admin(user)
     username = validate_username(data.username)
     password = validate_new_password(data.password)
-    if not data.can_planner and not data.can_quality:
+    if not data.can_planner and not data.can_quality and not data.can_confirmations:
         raise HTTPException(400, "At least one permission must be selected.")
     if db.query(User).filter(User.username.ilike(username)).first():
         raise HTTPException(400, "Username already exists.")
@@ -908,6 +990,7 @@ def create_assistant(data: AssistantPayload,
         owner_id=user.id,
         can_planner=data.can_planner,
         can_quality=data.can_quality,
+        can_confirmations=data.can_confirmations,
         token_version=0,
         needs_password_reset=False,
     ))
@@ -930,12 +1013,14 @@ def update_assistant_permissions(assistant_id: int,
         raise HTTPException(404, "Assistant not found.")
     assistant.can_planner = data.can_planner
     assistant.can_quality = data.can_quality
+    assistant.can_confirmations = data.can_confirmations
     db.commit()
     audit(db, user.id, "update_permissions",
-          f"{assistant.username}: planner={data.can_planner}, quality={data.can_quality}")
+          f"{assistant.username}: planner={data.can_planner}, quality={data.can_quality}, confirmations={data.can_confirmations}")
     return {"status": "updated",
             "can_planner": bool(assistant.can_planner),
-            "can_quality": bool(assistant.can_quality)}
+            "can_quality": bool(assistant.can_quality),
+            "can_confirmations": bool(assistant.can_confirmations)}
 
 @app.get("/assistants")
 def list_assistants(user: User = Depends(get_current_user),
@@ -947,6 +1032,7 @@ def list_assistants(user: User = Depends(get_current_user),
     return [{"id": a.id, "username": a.username, "role": a.role,
              "can_planner": bool(a.can_planner),
              "can_quality": bool(a.can_quality),
+             "can_confirmations": bool(getattr(a, "can_confirmations", False)),
              "is_suspended": bool(getattr(a, "is_suspended", False))}
             for a in assistants]
 
@@ -2176,6 +2262,12 @@ SMS_EVENING_TEMPLATE = (
 SMS_MORNING_TEMPLATE = SMS_EVENING_TEMPLATE
 SMS_REMINDER_TEMPLATE = "Hi {name}! Just a quick reminder about your {time}."
 
+def _build_confirmed_notice_sms(name: str) -> str:
+    """The one-off 'your appointment is confirmed' notice.
+    Sent once when an appointment transitions into confirmed status."""
+    display = name.strip() if name and name.strip() else "there"
+    return f"Hi {display}. Your appointment is confirmed."
+
 # Timezone abbreviation map for display in SMS
 TZ_ABBREV = {
     "America/Edmonton":    "MT",
@@ -2514,6 +2606,8 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         matched.appt_status = "confirmed"
         db.commit()
         logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via YES from {sender}")
+        # One-off 'your appointment is confirmed' notice (idempotent — fires once)
+        await _maybe_send_confirmed_notice(db, matched)
         # Send Tameema the updated daily summary with today's date in Mountain Time
         today_mt = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
         await _send_daily_summary(today_mt)
@@ -2522,10 +2616,67 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
 
     return {"status": "ok"}
 
-# ── Confirmations page API — Tameema23 only ───────────────────────────────────
+# ── Confirmations page API ────────────────────────────────────────────────────
 
+# Legacy: the page was originally Tameema23-only. Access is now governed by the
+# can_confirmations flag (admins + Tameema23 + Yousef). Kept for backward compat.
 CONFIRMATIONS_USERNAME = "Tameema23"
 TAMEEMA_PHONE = os.environ.get("TAMEEMA_SUMMARY_PHONE", "")   # daily summary destination
+
+
+def _is_confirmed(appt: Appointment) -> bool:
+    """An appointment counts as confirmed if EITHER status field says so."""
+    return (appt.sms_status == "confirmed"
+            or getattr(appt, "appt_status", "") == "confirmed")
+
+
+async def _maybe_send_confirmed_notice(db: Session, appt: Appointment) -> bool:
+    """
+    Send the one-off 'your appointment is confirmed' SMS — exactly once.
+
+    Idempotency: guarded by sms_sent_confirmed_notice. Even if the client
+    replies YES repeatedly, or an admin re-saves 'confirmed' on the planner,
+    this fires at most once per appointment.
+
+    Only sends when:
+      - the appointment is actually confirmed (either status field), AND
+      - the notice has not already been sent, AND
+      - it is not a callback, AND
+      - there is a phone number on file.
+
+    Caller is responsible for committing the surrounding transaction; this
+    function commits the flag itself so the guard persists even if a later
+    step in the caller fails.
+    """
+    if not _is_confirmed(appt):
+        return False
+    if getattr(appt, "sms_sent_confirmed_notice", False):
+        return False
+    if (appt.appt_type or "") == "callback":
+        return False
+    if not (appt.phone_number or "").strip():
+        return False
+
+    # Prefer the attendee name; fall back to the lead's first name.
+    name = (appt.attendee_name or "").strip()
+    if not name:
+        name = (appt.lead_name or "").strip().split()[0] if appt.lead_name else ""
+
+    message = _build_confirmed_notice_sms(name)
+    result  = await send_sms(db, appt.owner_id, appt.phone_number, message)
+
+    # Mark as sent regardless of dry-run so the notice isn't spammed on retries.
+    # If the send genuinely failed (not dry-run), leave the flag down so a
+    # later confirm action can retry.
+    if result.get("sent") or result.get("dry_run"):
+        appt.sms_sent_confirmed_notice = True
+        db.commit()
+        logger.info(f"Confirmed notice sent for appt {appt.id} ({appt.lead_name}) | {result.get('detail')}")
+        return True
+
+    logger.warning(f"Confirmed notice NOT sent for appt {appt.id}: {result.get('detail')}")
+    return False
+
 
 # ── Daily summary job ─────────────────────────────────────────────────────────
 
@@ -2608,11 +2759,10 @@ def get_confirmations(date: Optional[str] = None,
                       user: User = Depends(get_current_user),
                       db: Session = Depends(get_db)):
     """
-    Returns today's appointments for ALL admins (so Tameema23 sees Hazem's).
-    Only accessible by the Tameema23 account.
+    Returns appointments for ALL admins (so confirmations users see Hazem's).
+    Accessible by admins and users with can_confirmations.
     """
-    if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
-        raise HTTPException(403, "Access denied.")
+    _check_confirmations_access(user)
 
     target_date = date or datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
 
@@ -2635,19 +2785,19 @@ def get_confirmations(date: Optional[str] = None,
                 "appt_status":   getattr(a, "appt_status", "") or "",
                 "sms_sent_evening": bool(a.sms_sent_evening),
                 "sms_sent_morning": bool(a.sms_sent_morning),
+                "sms_sent_confirmed_notice": bool(getattr(a, "sms_sent_confirmed_notice", False)),
                 "owner":         admin.username,
             })
     result.sort(key=lambda x: x["scheduled_for"])
     return result
 
 @app.patch("/confirmations/{appt_id}/status")
-def set_confirmation_status(appt_id: int,
+async def set_confirmation_status(appt_id: int,
                              data: ReferralEntryStatusPayload,
                              user: User = Depends(get_current_user),
                              db: Session = Depends(get_db)):
-    """Tameema23 can manually set sms_status: confirmed | rescheduled | (empty)."""
-    if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
-        raise HTTPException(403, "Access denied.")
+    """Confirmations-page users can set sms_status: confirmed | rescheduled | (empty)."""
+    _check_confirmations_access(user)
     appt = db.query(Appointment).filter(Appointment.id == appt_id).first()
     if not appt:
         raise HTTPException(404, "Appointment not found.")
@@ -2655,6 +2805,16 @@ def set_confirmation_status(appt_id: int,
         raise HTTPException(422, "Invalid status.")
     appt.sms_status = data.status
     db.commit()
+
+    # If this transition makes the appointment confirmed, fire the one-off notice.
+    if data.status == "confirmed":
+        await _maybe_send_confirmed_notice(db, appt)
+
+    # Keep Tameema's summary in sync if the appointment is today.
+    today_str = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+    if appt.scheduled_for and appt.scheduled_for.startswith(today_str):
+        await _send_daily_summary(today_str)
+
     return {"id": appt_id, "sms_status": appt.sms_status}
 
 
@@ -2684,6 +2844,11 @@ async def set_appt_status(appt_id: int,
     appt.appt_status = data.appt_status
     db.commit()
 
+    # If admin just confirmed on the planner, fire the one-off confirmed notice
+    # (idempotent — won't double-send if the client also replied YES).
+    if data.appt_status == "confirmed":
+        await _maybe_send_confirmed_notice(db, appt)
+
     # If the appointment is today, resend the summary so Tameema sees the new status
     mt = ZoneInfo("America/Edmonton")
     today_str = datetime.now(mt).strftime("%Y-%m-%d")
@@ -2700,9 +2865,9 @@ async def rc_register_webhook(user: User = Depends(get_current_user),
     """
     Registers a RingCentral webhook subscription so inbound SMS replies
     are posted to /rc/webhook. Call this once after connecting RC.
-    Only Tameema23 or admins can call this.
+    Accessible by admins and users with can_confirmations.
     """
-    _require_admin(user)
+    _check_confirmations_access(user)
     token_row = _get_rc_token(db, user.id)
     if not token_row:
         # Try any connected token
@@ -2750,15 +2915,44 @@ async def rc_register_webhook(user: User = Depends(get_current_user),
     logger.error(f"RC webhook registration failed {resp.status_code}: {resp.text}")
     raise HTTPException(500, f"RC error: {resp.text}")
 
+class SendConfirmationsPayload(BaseModel):
+    date: Optional[str] = None  # YYYY-MM-DD; defaults to today (Mountain Time)
+
+@app.post("/rc/send-confirmation-texts")
+async def send_confirmation_texts(data: SendConfirmationsPayload = SendConfirmationsPayload(),
+                                   user: User = Depends(get_current_user),
+                                   db: Session = Depends(get_db)):
+    """
+    Send appointment confirmation texts to clients on a specific date only.
+    Independent of the daily summary. Defaults to today in Mountain Time.
+    Accessible by admins and users with can_confirmations.
+    """
+    _check_confirmations_access(user)
+    mt = ZoneInfo("America/Edmonton")
+    if data.date:
+        target_date = validate_date(data.date)
+    else:
+        target_date = datetime.now(mt).strftime("%Y-%m-%d")
+
+    summary = await _send_confirmation_texts_for_date(target_date)
+    return {
+        "status": "fired",
+        "date": target_date,
+        "detail": f"Confirmation texts for {target_date}: "
+                  f"{summary.get('sent', 0)} sent, {summary.get('failed', 0)} failed "
+                  f"of {summary.get('total', 0)} eligible.",
+        **summary,
+    }
+
+
 @app.post("/rc/test-sms")
 async def test_sms_trigger(user: User = Depends(get_current_user),
                             db: Session = Depends(get_db)):
     """
-    Manually fire SMS jobs and daily summary — for testing only.
-    Only Tameema23 can call this.
+    Legacy testing endpoint — fires evening + morning jobs and the summary.
+    Kept for backward compatibility. Accessible by admins and can_confirmations users.
     """
-    if user.username.lower() != CONFIRMATIONS_USERNAME.lower():
-        raise HTTPException(403, "Access denied.")
+    _check_confirmations_access(user)
     await _run_sms_job("evening")
     await _run_sms_job("morning")
     await _send_daily_summary()
@@ -2774,10 +2968,9 @@ async def manual_send_summary(data: SendSummaryPayload = SendSummaryPayload(),
     """
     Manually trigger the daily summary text to Tameema.
     date: YYYY-MM-DD to send appointments for (defaults to tomorrow).
-    Only Tameema23 or admins can call this.
+    Accessible by admins and users with can_confirmations.
     """
-    if user.username.lower() != CONFIRMATIONS_USERNAME.lower() and user.role != "admin":
-        raise HTTPException(403, "Access denied.")
+    _check_confirmations_access(user)
 
     mt = ZoneInfo("America/Edmonton")
     if data.date:
@@ -2801,10 +2994,9 @@ async def manual_send_booking_texts(user: User = Depends(get_current_user),
     Manually trigger booking confirmation texts.
     Sends to ALL future appointments that haven't received a booking text yet,
     regardless of when they were booked. Use this for catch-up after reschedules.
-    Only Tameema23 or admins can call this.
+    Accessible by admins and users with can_confirmations.
     """
-    if user.username.lower() != CONFIRMATIONS_USERNAME.lower() and user.role != "admin":
-        raise HTTPException(403, "Access denied.")
+    _check_confirmations_access(user)
     await _run_booking_job_catchup()
     return {"status": "fired", "detail": "Booking confirmation sent to all eligible future appointments."}
 

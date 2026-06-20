@@ -158,6 +158,7 @@ const TOKEN = localStorage.getItem("token");
     localStorage.removeItem("role");
     localStorage.removeItem("can_planner");
     localStorage.removeItem("can_quality");
+    localStorage.removeItem("can_confirmations");
     localStorage.removeItem("pw_expires_at");
     window.location.replace("/login.html");
   }
@@ -995,6 +996,7 @@ function logout() {
   localStorage.removeItem("role");
   localStorage.removeItem("can_planner");
   localStorage.removeItem("can_quality");
+  localStorage.removeItem("can_confirmations");
   localStorage.removeItem("pw_expires_at");
   // Hard navigate so the browser fully reloads the login page (no stale state)
   window.location.replace("/");
@@ -1728,6 +1730,10 @@ window.uninstallPWA = function() {
 document.addEventListener("DOMContentLoaded", function() {
   var path = location.pathname;
 
+  // Reveal the Confirmations nav link for admins + can_confirmations users.
+  // Safe no-op on pages without the link.
+  applyConfirmationsNav();
+
   // Log page
   if (path.includes("log")) {
     initLogKeyNav();
@@ -2180,10 +2186,25 @@ function addChartMobileValues(canvasId, type, labels, data, datasets, colors) {
   }
 }
 
+/* ── CONFIRMATIONS NAV LINK ──────────────────────────────────────
+   Shows/hides the Confirmations link in the topbar + bottom nav based
+   on the can_confirmations permission (admins always have it).
+   Pages include the link markup with class "confirmations-link" and
+   call this helper from their inline role-nav script. Safe to call on
+   every page — it's a no-op if the link isn't present. */
+function applyConfirmationsNav() {
+  var role = localStorage.getItem("role") || "";
+  var canConfirmations = localStorage.getItem("can_confirmations") === "1";
+  var allowed = (role === "admin") || canConfirmations;
+  document.querySelectorAll(".confirmations-link").forEach(function(el) {
+    el.style.display = allowed ? "" : "none";
+  });
+}
+
 /* ── NAV DEDUPLICATION — renderNav() ────────────────────────────
    Call renderNav() from any page to stamp the topbar + bottom nav.
    Pass `activePage` as one of: home, log, reports, history,
-   planner, quality, settings.
+   planner, quality, confirmations, settings.
    This is OPTIONAL — existing pages still work with their hardcoded
    nav. This function is here for future pages or nav refactors. */
 function renderNav(activePage) {
@@ -2191,6 +2212,7 @@ function renderNav(activePage) {
   var username   = localStorage.getItem("username") || "";
   var canQuality = localStorage.getItem("can_quality") === "1";
   var canPlanner = localStorage.getItem("can_planner") === "1";
+  var canConfirmations = localStorage.getItem("can_confirmations") === "1";
 
   var pages = [
     { id: "home",     href: "/index.html",   label: "Home",     adminOnly: true },
@@ -2199,12 +2221,14 @@ function renderNav(activePage) {
     { id: "history",  href: "/history.html", label: "History",  adminOnly: true },
     { id: "planner",  href: "/planner.html", label: "Planner",  adminOnly: false },
     { id: "quality",  href: "/quality.html", label: "Quality",  adminOnly: false, qualityOnly: true },
+    { id: "confirmations", href: "/confirmations.html", label: "Confirmations", adminOnly: false, confirmationsOnly: true },
     { id: "settings", href: "/settings.html",label: "Settings", adminOnly: false },
   ];
 
   function shouldShow(page) {
     if (page.adminOnly && role !== "admin") return false;
     if (page.qualityOnly && role !== "admin" && !canQuality) return false;
+    if (page.confirmationsOnly && role !== "admin" && !canConfirmations) return false;
     if (page.id === "planner" && role !== "admin" && !canPlanner && !canQuality) return false;
     return true;
   }

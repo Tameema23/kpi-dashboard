@@ -37,6 +37,8 @@ class User(Base):
     owner_id             = Column(Integer, ForeignKey("users.id"), nullable=True)
     can_planner          = Column(Boolean, default=True)
     can_quality          = Column(Boolean, default=False)
+    # True if this user may access the Confirmations page (SMS confirmation dashboard).
+    can_confirmations    = Column(Boolean, default=False, nullable=False)
 
     # Bumped every time password changes.
     # Any JWT with an older token_version is immediately rejected.
@@ -111,6 +113,9 @@ class Appointment(Base):
     sms_sent_booking  = Column(Boolean,     default=False)  # ~5min after booking sent
     sms_sent_midpoint = Column(Boolean,     default=False)  # halfway-point reminder sent
     midpoint_send_date = Column(String(10), default="")     # YYYY-MM-DD when midpoint fires
+    # True once the "your appointment is confirmed" notice has been sent.
+    # Guarantees the confirmed notice fires exactly once per appointment.
+    sms_sent_confirmed_notice = Column(Boolean, default=False)
 
     # Appointment outcome status (set manually by admin)
     # "" | "confirmed" | "rescheduled" | "no_show" | "cancelled"
