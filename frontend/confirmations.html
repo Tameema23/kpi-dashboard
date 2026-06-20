@@ -59,16 +59,153 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      position: relative;
     }
-    .conf-date-picker input[type="date"] {
-      padding: 8px 12px;
+
+    .cal-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
       border-radius: 10px;
-      border: 1.5px solid #e2e8f0;
+      border: 1.5px solid #dbeafe;
+      font-size: 13px;
+      font-weight: 700;
+      color: #1e3a8a;
+      background: #eff6ff;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      user-select: none;
+    }
+    .cal-trigger:hover { background: #dbeafe; border-color: #bfdbfe; }
+    .cal-trigger svg { color: #2563eb; flex-shrink: 0; }
+
+    .cal-popover {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      width: 300px;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 12px 40px rgba(15,23,42,0.18), 0 2px 8px rgba(15,23,42,0.08);
+      overflow: hidden;
+      z-index: 50;
+      opacity: 0;
+      transform: translateY(-8px) scale(0.98);
+      pointer-events: none;
+      transition: opacity 0.16s ease, transform 0.16s ease;
+    }
+    .cal-popover.open {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .cal-header {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      padding: 18px 18px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .cal-title {
+      color: #fff;
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+    }
+    .cal-nav-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      border: none;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+    .cal-nav-btn:hover { background: rgba(255,255,255,0.28); }
+
+    .cal-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      padding: 14px 12px 4px;
+      gap: 2px;
+    }
+    .cal-weekday {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #60a5fa;
+      letter-spacing: 0.5px;
+      padding: 4px 0;
+    }
+
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      padding: 0 12px 14px;
+      gap: 2px;
+    }
+    .cal-day {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       font-size: 13px;
       font-weight: 600;
-      color: #0f172a;
-      background: #f8fafc;
+      color: #334155;
+      border-radius: 10px;
       cursor: pointer;
+      border: none;
+      background: transparent;
+      transition: background 0.12s, color 0.12s, transform 0.08s;
+    }
+    .cal-day:hover:not(.cal-day-empty):not(.cal-day-selected) { background: #eff6ff; color: #1d4ed8; }
+    .cal-day:active:not(.cal-day-empty) { transform: scale(0.9); }
+    .cal-day-empty { cursor: default; pointer-events: none; }
+    .cal-day-today:not(.cal-day-selected) {
+      color: #2563eb;
+      font-weight: 800;
+      box-shadow: inset 0 0 0 1.5px #bfdbfe;
+    }
+    .cal-day-selected {
+      background: #2563eb;
+      color: #fff;
+      font-weight: 800;
+      box-shadow: 0 2px 8px rgba(37,99,235,0.4);
+    }
+
+    .cal-footer {
+      border-top: 1px solid #f1f5f9;
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .cal-today-btn {
+      font-size: 12px;
+      font-weight: 700;
+      color: #2563eb;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background 0.12s;
+    }
+    .cal-today-btn:hover { background: #eff6ff; }
+    .cal-selected-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #94a3b8;
+    }
+
+    @media (max-width: 600px) {
+      .cal-popover { right: auto; left: 0; width: 290px; }
     }
 
     /* Summary bar */
@@ -327,7 +464,34 @@
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px;">
       <div class="conf-date-picker">
         <label style="font-size:12px;font-weight:700;color:#64748b;">Date:</label>
-        <input type="date" id="confDateInput" onchange="loadConfirmations()">
+        <input type="hidden" id="confDateInput">
+        <button type="button" class="cal-trigger" id="calTrigger" onclick="toggleCalendar(event)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span id="calTriggerLabel">Select date</span>
+        </button>
+        <div class="cal-popover" id="calPopover">
+          <div class="cal-header">
+            <button type="button" class="cal-nav-btn" onclick="calPrevMonth(event)" aria-label="Previous month">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div class="cal-title" id="calTitle">—</div>
+            <button type="button" class="cal-nav-btn" onclick="calNextMonth(event)" aria-label="Next month">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+          <div class="cal-weekdays">
+            <div class="cal-weekday">SUN</div><div class="cal-weekday">MON</div><div class="cal-weekday">TUE</div>
+            <div class="cal-weekday">WED</div><div class="cal-weekday">THU</div><div class="cal-weekday">FRI</div>
+            <div class="cal-weekday">SAT</div>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+          <div class="cal-footer">
+            <span class="cal-selected-label" id="calSelectedLabel"></span>
+            <button type="button" class="cal-today-btn" onclick="calJumpToday(event)">Today</button>
+          </div>
+        </div>
       </div>
       <div class="conf-actions">
         <button class="conf-action-btn conf-action-primary" onclick="sendConfirmationTexts()"
@@ -424,6 +588,123 @@
   // ── Date setup ────────────────────────────────────────────────
   var today = new Date().toLocaleDateString("en-CA");
   document.getElementById("confDateInput").value = today;
+
+  // ── Custom calendar widget ────────────────────────────────────
+  // The hidden #confDateInput (YYYY-MM-DD) remains the single source of
+  // truth; the calendar just reads and writes it, then calls loadConfirmations.
+  var MONTH_NAMES = ["January","February","March","April","May","June",
+                     "July","August","September","October","November","December"];
+
+  // Parse the currently-selected date into a viewing month/year
+  function _selectedParts() {
+    var v = document.getElementById("confDateInput").value || today;
+    var p = v.split("-");
+    return { y: parseInt(p[0]), m: parseInt(p[1]) - 1, d: parseInt(p[2]) };
+  }
+  var _calView = (function() {
+    var s = _selectedParts();
+    return { year: s.y, month: s.m };  // month is 0-indexed
+  })();
+
+  function _pad(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function calRender() {
+    var grid = document.getElementById("calGrid");
+    document.getElementById("calTitle").innerText =
+      MONTH_NAMES[_calView.month] + " " + _calView.year;
+
+    var firstDay = new Date(_calView.year, _calView.month, 1).getDay(); // 0=Sun
+    var daysInMonth = new Date(_calView.year, _calView.month + 1, 0).getDate();
+    var sel = document.getElementById("confDateInput").value;
+
+    var cells = "";
+    // Leading empty cells
+    for (var i = 0; i < firstDay; i++) {
+      cells += '<div class="cal-day cal-day-empty"></div>';
+    }
+    for (var day = 1; day <= daysInMonth; day++) {
+      var iso = _calView.year + "-" + _pad(_calView.month + 1) + "-" + _pad(day);
+      var cls = "cal-day";
+      if (iso === today) cls += " cal-day-today";
+      if (iso === sel)   cls += " cal-day-selected";
+      cells += '<button type="button" class="' + cls + '" onclick="calPick(\'' + iso + '\')">' + day + '</button>';
+    }
+    grid.innerHTML = cells;
+
+    // Footer label
+    var lbl = document.getElementById("calSelectedLabel");
+    if (sel) {
+      var d = new Date(sel + "T00:00:00");
+      lbl.innerText = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    } else {
+      lbl.innerText = "";
+    }
+  }
+
+  function calSyncTriggerLabel() {
+    var v = document.getElementById("confDateInput").value;
+    var span = document.getElementById("calTriggerLabel");
+    if (!v) { span.innerText = "Select date"; return; }
+    var d = new Date(v + "T00:00:00");
+    var isToday = v === today;
+    var formatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    span.innerText = isToday ? "Today · " + formatted : formatted;
+  }
+
+  window.toggleCalendar = function(e) {
+    if (e) e.stopPropagation();
+    var pop = document.getElementById("calPopover");
+    var isOpen = pop.classList.contains("open");
+    if (isOpen) {
+      pop.classList.remove("open");
+    } else {
+      // Re-sync view to the selected date each time it opens
+      var s = _selectedParts();
+      _calView = { year: s.y, month: s.m };
+      calRender();
+      pop.classList.add("open");
+    }
+  };
+
+  window.calPrevMonth = function(e) {
+    if (e) e.stopPropagation();
+    _calView.month--;
+    if (_calView.month < 0) { _calView.month = 11; _calView.year--; }
+    calRender();
+  };
+
+  window.calNextMonth = function(e) {
+    if (e) e.stopPropagation();
+    _calView.month++;
+    if (_calView.month > 11) { _calView.month = 0; _calView.year++; }
+    calRender();
+  };
+
+  window.calPick = function(iso) {
+    document.getElementById("confDateInput").value = iso;
+    calSyncTriggerLabel();
+    document.getElementById("calPopover").classList.remove("open");
+    loadConfirmations();
+  };
+
+  window.calJumpToday = function(e) {
+    if (e) e.stopPropagation();
+    var s = today.split("-");
+    _calView = { year: parseInt(s[0]), month: parseInt(s[1]) - 1 };
+    calPick(today);
+  };
+
+  // Close the calendar when clicking outside it
+  document.addEventListener("click", function(e) {
+    var picker = document.querySelector(".conf-date-picker");
+    var pop = document.getElementById("calPopover");
+    if (pop && pop.classList.contains("open") && picker && !picker.contains(e.target)) {
+      pop.classList.remove("open");
+    }
+  });
+
+  // Initialise the trigger label
+  calSyncTriggerLabel();
 
   function fmtDateLabel(dateStr) {
     var d = new Date(dateStr + "T00:00:00");
