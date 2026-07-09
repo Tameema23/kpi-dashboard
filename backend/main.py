@@ -418,6 +418,9 @@ async def _run_booking_job_catchup():
         logger.error(f"Booking catchup job error: {e}")
     finally:
         db.close()
+
+
+async def _run_midpoint_job():
     """
     Fires once daily. Sends a reminder to appointments whose midpoint_send_date
     is today — i.e. halfway between booking and appointment date.
