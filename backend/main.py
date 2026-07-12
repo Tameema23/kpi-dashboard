@@ -23,7 +23,7 @@ Security:
 import os, re, html, logging, shutil, hashlib, asyncio, urllib.parse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 import httpx
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Request
@@ -40,7 +40,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, AppointmentRecipient, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -101,6 +101,66 @@ def verify_password(plain: str, hashed: str) -> bool:
 #   • 9:00 AM — morning reminder (day of appointment)
 # Both jobs respect dry_run mode — no real texts sent until live mode is on.
 
+def _first_name_of(full_name: str) -> str:
+    """First name, capitalized; 'there' if empty."""
+    s = (full_name or "").strip()
+    if not s:
+        return "there"
+    return s.split()[0].capitalize()
+
+
+def _appt_recipients(db: Session, appt: Appointment):
+    """
+    Returns the full list of SMS recipients for an appointment as
+    [(display_name, phone_number), ...] — the primary attendee/lead first,
+    then any extra recipients. Only entries with a phone number are included.
+    """
+    out = []
+    primary_phone = (appt.phone_number or "").strip()
+    if primary_phone:
+        primary_name = (appt.attendee_name or "").strip() or (appt.lead_name or "").strip()
+        out.append((primary_name, primary_phone))
+    try:
+        extras = db.query(AppointmentRecipient).filter(
+            AppointmentRecipient.appointment_id == appt.id
+        ).all()
+    except Exception:
+        extras = []
+    for r in extras:
+        ph = (r.phone_number or "").strip()
+        if ph:
+            out.append(((r.name or "").strip(), ph))
+    return out
+
+
+async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
+                                   log_tag: str):
+    """
+    Sends an SMS to the primary recipient and every extra recipient on the
+    appointment. `build_message(first_name)` returns the personalized text for
+    a given recipient. Returns a dict summary: {sent, failed, total}.
+
+    This is the single fan-out point used by every automated SMS job, so that
+    adding recipients requires no change to the individual jobs.
+    """
+    recipients = _appt_recipients(db, appt)
+    sent = 0
+    failed = 0
+    for (name, phone) in recipients:
+        message = build_message(_first_name_of(name))
+        result = await send_sms(db, appt.owner_id, phone, message)
+        ok = bool(result.get("sent") or result.get("dry_run"))
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+        logger.info(
+            f"[{log_tag}] Appt {appt.id} ({appt.lead_name}) "
+            f"→ {phone} | dry_run={result.get('dry_run')} | {result.get('detail')}"
+        )
+    return {"sent": sent, "failed": failed, "total": len(recipients)}
+
+
 async def _run_sms_job(job_type: str):
     """
     job_type: "evening" — sends to appointments TOMORROW
@@ -146,21 +206,18 @@ async def _run_sms_job(job_type: str):
                 appt.booking_tz or "America/Edmonton"
             )
 
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
-            message    = _build_sms(first_name, time_display, date_display, confirmed)
 
-            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            await _send_to_all_recipients(
+                db, appt,
+                lambda fn: _build_sms(fn, time_display, date_display, confirmed),
+                f"SMS {label.upper()}"
+            )
 
             # Mark as sent (even in dry run — so we don't log it repeatedly)
             setattr(appt, sent_flag, True)
             db.commit()
-
-            logger.info(
-                f"[SMS {label.upper()}] Appt {appt.id} ({appt.lead_name}) "
-                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
-            )
 
     except Exception as e:
         logger.error(f"SMS job ({job_type}) error: {e}")
@@ -208,21 +265,16 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() \
-                if (appt.attendee_name or appt.lead_name) else "there"
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
-            message    = _build_sms(first_name, time_display, date_display, confirmed)
 
-            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
-            if result.get("sent") or result.get("dry_run"):
-                sent += 1
-            else:
-                failed += 1
-            logger.info(
-                f"[SMS MANUAL-CONFIRM {target_date}] Appt {appt.id} ({appt.lead_name}) "
-                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
+            summary = await _send_to_all_recipients(
+                db, appt,
+                lambda fn: _build_sms(fn, time_display, date_display, confirmed),
+                f"SMS MANUAL-CONFIRM {target_date}"
             )
+            sent   += summary["sent"]
+            failed += summary["failed"]
 
         return {"sent": sent, "failed": failed, "skipped": skipped, "total": len(appts)}
     except Exception as e:
@@ -290,17 +342,13 @@ async def _run_reminder_job():
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
-            message    = SMS_REMINDER_TEMPLATE.format(name=first_name, time=time_display)
-
-            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            await _send_to_all_recipients(
+                db, appt,
+                lambda fn: SMS_REMINDER_TEMPLATE.format(name=fn, time=time_display),
+                "SMS REMINDER"
+            )
             appt.sms_sent_reminder = True
             db.commit()
-
-            logger.info(
-                f"[SMS REMINDER] Appt {appt.id} ({appt.lead_name}) "
-                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
-            )
 
     except Exception as e:
         logger.error(f"Reminder job error: {e}")
@@ -348,19 +396,16 @@ async def _run_booking_job():
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
-            message    = _build_sms(first_name, time_display, date_display, confirmed)
 
-            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            await _send_to_all_recipients(
+                db, appt,
+                lambda fn: _build_sms(fn, time_display, date_display, confirmed),
+                "SMS BOOKING"
+            )
             appt.sms_sent_booking = True
             db.commit()
-
-            logger.info(
-                f"[SMS BOOKING] Appt {appt.id} ({appt.lead_name}) "
-                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
-            )
 
     except Exception as e:
         logger.error(f"Booking job error: {e}")
@@ -397,20 +442,17 @@ async def _run_booking_job_catchup():
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
-            message    = _build_sms(first_name, time_display, date_display, confirmed)
 
-            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            await _send_to_all_recipients(
+                db, appt,
+                lambda fn: _build_sms(fn, time_display, date_display, confirmed),
+                "SMS BOOKING CATCHUP"
+            )
             appt.sms_sent_booking = True
             db.commit()
             sent_count += 1
-
-            logger.info(
-                f"[SMS BOOKING CATCHUP] Appt {appt.id} ({appt.lead_name}) "
-                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
-            )
 
         logger.info(f"[SMS BOOKING CATCHUP] Sent to {sent_count} appointment(s).")
 
@@ -447,19 +489,16 @@ async def _run_midpoint_job():
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            first_name = (appt.attendee_name or appt.lead_name or "").split()[0].capitalize() if (appt.attendee_name or appt.lead_name) else "there"
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
-            message    = _build_sms(first_name, time_display, date_display, confirmed)
 
-            result = await send_sms(db, appt.owner_id, appt.phone_number, message)
+            await _send_to_all_recipients(
+                db, appt,
+                lambda fn: _build_sms(fn, time_display, date_display, confirmed),
+                "SMS MIDPOINT"
+            )
             appt.sms_sent_midpoint = True
             db.commit()
-
-            logger.info(
-                f"[SMS MIDPOINT] Appt {appt.id} ({appt.lead_name}) "
-                f"→ {appt.phone_number} | dry_run={result.get('dry_run')} | {result.get('detail')}"
-            )
 
     except Exception as e:
         logger.error(f"Midpoint job error: {e}")
@@ -1175,6 +1214,10 @@ def delete_days(ids: list[int],
 
 # ── Appointments ───────────────────────────────────────────────────────────────
 
+class RecipientPayload(BaseModel):
+    name:         Optional[str] = ""
+    phone_number: Optional[str] = ""
+
 class AppointmentPayload(BaseModel):
     lead_name:     str
     attendee_name: Optional[str] = ""
@@ -1183,6 +1226,31 @@ class AppointmentPayload(BaseModel):
     scheduled_for: str
     appt_type:     Optional[str] = "appointment"
     booking_tz:    Optional[str] = "America/Edmonton"
+    recipients:    Optional[List[RecipientPayload]] = None  # extra SMS recipients
+
+
+def _sync_recipients(db: Session, appt: Appointment, recipients):
+    """
+    Replace an appointment's extra recipients with the provided list.
+    Blank rows (no phone) are ignored. Phones are normalized like the primary.
+    Passing None leaves existing recipients untouched (e.g. partial updates);
+    passing [] clears them.
+    """
+    if recipients is None:
+        return
+    # Remove existing
+    db.query(AppointmentRecipient).filter(
+        AppointmentRecipient.appointment_id == appt.id
+    ).delete(synchronize_session=False)
+    # Add the new set (skip blanks)
+    for r in recipients:
+        phone = re.sub(r"[^\d+]", "", (r.phone_number or ""))[:20]
+        name  = title_case(sanitize_str(r.name or "", 200))
+        if not phone:
+            continue
+        db.add(AppointmentRecipient(
+            appointment_id=appt.id, name=name, phone_number=phone
+        ))
 
 @app.post("/appointments", status_code=201)
 def create_appointment(data: AppointmentPayload,
@@ -1236,6 +1304,9 @@ def create_appointment(data: AppointmentPayload,
     except Exception:
         pass
     db.add(appt); db.commit(); db.refresh(appt)
+    # Persist any extra SMS recipients
+    _sync_recipients(db, appt, data.recipients)
+    db.commit()
     return _appt_dict(appt, db)
 
 @app.get("/appointments")
@@ -1322,6 +1393,8 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     # else: only non-time fields changed — leave SMS fields untouched
 
     appt.scheduled_for = new_sched
+    # Update extra SMS recipients (None = leave as-is; [] = clear)
+    _sync_recipients(db, appt, data.recipients)
     db.commit()
     return _appt_dict(appt, db)
 
@@ -1340,9 +1413,18 @@ def delete_appointment(appt_id: int,
 
 def _appt_dict(appt, db):
     creator = db.query(User).filter(User.id == appt.created_by).first()
+    try:
+        recips = db.query(AppointmentRecipient).filter(
+            AppointmentRecipient.appointment_id == appt.id
+        ).all()
+        recipients = [{"name": r.name or "", "phone_number": r.phone_number or ""}
+                      for r in recips]
+    except Exception:
+        recipients = []
     return {"id": appt.id, "lead_name": appt.lead_name,
             "attendee_name": appt.attendee_name or "",
             "phone_number": appt.phone_number or "",
+            "recipients": recipients,
             "comments": appt.comments, "scheduled_for": appt.scheduled_for,
             "booked_at": appt.booked_at,
             "created_by": creator.username if creator else "unknown",
@@ -2597,11 +2679,26 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         (Appointment.sms_sent_booking == True)
     ).all()
 
+    sender_tail = sender_digits[-10:]
     matched = None
     for a in appts:
+        # Primary number
         appt_digits = re.sub(r"[^\d]", "", a.phone_number or "")
-        if appt_digits and appt_digits[-10:] == sender_digits[-10:]:
+        if appt_digits and appt_digits[-10:] == sender_tail:
             matched = a
+            break
+        # Extra recipients (e.g. spouse) — a YES from any of them confirms the appt
+        extras = db.query(AppointmentRecipient).filter(
+            AppointmentRecipient.appointment_id == a.id
+        ).all()
+        hit = False
+        for r in extras:
+            rd = re.sub(r"[^\d]", "", r.phone_number or "")
+            if rd and rd[-10:] == sender_tail:
+                matched = a
+                hit = True
+                break
+        if hit:
             break
 
     if matched:
@@ -2657,27 +2754,28 @@ async def _maybe_send_confirmed_notice(db: Session, appt: Appointment) -> bool:
         return False
     if (appt.appt_type or "") == "callback":
         return False
-    if not (appt.phone_number or "").strip():
+    # Must have at least one recipient with a phone number
+    if not _appt_recipients(db, appt):
         return False
 
-    # Prefer the attendee name; fall back to the lead's first name.
-    name = (appt.attendee_name or "").strip()
-    if not name:
-        name = (appt.lead_name or "").strip().split()[0] if appt.lead_name else ""
+    # Send the confirmed notice to the primary + every extra recipient,
+    # each personalized with their own first name.
+    summary = await _send_to_all_recipients(
+        db, appt,
+        lambda fn: _build_confirmed_notice_sms(fn),
+        "CONFIRMED NOTICE"
+    )
 
-    message = _build_confirmed_notice_sms(name)
-    result  = await send_sms(db, appt.owner_id, appt.phone_number, message)
-
-    # Mark as sent regardless of dry-run so the notice isn't spammed on retries.
-    # If the send genuinely failed (not dry-run), leave the flag down so a
-    # later confirm action can retry.
-    if result.get("sent") or result.get("dry_run"):
+    # Mark as sent if at least one message went out (or dry-run). If every
+    # send genuinely failed, leave the flag down so a later confirm can retry.
+    if summary["sent"] > 0:
         appt.sms_sent_confirmed_notice = True
         db.commit()
-        logger.info(f"Confirmed notice sent for appt {appt.id} ({appt.lead_name}) | {result.get('detail')}")
+        logger.info(f"Confirmed notice sent for appt {appt.id} ({appt.lead_name}) "
+                    f"→ {summary['sent']}/{summary['total']} recipient(s)")
         return True
 
-    logger.warning(f"Confirmed notice NOT sent for appt {appt.id}: {result.get('detail')}")
+    logger.warning(f"Confirmed notice NOT sent for appt {appt.id}: all recipients failed")
     return False
 
 

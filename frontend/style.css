@@ -3148,3 +3148,61 @@ select {
 @media (max-width: 768px) {
   .home-lower { display: flex !important; flex-direction: column; }
 }
+/* ── Additional SMS recipients (appointment modal) ────────────── */
+.add-recipient-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1.5px dashed #bfdbfe;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-family: inherit;
+}
+.add-recipient-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+
+.recipient-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.recipient-row input {
+  padding: 9px 11px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 9px;
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.recipient-row input:focus { outline: none; border-color: #93c5fd; }
+.recipient-row .rcpt-name  { flex: 1 1 40%; min-width: 0; }
+.recipient-row .rcpt-phone { flex: 1 1 60%; min-width: 0; }
+.recipient-remove-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #dc2626;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.recipient-remove-btn:hover { background: #fee2e2; }
+
+.recipient-hint {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 600;
+  margin-top: 8px;
+}

@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://data-log.onrender.com">
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=6">
   <title>Weekly Planner</title>
 </head>
 <body>
@@ -140,6 +140,13 @@
         <div id="m_phone_no_number_warn" style="display:none;margin-top:5px;font-size:12px;color:#f59e0b;font-weight:600;">
           ⚠ No phone number — SMS reminders won't be sent for this appointment.
         </div>
+
+        <!-- Additional SMS recipients (e.g. spouse) -->
+        <div id="m_recipients_wrap" style="margin-top:12px;"></div>
+        <button type="button" id="m_add_recipient_btn" class="add-recipient-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add another recipient
+        </button>
       </div>
 
       <div class="form-field">
@@ -278,6 +285,6 @@
 <!-- app.js must load first (provides TOKEN, API, showToast, showConfirm, etc.) -->
 <script src="/static/app.js?v=5"></script>
 <!-- planner.js contains all planner logic -->
-<script src="/static/planner.js?v=5"></script>
+<script src="/static/planner.js?v=6"></script>
 </body>
 </html>

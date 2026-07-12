@@ -126,6 +126,31 @@ class Appointment(Base):
         back_populates="appointments_created"
     )
 
+    # Additional SMS recipients (e.g. spouses). Deleting the appointment
+    # removes them via cascade.
+    recipients = relationship(
+        "AppointmentRecipient",
+        back_populates="appointment",
+        cascade="all, delete-orphan"
+    )
+
+
+class AppointmentRecipient(Base):
+    """
+    An extra person (beyond the primary phone_number on the appointment) who
+    should also receive all automated SMS for a given appointment. Each has
+    their own name so messages are personalized.
+    """
+    __tablename__ = "appointment_recipients"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    appointment_id = Column(Integer, ForeignKey("appointments.id", ondelete="CASCADE"),
+                            nullable=False, index=True)
+    name           = Column(String(200), default="")
+    phone_number   = Column(String(30),  default="")   # normalized, e.g. +14035551234
+
+    appointment = relationship("Appointment", back_populates="recipients")
+
 
 class RcToken(Base):
     """

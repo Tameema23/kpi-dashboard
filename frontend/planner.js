@@ -649,6 +649,7 @@
     document.getElementById("m_history_wrap").style.display = "none";
     document.getElementById("m_comments_label").innerText = "Comments / Notes";
     document.getElementById("m_comments").placeholder = "Any notes about this lead...";
+    clearRecipients();
     document.getElementById("modalBackdrop").classList.remove("hidden");
     document.getElementById("m_lead_name").focus();
   }
@@ -737,6 +738,41 @@
   }
 
   // ── Modal: open edit ─────────────────────────────────────────
+  // ── Additional SMS recipients ─────────────────────────────────
+  function addRecipientRow(name, phone) {
+    var wrap = document.getElementById("m_recipients_wrap");
+    var row = document.createElement("div");
+    row.className = "recipient-row";
+    row.innerHTML =
+      '<input class="rcpt-name" type="text" placeholder="Name" value="' +
+        (name ? name.replace(/"/g, "&quot;") : "") + '">' +
+      '<input class="rcpt-phone" type="tel" placeholder="Phone number" value="' +
+        (phone ? phone.replace(/"/g, "&quot;") : "") + '">' +
+      '<button type="button" class="recipient-remove-btn" title="Remove">' +
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+      '</button>';
+    row.querySelector(".recipient-remove-btn").addEventListener("click", function () {
+      row.remove();
+    });
+    wrap.appendChild(row);
+    return row;
+  }
+
+  function clearRecipients() {
+    document.getElementById("m_recipients_wrap").innerHTML = "";
+  }
+
+  function collectRecipients() {
+    var rows = document.querySelectorAll("#m_recipients_wrap .recipient-row");
+    var out = [];
+    rows.forEach(function (r) {
+      var nm = r.querySelector(".rcpt-name").value.trim();
+      var ph = normalizePhone(r.querySelector(".rcpt-phone").value.trim());
+      if (ph) out.push({ name: nm, phone_number: ph });
+    });
+    return out;
+  }
+
   function openEditModal(appt) {
     editingId = appt.id;
     // Store original comments on the modal so save can access it
@@ -793,6 +829,15 @@
     document.getElementById("type_appt").checked = !isCallback;
     document.getElementById("type_cb").checked   = isCallback;
     updateTypeToggle();
+
+    // Populate additional recipients
+    clearRecipients();
+    if (appt.recipients && appt.recipients.length) {
+      appt.recipients.forEach(function (r) {
+        addRecipientRow(r.name || "", r.phone_number || "");
+      });
+    }
+
     document.getElementById("modalBackdrop").classList.remove("hidden");
   }
 
@@ -999,6 +1044,12 @@
   }
 
   // ── Save ─────────────────────────────────────────────────────
+  document.getElementById("m_add_recipient_btn").addEventListener("click", function () {
+    var row = addRecipientRow("", "");
+    var nameInput = row.querySelector(".rcpt-name");
+    if (nameInput) nameInput.focus();
+  });
+
   document.getElementById("modalSaveBtn").addEventListener("click", async function () {
     var lead_name = document.getElementById("m_lead_name").value.trim();
     if (!lead_name) {
@@ -1141,7 +1192,8 @@
       comments:      finalComments,
       scheduled_for: scheduledFor,
       appt_type:     apptType,
-      booking_tz:    bookingTz
+      booking_tz:    bookingTz,
+      recipients:    collectRecipients()
     };
 
     try {
