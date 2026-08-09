@@ -984,11 +984,19 @@
         body: JSON.stringify({ appt_status: status })
       });
       if (res.ok) {
+        var payload = {};
+        try { payload = await res.json(); } catch(e) {}
         currentApptStatus = status;
         updateStatusBtns(status);
-        // Update local cache
+        // Update local cache. The server also clears sms_status when the
+        // status is cleared (an inbound YES sets both fields), so mirror
+        // whatever it returns instead of assuming only appt_status changed.
         var appt = appointments.find(function(a) { return a.id === editingId; });
-        if (appt) appt.appt_status = status;
+        if (appt) {
+          appt.appt_status = status;
+          if (typeof payload.sms_status === "string") appt.sms_status = payload.sms_status;
+          else if (status !== "confirmed" && appt.sms_status === "confirmed") appt.sms_status = "";
+        }
         renderPlanner();
         showToast(status ? "Status set to " + status.replace("_"," ") + "." : "Status cleared.", "info");
       } else { showToast("Failed to set status.", "error"); }

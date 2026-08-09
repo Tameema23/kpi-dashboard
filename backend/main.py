@@ -1366,6 +1366,11 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         appt.sms_sent_booking  = False
         appt.sms_sent_midpoint = False
         appt.sms_status        = ""
+        # A confirmation belongs to the OLD date/time. Drop it so the
+        # rescheduled appointment starts pending and must be re-confirmed.
+        if (getattr(appt, "appt_status", "") or "") == "confirmed":
+            appt.appt_status = ""
+        appt.sms_sent_confirmed_notice = False
         # Recalculate midpoint for new date
         try:
             mt         = ZoneInfo("America/Edmonton")
@@ -1390,6 +1395,9 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         appt.sms_sent_evening  = False
         appt.sms_sent_reminder = False
         appt.sms_status        = ""
+        if (getattr(appt, "appt_status", "") or "") == "confirmed":
+            appt.appt_status = ""
+        appt.sms_sent_confirmed_notice = False
     # else: only non-time fields changed — leave SMS fields untouched
 
     appt.scheduled_for = new_sched
@@ -2905,6 +2913,17 @@ async def set_confirmation_status(appt_id: int,
     if data.status not in ("confirmed", "rescheduled", ""):
         raise HTTPException(422, "Invalid status.")
     appt.sms_status = data.status
+
+    # An appointment reads as confirmed if EITHER status field says so, so
+    # clearing / re-flagging here must also drop the planner-side confirmation
+    # (which the inbound YES webhook sets) — otherwise the old confirmation
+    # survives and the appointment still displays as confirmed.
+    if data.status != "confirmed":
+        if (getattr(appt, "appt_status", "") or "") == "confirmed":
+            appt.appt_status = ""
+        # Re-arm the one-off notice so a future re-confirm sends again.
+        appt.sms_sent_confirmed_notice = False
+
     db.commit()
 
     # If this transition makes the appointment confirmed, fire the one-off notice.
@@ -2943,6 +2962,17 @@ async def set_appt_status(appt_id: int,
     if data.appt_status not in valid:
         raise HTTPException(422, "Invalid appt_status.")
     appt.appt_status = data.appt_status
+
+    # Clearing the status (or setting any non-confirmed outcome) must also
+    # drop the SMS-side confirmation set by an inbound YES reply. Without this
+    # the two fields fall out of sync and _is_confirmed() keeps reporting
+    # confirmed — the stale tag that follows a client onto a rescheduled appt.
+    if data.appt_status != "confirmed":
+        if (appt.sms_status or "") == "confirmed":
+            appt.sms_status = ""
+        # Re-arm the one-off notice so a future re-confirm sends again.
+        appt.sms_sent_confirmed_notice = False
+
     db.commit()
 
     # If admin just confirmed on the planner, fire the one-off confirmed notice
@@ -2956,7 +2986,9 @@ async def set_appt_status(appt_id: int,
     if appt.scheduled_for and appt.scheduled_for.startswith(today_str):
         await _send_daily_summary(today_str)
 
-    return {"id": appt_id, "appt_status": appt.appt_status}
+    return {"id": appt_id,
+            "appt_status": appt.appt_status,
+            "sms_status":  appt.sms_status or ""}
 
 # ── RC: register inbound SMS webhook ─────────────────────────────────────────
 
