@@ -516,13 +516,9 @@
           if (appt.booked_by_agent) {
             agentBadge = '<span class="pg-appt-agent" title="'
               + (appt.booked_by_name
-                  ? "Booked by " + appt.booked_by_name
-                  : "Booked via agent link")
+                  ? "Booked by " + appt.booked_by_name + ". No texts are sent."
+                  : "Booked via the agent link. No texts are sent.")
               + '">AGENT</span>';
-            if (!appt.phone_number) {
-              agentBadge += '<span class="pg-appt-nophone" title="No phone number '
-                + '— no confirmation text will be sent">NO PHONE</span>';
-            }
           }
 
           var statusBadge = "";

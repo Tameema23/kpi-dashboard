@@ -112,9 +112,18 @@ def _first_name_of(full_name: str) -> str:
 def _appt_recipients(db: Session, appt: Appointment):
     """
     Returns the full list of SMS recipients for an appointment as
-    [(display_name, phone_number), ...] — the primary attendee/lead first,
+    [(display_name, phone_number), ...] - the primary attendee/lead first,
     then any extra recipients. Only entries with a phone number are included.
+
+    Appointments booked through the public agent link are excluded entirely
+    and permanently. Those clients have not agreed to hear from us, so even
+    if someone later adds a phone number in the planner no text is ever sent.
+    Enforced here rather than in each job because this is the single point
+    every SMS path funnels through.
     """
+    if getattr(appt, "booked_by_agent", False):
+        return []
+
     out = []
     primary_phone = (appt.phone_number or "").strip()
     if primary_phone:
@@ -2898,7 +2907,15 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
 PLANNER_FIRST_HOUR = 7
 PLANNER_LAST_HOUR  = 21          # last bookable start hour, inclusive
 
-BOOKING_MAX_HORIZON_DAYS = 365   # ceiling on the configurable horizon
+# horizon_days == 0 means the calendar runs forward indefinitely, which is the
+# default. A non-zero value caps how far ahead agents may book. The sanity bound
+# below is not a product limit: it exists so a malformed or hostile request
+# cannot create an appointment centuries from now.
+BOOKING_MAX_HORIZON_DAYS  = 3650
+BOOKING_SANITY_LIMIT_DAYS = 3650
+
+BOOKING_WINDOW_MIN_DAYS = 1
+BOOKING_WINDOW_MAX_DAYS = 31
 
 # WEB_CONCURRENCY is 1 on this service, so a process-level lock genuinely
 # serialises the read-then-insert in the booking endpoint and two agents
@@ -2920,7 +2937,8 @@ def _get_booking_config(db: Session, owner: int,
         owner_id     = owner,
         slug         = secrets.token_urlsafe(12),
         enabled      = False,
-        horizon_days = 60,
+        horizon_days = 0,          # unlimited
+
         created_at   = _mt_now().strftime("%Y-%m-%dT%H:%M:%S"),
     )
     db.add(cfg); db.commit(); db.refresh(cfg)
@@ -2940,58 +2958,94 @@ def _occupied_slots(db: Session, owner: int, start: str, end: str) -> set:
     return {r[0][:13] for r in rows if (r[1] or "") != "cancelled"}
 
 
-def _availability(db: Session, owner: int, horizon_days: int) -> dict:
+def _availability(db: Session, owner: int, start_date, days: int) -> dict:
     """
-    Build the agent-facing grid. Returns only what an outsider may know:
-    which hours exist, and whether each one is open. No names, no phone
-    numbers, no comments, and no distinction between "booked" and "blocked" —
-    both are simply unavailable.
-    """
-    now        = _mt_now()
-    today      = now.date()
-    last_day   = today + timedelta(days=horizon_days)
-    start_key  = f"{today.isoformat()}T00:00"
-    end_key    = f"{last_day.isoformat()}T23:59"
-    occupied   = _occupied_slots(db, owner, start_key, end_key)
-    cur_stamp  = now.strftime("%Y-%m-%dT%H")
+    Build the agent-facing grid for one window of days beginning at start_date.
 
-    days = []
-    for offset in range(horizon_days + 1):
-        d        = today + timedelta(days=offset)
+    Windowed rather than precomputed so the calendar can run forward
+    indefinitely: the page asks for the week it is showing and nothing more.
+
+    Every blocked rule is loaded once and evaluated in memory. The previous
+    version asked the database per day per hour, which cost roughly 1,800
+    queries for a 60 day span and would not survive an unbounded range.
+    Five queries here, regardless of window size.
+
+    Returns only what an outsider may know: which hours exist and whether each
+    is open. No names, no numbers, no distinction between booked and blocked.
+    """
+    last_date  = start_date + timedelta(days=days - 1)
+    start_iso  = start_date.isoformat()
+    last_iso   = last_date.isoformat()
+
+    blocked_dows = {
+        r.day_of_week for r in
+        db.query(BlockedDay).filter(BlockedDay.owner_id == owner).all()
+    }
+    blocked_dates = {
+        r.date for r in db.query(BlockedDate).filter(
+            BlockedDate.owner_id == owner,
+            BlockedDate.date >= start_iso,
+            BlockedDate.date <= last_iso,
+        ).all()
+    }
+    one_off_hours = {}
+    for r in db.query(BlockedHour).filter(
+        BlockedHour.owner_id == owner,
+        BlockedHour.date >= start_iso,
+        BlockedHour.date <= last_iso,
+    ).all():
+        one_off_hours.setdefault(r.date, []).append((r.start_hour, r.end_hour))
+
+    recurring = [
+        (getattr(r, "day_of_week", None), r.start_hour, r.end_hour)
+        for r in db.query(BlockedHourRecurring).filter(
+            BlockedHourRecurring.owner_id == owner
+        ).all()
+    ]
+    occupied = _occupied_slots(db, owner, f"{start_iso}T00:00", f"{last_iso}T23:59")
+
+    # Hours hidden from the grid are those blocked every single day, which is
+    # how a client's working hours are expressed. Deriving the row set from the
+    # daily rules alone keeps it identical from one week to the next, instead
+    # of shifting as individual days fill up.
+    hidden = set()
+    for dow, s_h, e_h in recurring:
+        if dow is None:
+            hidden.update(range(s_h, e_h))
+    visible_hours = [h for h in range(PLANNER_FIRST_HOUR, PLANNER_LAST_HOUR + 1)
+                     if h not in hidden]
+
+    cur_stamp = _mt_now().strftime("%Y-%m-%dT%H")
+    out_days  = []
+
+    for offset in range(days):
+        d        = start_date + timedelta(days=offset)
         date_str = d.isoformat()
-        if blocked_day_reason(db, owner, date_str):
-            days.append({"date": date_str, "closed": True, "slots": {}})
-            continue
-        slots = {}
-        for hour in range(PLANNER_FIRST_HOUR, PLANNER_LAST_HOUR + 1):
-            stamp = f"{date_str}T{hour:02d}"
-            open_ = (
-                stamp > cur_stamp                                      # not in the past
-                and stamp[:13] not in occupied                          # not already taken
-                and not blocked_hour_reason(db, owner, f"{stamp}:00")   # not blocked
-            )
-            slots[hour] = open_
-        days.append({"date": date_str, "closed": False, "slots": slots})
+        dow      = (d.weekday() + 1) % 7
 
-    # Only surface hour rows that are open somewhere in the window. This is
-    # what collapses a permanently blocked early-morning band out of the agent
-    # view automatically, without hardcoding anyone's working hours.
-    visible_hours = sorted({
-        h for day in days if not day["closed"]
-        for h, open_ in day["slots"].items() if open_
-    })
+        if dow in blocked_dows or date_str in blocked_dates:
+            out_days.append({"date": date_str, "closed": True,
+                             "slots": [False] * len(visible_hours)})
+            continue
+
+        day_ranges = one_off_hours.get(date_str, [])
+        day_ranges += [(s_h, e_h) for wd, s_h, e_h in recurring if wd == dow]
+
+        slots = []
+        for hour in visible_hours:
+            stamp = f"{date_str}T{hour:02d}"
+            slots.append(
+                stamp > cur_stamp
+                and stamp not in occupied
+                and not any(s_h <= hour < e_h for s_h, e_h in day_ranges)
+            )
+        out_days.append({"date": date_str, "closed": False, "slots": slots})
 
     return {
         "timezone": "America/Edmonton",
-        "hours": visible_hours,
-        "days": [
-            {
-                "date": day["date"],
-                "closed": day["closed"],
-                "slots": [day["slots"].get(h, False) for h in visible_hours],
-            }
-            for day in days
-        ],
+        "start":    start_iso,
+        "hours":    visible_hours,
+        "days":     out_days,
     }
 
 
@@ -3008,7 +3062,7 @@ def _require_booking(db: Session, slug: str) -> BookingConfig:
 
 class BookingConfigPayload(BaseModel):
     enabled:      Optional[bool] = None
-    horizon_days: Optional[int]  = None
+    horizon_days: Optional[int]  = None   # 0 = unlimited
 
 
 def _booking_cfg_dict(cfg: BookingConfig) -> dict:
@@ -3072,17 +3126,48 @@ def booking_page(slug: str, request: Request, db: Session = Depends(get_db)):
 
 
 @app.get("/api/book/{slug}/availability")
-@limiter.limit("60/minute")
+@limiter.limit("120/minute")
 def booking_availability(slug: str, request: Request,
+                         start: Optional[str] = None,
+                         days: int = 7,
                          db: Session = Depends(get_db)):
-    cfg = _require_booking(db, slug)
-    return _availability(db, cfg.owner_id, cfg.horizon_days)
+    """
+    Availability for one window. The page requests the week it is displaying,
+    so paging forward is unbounded and nothing is precomputed. Each call
+    reflects the planner as it stands right now.
+    """
+    cfg   = _require_booking(db, slug)
+    today = _mt_now().date()
+
+    if start:
+        try:
+            start_date = datetime.strptime(start[:10], "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(400, "Invalid start date.")
+        # Never serve the past, and never let a bad value walk backwards.
+        if start_date < today:
+            start_date = today
+    else:
+        start_date = today
+
+    if not BOOKING_WINDOW_MIN_DAYS <= days <= BOOKING_WINDOW_MAX_DAYS:
+        raise HTTPException(400, f"days must be {BOOKING_WINDOW_MIN_DAYS}-{BOOKING_WINDOW_MAX_DAYS}.")
+
+    limit = cfg.horizon_days or BOOKING_SANITY_LIMIT_DAYS
+    if (start_date - today).days > limit:
+        raise HTTPException(400, "That date is too far ahead.")
+
+    return _availability(db, cfg.owner_id, start_date, days)
 
 
 class PublicBookingPayload(BaseModel):
-    lead_name:     str
+    """
+    No phone field, deliberately. Clients booked by an outside agent are never
+    texted by us, so the number is not collected at all rather than collected
+    and then ignored.
+    """
+    lead_name:     str                      # the only required field
     scheduled_for: str                      # YYYY-MM-DDTHH:MM
-    phone_number:  Optional[str] = ""
     comments:      Optional[str] = ""
     booked_by:     Optional[str] = ""       # the agent's own name, optional
 
@@ -3115,14 +3200,13 @@ async def create_public_booking(slug: str, data: PublicBookingPayload,
     now = _mt_now()
     if sched[:13] <= now.strftime("%Y-%m-%dT%H"):
         raise HTTPException(409, "That time has already passed. Please pick another slot.")
-    if datetime.strptime(sched[:10], "%Y-%m-%d").date() > (now.date() + timedelta(days=cfg.horizon_days)):
+    limit = cfg.horizon_days or BOOKING_SANITY_LIMIT_DAYS
+    if datetime.strptime(sched[:10], "%Y-%m-%d").date() > (now.date() + timedelta(days=limit)):
         raise HTTPException(400, "That date is too far ahead.")
 
     reason = slot_unavailable_reason(db, owner, sched)
     if reason:
         raise HTTPException(409, "That time is not available. Please pick another slot.")
-
-    phone = normalize_phone(data.phone_number)
 
     # Serialise the final check-then-insert so two agents submitting the same
     # slot at the same moment cannot both succeed.
@@ -3139,7 +3223,7 @@ async def create_public_booking(slug: str, data: PublicBookingPayload,
             owner_id        = owner,
             lead_name       = lead_name,
             attendee_name   = "",
-            phone_number    = phone,
+            phone_number    = "",          # never collected for agent bookings
             comments        = sanitize_str(data.comments or "", 2000),
             scheduled_for   = sched,
             booked_at       = now.strftime("%Y-%m-%dT%H:%M"),

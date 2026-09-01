@@ -348,10 +348,6 @@ body {
         <input id="f_name" type="text" maxlength="200" autocomplete="off" placeholder="Full name">
       </div>
       <div class="bk-field">
-        <label for="f_phone">Phone <span>(optional)</span></label>
-        <input id="f_phone" type="tel" maxlength="30" autocomplete="off" placeholder="(403) 555-0134">
-      </div>
-      <div class="bk-field">
         <label for="f_agent">Booked by <span>(optional)</span></label>
         <input id="f_agent" type="text" maxlength="120" autocomplete="off" placeholder="Your name">
       </div>
@@ -388,10 +384,14 @@ body {
   var MON  = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-  var data       = null;   // availability payload from the server
-  var weekStart  = 0;      // index into data.days for the leftmost visible day
-  var selected   = null;   // { date, hour }
-  var openDay    = null;   // mobile only: which day's times are expanded
+  var WINDOW_DAYS = 7;
+
+  var data      = null;   // availability for the week currently displayed
+  var weekStart = null;   // Date of the leftmost day in view
+  var today     = null;   // first bookable day, set from the first response
+  var selected  = null;   // { date, hour }
+  var openDay   = null;   // mobile only: which day's times are expanded
+  var loading   = false;  // guards against overlapping fetches
 
   // A seven column grid is unusable at phone width, so below this the same
   // data is presented as day chips plus a vertical list of times.
@@ -422,6 +422,18 @@ body {
     return new Date(+p[0], +p[1] - 1, +p[2]);
   }
 
+  function isoOf(d) {
+    return d.getFullYear() + "-" +
+           String(d.getMonth() + 1).padStart(2, "0") + "-" +
+           String(d.getDate()).padStart(2, "0");
+  }
+
+  function addDays(d, n) {
+    var out = new Date(d.getTime());
+    out.setDate(out.getDate() + n);
+    return out;
+  }
+
   function fmtHour(h) {
     var suffix = h >= 12 ? "PM" : "AM";
     var hr = h % 12; if (hr === 0) hr = 12;
@@ -437,20 +449,45 @@ body {
     el.msg.className = "bk-msg";
   }
 
-  // ── Load ──────────────────────────────────────────────────────
+  // ── Load one week ─────────────────────────────────────────────
+  // Each navigation fetches only the week being shown, so the calendar runs
+  // forward with no limit and always reflects the planner as it stands now.
   async function load() {
+    if (loading) return;
+    loading = true;
+    el.prev.disabled = el.next.disabled = true;
+
+    var qs = "?days=" + WINDOW_DAYS + (weekStart ? "&start=" + isoOf(weekStart) : "");
+
     try {
-      var res = await fetch("/api/book/" + encodeURIComponent(SLUG) + "/availability");
+      var res = await fetch("/api/book/" + encodeURIComponent(SLUG) + "/availability" + qs);
       if (!res.ok) throw new Error("unavailable");
       data = await res.json();
+
+      // The server clamps a start date in the past, so trust its answer over
+      // ours and keep the view aligned with what was actually returned.
+      weekStart = parseDate(data.start);
+      if (!today) today = parseDate(data.start);
+
       render();
     } catch (e) {
+      data = null;
       el.grid.innerHTML =
         '<div class="bk-empty">This booking link is no longer available.<br>' +
         'Please contact the office for a current link.</div>';
+      el.days.innerHTML = "";
       el.label.textContent = "";
-      el.prev.disabled = el.next.disabled = true;
+    } finally {
+      loading = false;
+      updateNav();
     }
+  }
+
+  function updateNav() {
+    if (!data) { el.prev.disabled = el.next.disabled = true; return; }
+    // Backwards stops at today. Forwards never stops.
+    el.prev.disabled = loading || (today !== null && isoOf(weekStart) <= isoOf(today));
+    el.next.disabled = loading;
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -459,7 +496,7 @@ body {
   }
 
   function render() {
-    var days = data.days.slice(weekStart, weekStart + 7);
+    var days = data.days;
 
     if (!data.hours.length || !days.length) {
       el.grid.innerHTML = '<div class="bk-empty">No times are currently available.</div>';
@@ -480,8 +517,7 @@ body {
       MON[first.getMonth()] + " " + first.getDate() + " – " +
       MON[last.getMonth()]  + " " + last.getDate()  + ", " + last.getFullYear();
 
-    el.prev.disabled = weekStart === 0;
-    el.next.disabled = weekStart + 7 >= data.days.length;
+    updateNav();
   }
 
   // ── Desktop: hour grid ────────────────────────────────────────
@@ -562,7 +598,7 @@ body {
     Array.prototype.forEach.call(el.days.querySelectorAll(".bk-chip"), function (chip) {
       chip.addEventListener("click", function () {
         openDay = chip.dataset.date;
-        renderDays(data.days.slice(weekStart, weekStart + 7));
+        renderDays(data.days);
       });
     });
 
@@ -593,15 +629,29 @@ body {
   // Rotating the phone or resizing the window can cross the breakpoint. Both
   // layouts are already in the DOM, but the chips need their selection state
   // recalculated for the newly visible week.
-  var onBreakpoint = function () { if (data) render(); };
+  var onBreakpoint = function () { if (data) render(); };   // re-render only, no refetch
   if (mq.addEventListener) { mq.addEventListener("change", onBreakpoint); }
   else if (mq.addListener) { mq.addListener(onBreakpoint); }
 
   el.prev.addEventListener("click", function () {
-    weekStart = Math.max(0, weekStart - 7); openDay = null; render();
+    if (loading || !weekStart) return;
+    var back = addDays(weekStart, -WINDOW_DAYS);
+    weekStart = (today && back < today) ? today : back;
+    openDay = null;
+    load();
   });
+
   el.next.addEventListener("click", function () {
-    if (weekStart + 7 < data.days.length) { weekStart += 7; openDay = null; render(); }
+    if (loading || !weekStart) return;
+    weekStart = addDays(weekStart, WINDOW_DAYS);
+    openDay = null;
+    load();
+  });
+
+  // Availability changes while the page sits open, so refresh whatever week is
+  // on screen when the agent comes back to the tab.
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && data) load();
   });
 
   // ── Submit ────────────────────────────────────────────────────
@@ -623,7 +673,6 @@ body {
       lead_name:     name,
       scheduled_for: selected.date + "T" +
                      String(selected.hour).padStart(2, "0") + ":00",
-      phone_number:  document.getElementById("f_phone").value.trim(),
       comments:      document.getElementById("f_comments").value.trim(),
       booked_by:     document.getElementById("f_agent").value.trim()
     };
@@ -649,7 +698,7 @@ body {
 
       showError(out.detail || "Could not book that time. Please try another.");
       // The slot may have just been taken, so refresh and let the grid tell the truth.
-      if (res.status === 409) { selected = null; await load(); }
+      if (res.status === 409) { selected = null; openDay = null; await load(); }
     } catch (e) {
       showError("Network error. Please try again.");
     } finally {
@@ -660,7 +709,8 @@ body {
 
   document.getElementById("againBtn").addEventListener("click", function () {
     selected = null;
-    ["f_name", "f_phone", "f_agent", "f_comments"].forEach(function (id) {
+    openDay  = null;
+    ["f_name", "f_agent", "f_comments"].forEach(function (id) {
       document.getElementById(id).value = "";
     });
     clearError();

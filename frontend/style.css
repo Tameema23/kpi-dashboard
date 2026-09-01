@@ -3304,9 +3304,8 @@ select {
   .bh-card { animation: none; }
 }
 
-/* Badges on appointments that arrived through the public agent booking link. */
-.pg-appt-agent,
-.pg-appt-nophone {
+/* Badge on appointments that arrived through the public agent booking link. */
+.pg-appt-agent {
   font-size: 9.5px;
   font-weight: 800;
   letter-spacing: 0.3px;
@@ -3315,5 +3314,4 @@ select {
   margin-left: 4px;
   white-space: nowrap;
 }
-.pg-appt-agent   { background: #ede9fe; color: #6d28d9; }
-.pg-appt-nophone { background: #fef3c7; color: #b45309; }
+.pg-appt-agent { background: #ede9fe; color: #6d28d9; }
