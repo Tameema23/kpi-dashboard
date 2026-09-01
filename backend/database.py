@@ -116,6 +116,13 @@ class Appointment(Base):
     # appointment. Kept separate from the scheduled-job flags so the manual
     # send stays independent, but the YES webhook must still match on it.
     sms_sent_manual   = Column(Boolean,     default=False)
+
+    # True when this appointment came in through the public agent booking
+    # link rather than from a signed-in user. Purely informational — it lets
+    # the planner distinguish externally-booked appointments at a glance.
+    booked_by_agent   = Column(Boolean,     default=False)
+    # Free-text name the booking agent gave for themselves, if any.
+    booked_by_name    = Column(String(120), default="")
     midpoint_send_date = Column(String(10), default="")     # YYYY-MM-DD when midpoint fires
     # True once the "your appointment is confirmed" notice has been sent.
     # Guarantees the confirmed notice fires exactly once per appointment.
@@ -360,6 +367,31 @@ class BlockedHourRecurring(Base):
     end_hour    = Column(Integer, nullable=False)   # 7–21, exclusive
     label       = Column(String(100), default="")
     day_of_week = Column(Integer, nullable=True)    # None = every day; 0=Sun … 6=Sat
+
+
+class BookingConfig(Base):
+    """
+    Settings for the public agent booking link. One row per owner.
+
+    The link is unguessable rather than authenticated: the slug IS the
+    credential, so it can be handed to an outside agent with no account,
+    no invitation and no Google identity. Regenerating the slug instantly
+    invalidates every copy of the old link.
+
+    `enabled` is the master switch and defaults to off, so the endpoint
+    stays closed until an admin deliberately turns it on.
+    """
+    __tablename__ = "booking_config"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    owner_id      = Column(Integer, ForeignKey("users.id"), unique=True,
+                           nullable=False, index=True)
+    slug          = Column(String(64), unique=True, nullable=False, index=True)
+    enabled       = Column(Boolean, default=False, nullable=False)
+    # How many days ahead an agent may book. 0 means today only.
+    horizon_days  = Column(Integer, default=60, nullable=False)
+    created_at    = Column(String(20), default="")
+    rotated_at    = Column(String(20), default="")
 
 
 def create_db():

@@ -510,6 +510,21 @@
           if (smsStatus === "confirmed" || apptStatus === "confirmed") {
             smsBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px;">Confirmed</span>';
           }
+          // Booked through the public agent link rather than by a signed-in
+          // user. Also flags a missing phone, since those get no SMS at all.
+          var agentBadge = "";
+          if (appt.booked_by_agent) {
+            agentBadge = '<span class="pg-appt-agent" title="'
+              + (appt.booked_by_name
+                  ? "Booked by " + appt.booked_by_name
+                  : "Booked via agent link")
+              + '">AGENT</span>';
+            if (!appt.phone_number) {
+              agentBadge += '<span class="pg-appt-nophone" title="No phone number '
+                + '— no confirmation text will be sent">NO PHONE</span>';
+            }
+          }
+
           var statusBadge = "";
           if (apptStatus && apptStatus !== "confirmed") {
             var statusLabels = { rescheduled: "RS", no_show: "NS", cancelled: "CXL" };
@@ -520,7 +535,7 @@
           block.innerHTML =
             (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
-            '<span class="pg-appt-name">' + appt.lead_name + smsBadge + statusBadge + "</span>";
+            '<span class="pg-appt-name">' + appt.lead_name + agentBadge + smsBadge + statusBadge + "</span>";
 
           block.addEventListener("mouseenter", function (e) { showTooltip(e, appt); });
           block.addEventListener("mouseleave", hideTooltip);

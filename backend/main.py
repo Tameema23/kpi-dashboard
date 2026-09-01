@@ -20,7 +20,7 @@ Security:
   ✓ Timing-safe login (prevents username enumeration)
 """
 
-import os, re, html, logging, shutil, hashlib, asyncio, urllib.parse
+import os, re, html, logging, shutil, hashlib, asyncio, urllib.parse, secrets, threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -40,7 +40,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, AppointmentRecipient, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken
+from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, AppointmentRecipient, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken, BookingConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -888,6 +888,36 @@ DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday",
              "Thursday", "Friday", "Saturday"]
 
 
+def normalize_phone(raw: str) -> str:
+    """
+    Coerce a typed phone number into E.164, which is what RingCentral requires.
+    A number stored without its country code is accepted silently by the DB and
+    then fails to send, so normalising at the edge prevents a class of invisible
+    SMS failures.
+
+      "(403) 555-0134"  → "+14035550134"
+      "403-555-0134"    → "+14035550134"
+      "14035550134"     → "+14035550134"
+      "+14035550134"    → "+14035550134"   (unchanged)
+      "+442071234567"   → "+442071234567"  (non-NANP left alone)
+      ""                → ""
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    has_plus = raw.startswith("+")
+    digits   = re.sub(r"[^\d]", "", raw)
+    if not digits:
+        return ""
+    if has_plus:
+        return ("+" + digits)[:20]          # already international
+    if len(digits) == 10:                   # North American, no country code
+        return "+1" + digits
+    if len(digits) == 11 and digits.startswith("1"):
+        return "+" + digits
+    return ("+" + digits)[:20]              # best effort for anything else
+
+
 def js_dow(date_str: str) -> int:
     """Day-of-week for YYYY-MM-DD in JS convention: 0=Sunday … 6=Saturday."""
     return (datetime.strptime(date_str[:10], "%Y-%m-%d").weekday() + 1) % 7
@@ -1325,7 +1355,7 @@ def _sync_recipients(db: Session, appt: Appointment, recipients):
     ).delete(synchronize_session=False)
     # Add the new set (skip blanks)
     for r in recipients:
-        phone = re.sub(r"[^\d+]", "", (r.phone_number or ""))[:20]
+        phone = normalize_phone(r.phone_number)
         name  = title_case(sanitize_str(r.name or "", 200))
         if not phone:
             continue
@@ -1359,8 +1389,8 @@ def create_appointment(data: AppointmentPayload,
             raise HTTPException(409, hour_reason)
         else:
             raise HTTPException(400, hour_reason)
-    # Normalize phone: strip everything except digits, keep leading +
-    raw_phone = re.sub(r"[^\d+]", "", data.phone_number or "")
+    # Normalize to E.164 so RingCentral can actually dial it.
+    raw_phone = normalize_phone(data.phone_number)
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
     appt  = Appointment(
         created_by=user.id, owner_id=owner,
@@ -1426,7 +1456,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
     appt.lead_name     = title_case(sanitize_str(data.lead_name, 200))
     appt.attendee_name = title_case(sanitize_str(data.attendee_name or "", 200))
-    appt.phone_number  = re.sub(r"[^\d+]", "", data.phone_number or "")[:20]
+    appt.phone_number  = normalize_phone(data.phone_number)
     appt.comments      = sanitize_str(data.comments or "", 2000)
     appt.appt_type     = data.appt_type if data.appt_type in ("appointment","callback") else "appointment"
     if data.booking_tz: appt.booking_tz = validate_tz(data.booking_tz)
@@ -1543,6 +1573,8 @@ def _appt_dict(appt, db):
             "sms_sent_booking": bool(getattr(appt, "sms_sent_booking", False)),
             "sms_sent_midpoint": bool(getattr(appt, "sms_sent_midpoint", False)),
             "sms_sent_manual": bool(getattr(appt, "sms_sent_manual", False)),
+            "booked_by_agent": bool(getattr(appt, "booked_by_agent", False)),
+            "booked_by_name": getattr(appt, "booked_by_name", "") or "",
             "midpoint_send_date": getattr(appt, "midpoint_send_date", "") or ""}
 
 # ── Blocked Days (Unavailable Days) ────────────────────────────────────────────
@@ -2845,6 +2877,295 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         logger.warning(f"RC webhook: no appointment matched sender {sender}")
 
     return {"status": "ok"}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PUBLIC AGENT BOOKING LINK
+#
+# A single unguessable URL that outside marketing agents open to see when Hazem
+# is free and drop an appointment into the planner. Deliberately add-only:
+# there is no public route that edits or deletes anything, so the capability
+# does not exist rather than merely being switched off.
+#
+# Availability is never described by this module. It asks the same
+# slot_unavailable_reason() helper the planner uses, so the agent view and the
+# planner can never disagree about when Hazem is free, and changing his hours
+# or days off is a data change with no code change anywhere.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# The planner grid spans these hours. Anything permanently blocked inside the
+# range simply never appears as bookable, so a client working 10-9 needs no
+# code change — their 7/8/9am blocks do the work.
+PLANNER_FIRST_HOUR = 7
+PLANNER_LAST_HOUR  = 21          # last bookable start hour, inclusive
+
+BOOKING_MAX_HORIZON_DAYS = 365   # ceiling on the configurable horizon
+
+# WEB_CONCURRENCY is 1 on this service, so a process-level lock genuinely
+# serialises the read-then-insert in the booking endpoint and two agents
+# cannot claim the same slot. If the service is ever scaled to multiple
+# workers this must become a database-level guard.
+_booking_lock = threading.Lock()
+
+
+def _mt_now() -> datetime:
+    return datetime.now(ZoneInfo("America/Edmonton"))
+
+
+def _get_booking_config(db: Session, owner: int,
+                        create: bool = False) -> Optional[BookingConfig]:
+    cfg = db.query(BookingConfig).filter(BookingConfig.owner_id == owner).first()
+    if cfg or not create:
+        return cfg
+    cfg = BookingConfig(
+        owner_id     = owner,
+        slug         = secrets.token_urlsafe(12),
+        enabled      = False,
+        horizon_days = 60,
+        created_at   = _mt_now().strftime("%Y-%m-%dT%H:%M:%S"),
+    )
+    db.add(cfg); db.commit(); db.refresh(cfg)
+    return cfg
+
+
+def _occupied_slots(db: Session, owner: int, start: str, end: str) -> set:
+    """
+    Set of "YYYY-MM-DDTHH" strings already taken by an appointment.
+    Cancelled appointments release their slot; everything else holds it.
+    """
+    rows = db.query(Appointment.scheduled_for, Appointment.appt_status).filter(
+        Appointment.owner_id == owner,
+        Appointment.scheduled_for >= start,
+        Appointment.scheduled_for <= end,
+    ).all()
+    return {r[0][:13] for r in rows if (r[1] or "") != "cancelled"}
+
+
+def _availability(db: Session, owner: int, horizon_days: int) -> dict:
+    """
+    Build the agent-facing grid. Returns only what an outsider may know:
+    which hours exist, and whether each one is open. No names, no phone
+    numbers, no comments, and no distinction between "booked" and "blocked" —
+    both are simply unavailable.
+    """
+    now        = _mt_now()
+    today      = now.date()
+    last_day   = today + timedelta(days=horizon_days)
+    start_key  = f"{today.isoformat()}T00:00"
+    end_key    = f"{last_day.isoformat()}T23:59"
+    occupied   = _occupied_slots(db, owner, start_key, end_key)
+    cur_stamp  = now.strftime("%Y-%m-%dT%H")
+
+    days = []
+    for offset in range(horizon_days + 1):
+        d        = today + timedelta(days=offset)
+        date_str = d.isoformat()
+        if blocked_day_reason(db, owner, date_str):
+            days.append({"date": date_str, "closed": True, "slots": {}})
+            continue
+        slots = {}
+        for hour in range(PLANNER_FIRST_HOUR, PLANNER_LAST_HOUR + 1):
+            stamp = f"{date_str}T{hour:02d}"
+            open_ = (
+                stamp > cur_stamp                                      # not in the past
+                and stamp[:13] not in occupied                          # not already taken
+                and not blocked_hour_reason(db, owner, f"{stamp}:00")   # not blocked
+            )
+            slots[hour] = open_
+        days.append({"date": date_str, "closed": False, "slots": slots})
+
+    # Only surface hour rows that are open somewhere in the window. This is
+    # what collapses a permanently blocked early-morning band out of the agent
+    # view automatically, without hardcoding anyone's working hours.
+    visible_hours = sorted({
+        h for day in days if not day["closed"]
+        for h, open_ in day["slots"].items() if open_
+    })
+
+    return {
+        "timezone": "America/Edmonton",
+        "hours": visible_hours,
+        "days": [
+            {
+                "date": day["date"],
+                "closed": day["closed"],
+                "slots": [day["slots"].get(h, False) for h in visible_hours],
+            }
+            for day in days
+        ],
+    }
+
+
+def _require_booking(db: Session, slug: str) -> BookingConfig:
+    """Resolve a slug to an enabled config, or 404. Never reveals which of the
+    two failed — an attacker probing slugs learns nothing either way."""
+    cfg = db.query(BookingConfig).filter(BookingConfig.slug == slug).first()
+    if not cfg or not cfg.enabled:
+        raise HTTPException(404, "This booking link is not available.")
+    return cfg
+
+
+# ── Admin: manage the link ────────────────────────────────────────────────────
+
+class BookingConfigPayload(BaseModel):
+    enabled:      Optional[bool] = None
+    horizon_days: Optional[int]  = None
+
+
+def _booking_cfg_dict(cfg: BookingConfig) -> dict:
+    return {
+        "enabled":      bool(cfg.enabled),
+        "slug":         cfg.slug,
+        "path":         f"/book/{cfg.slug}",
+        "horizon_days": cfg.horizon_days,
+        "rotated_at":   cfg.rotated_at or "",
+    }
+
+
+@app.get("/booking-config")
+def get_booking_config(user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    _require_admin(user)
+    return _booking_cfg_dict(_get_booking_config(db, get_owner_id(user), create=True))
+
+
+@app.patch("/booking-config")
+def update_booking_config(data: BookingConfigPayload,
+                          user: User = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    _require_admin(user)
+    cfg = _get_booking_config(db, get_owner_id(user), create=True)
+    if data.enabled is not None:
+        cfg.enabled = bool(data.enabled)
+        audit(db, user.id, "booking_link",
+              "enabled" if cfg.enabled else "disabled")
+    if data.horizon_days is not None:
+        if not 0 <= data.horizon_days <= BOOKING_MAX_HORIZON_DAYS:
+            raise HTTPException(400, f"Horizon must be 0–{BOOKING_MAX_HORIZON_DAYS} days.")
+        cfg.horizon_days = data.horizon_days
+    db.commit(); db.refresh(cfg)
+    return _booking_cfg_dict(cfg)
+
+
+@app.post("/booking-config/regenerate")
+def regenerate_booking_slug(user: User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    """Issue a new slug. Every existing copy of the old link stops working."""
+    _require_admin(user)
+    cfg = _get_booking_config(db, get_owner_id(user), create=True)
+    cfg.slug       = secrets.token_urlsafe(12)
+    cfg.rotated_at = _mt_now().strftime("%Y-%m-%dT%H:%M:%S")
+    db.commit(); db.refresh(cfg)
+    audit(db, user.id, "booking_link", "regenerated link")
+    return _booking_cfg_dict(cfg)
+
+
+# ── Public: the agent-facing endpoints ────────────────────────────────────────
+
+@app.get("/book/{slug}")
+@limiter.limit("60/minute")
+def booking_page(slug: str, request: Request, db: Session = Depends(get_db)):
+    _require_booking(db, slug)
+    return FileResponse(
+        "frontend/book.html",
+        headers={"X-Robots-Tag": "noindex, nofollow"},
+    )
+
+
+@app.get("/api/book/{slug}/availability")
+@limiter.limit("60/minute")
+def booking_availability(slug: str, request: Request,
+                         db: Session = Depends(get_db)):
+    cfg = _require_booking(db, slug)
+    return _availability(db, cfg.owner_id, cfg.horizon_days)
+
+
+class PublicBookingPayload(BaseModel):
+    lead_name:     str
+    scheduled_for: str                      # YYYY-MM-DDTHH:MM
+    phone_number:  Optional[str] = ""
+    comments:      Optional[str] = ""
+    booked_by:     Optional[str] = ""       # the agent's own name, optional
+
+
+@app.post("/api/book/{slug}", status_code=201)
+@limiter.limit("10/minute")
+async def create_public_booking(slug: str, data: PublicBookingPayload,
+                                request: Request, db: Session = Depends(get_db)):
+    """
+    The only public write in the application. Creates one appointment and
+    nothing else — no update path, no delete path, no way to read anyone
+    else's data. Every field is re-validated and every availability rule is
+    re-checked server-side; the front end is treated as untrusted.
+    """
+    cfg   = _require_booking(db, slug)
+    owner = cfg.owner_id
+
+    lead_name = title_case(sanitize_str(data.lead_name, 200))
+    if not lead_name:
+        raise HTTPException(400, "Name is required.")
+
+    sched = validate_datetime(data.scheduled_for)
+    if not sched.endswith(":00"):
+        raise HTTPException(400, "Appointments are booked on the hour.")
+
+    hour = int(sched[11:13])
+    if not PLANNER_FIRST_HOUR <= hour <= PLANNER_LAST_HOUR:
+        raise HTTPException(400, "That time is outside booking hours.")
+
+    now = _mt_now()
+    if sched[:13] <= now.strftime("%Y-%m-%dT%H"):
+        raise HTTPException(409, "That time has already passed. Please pick another slot.")
+    if datetime.strptime(sched[:10], "%Y-%m-%d").date() > (now.date() + timedelta(days=cfg.horizon_days)):
+        raise HTTPException(400, "That date is too far ahead.")
+
+    reason = slot_unavailable_reason(db, owner, sched)
+    if reason:
+        raise HTTPException(409, "That time is not available. Please pick another slot.")
+
+    phone = normalize_phone(data.phone_number)
+
+    # Serialise the final check-then-insert so two agents submitting the same
+    # slot at the same moment cannot both succeed.
+    with _booking_lock:
+        if db.query(Appointment).filter(
+            Appointment.owner_id      == owner,
+            Appointment.scheduled_for == sched,
+            Appointment.appt_status   != "cancelled",
+        ).first():
+            raise HTTPException(409, "That slot was just taken. Please pick another.")
+
+        appt = Appointment(
+            created_by      = owner,          # attributed to the account being booked
+            owner_id        = owner,
+            lead_name       = lead_name,
+            attendee_name   = "",
+            phone_number    = phone,
+            comments        = sanitize_str(data.comments or "", 2000),
+            scheduled_for   = sched,
+            booked_at       = now.strftime("%Y-%m-%dT%H:%M"),
+            appt_type       = "appointment",
+            booking_tz      = "America/Edmonton",
+            booked_by_agent = True,
+            booked_by_name  = sanitize_str(data.booked_by or "", 120),
+        )
+        try:
+            days_out = (datetime.strptime(sched[:10], "%Y-%m-%d").date() - now.date()).days
+            if days_out >= 5:
+                appt.midpoint_send_date = (
+                    now.date() + timedelta(days=days_out // 2)
+                ).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+        db.add(appt); db.commit(); db.refresh(appt)
+
+    logger.info(
+        f"Agent booking: appt {appt.id} ({appt.lead_name}) at {sched}"
+        f"{' by ' + appt.booked_by_name if appt.booked_by_name else ''}"
+    )
+    time_display, date_display = _fmt_appt_time_for_tz(sched, "America/Edmonton")
+    return {"status": "booked", "time": time_display, "date": date_display}
+
 
 # ── Confirmations page API ────────────────────────────────────────────────────
 

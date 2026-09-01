@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Book an Appointment</title>
+  <link rel="icon" href="/static/images/ApexTrack.png">
+  <link rel="apple-touch-icon" href="/static/images/ApexTrack.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Self-contained on purpose. This page must never load app.js, whose auth
+   guard would redirect an agent with no token straight to the login screen. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Inter', Arial, sans-serif;
+  background: #f8fafc;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+
+.bk-topbar {
+  background: linear-gradient(135deg, #1a3faa 0%, #2563eb 50%, #3b82f6 100%);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.bk-topbar img { width: 30px; height: 30px; border-radius: 7px; }
+.bk-topbar span { color: #fff; font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
+
+.bk-wrap { max-width: 940px; margin: 0 auto; padding: 26px 16px 60px; }
+
+.bk-intro h1 {
+  margin: 0 0 6px;
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+.bk-intro p { margin: 0 0 22px; font-size: 14.5px; color: #64748b; line-height: 1.55; }
+
+.bk-card {
+  background: #fff;
+  border-radius: 16px;
+  border: 1.5px solid #e8edf3;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  overflow: hidden;
+}
+
+/* ── Week navigation ── */
+.bk-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1.5px solid #f1f5f9;
+}
+.bk-nav-label { font-size: 14.5px; font-weight: 700; flex: 1; }
+.bk-arrow {
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.bk-arrow:hover:not(:disabled) { background: #f1f5f9; border-color: #cbd5e1; }
+.bk-arrow:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Slot grid ── */
+.bk-grid-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.bk-grid { min-width: 620px; padding: 4px 10px 14px; }
+
+.bk-row { display: flex; gap: 6px; }
+.bk-gutter {
+  width: 68px; flex-shrink: 0;
+  font-size: 11.5px; font-weight: 700; color: #94a3b8;
+  display: flex; align-items: center; justify-content: flex-end;
+  padding-right: 10px;
+}
+.bk-head {
+  padding: 12px 0 10px;
+  text-align: center;
+  flex: 1;
+}
+.bk-head-dow { font-size: 10.5px; font-weight: 700; color: #94a3b8; letter-spacing: 0.5px; }
+.bk-head-day { font-size: 17px; font-weight: 800; margin-top: 1px; }
+.bk-head.is-closed .bk-head-dow,
+.bk-head.is-closed .bk-head-day { color: #cbd5e1; }
+
+.bk-slot {
+  flex: 1;
+  height: 38px;
+  margin-bottom: 6px;
+  border-radius: 9px;
+  border: 1.5px solid transparent;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, transform 0.1s;
+}
+.bk-slot.is-open { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+.bk-slot.is-open:hover { background: #dbeafe; border-color: #93c5fd; transform: translateY(-1px); }
+.bk-slot.is-taken { background: #f8fafc; border-color: #f1f5f9; color: #cbd5e1; cursor: default; }
+.bk-slot.is-selected { background: #2563eb; border-color: #2563eb; color: #fff; }
+
+.bk-empty { padding: 40px 20px; text-align: center; color: #94a3b8; font-size: 14px; }
+
+.bk-legend {
+  display: flex; gap: 18px; align-items: center;
+  padding: 12px 18px;
+  border-top: 1.5px solid #f1f5f9;
+  font-size: 12px; color: #64748b; font-weight: 600;
+}
+.bk-legend i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+
+/* ── Booking form ── */
+.bk-form { margin-top: 20px; }
+.bk-form-head { padding: 16px 18px; border-bottom: 1.5px solid #f1f5f9; }
+.bk-form-head h2 { margin: 0 0 3px; font-size: 16px; font-weight: 800; }
+.bk-form-head p  { margin: 0; font-size: 13.5px; color: #2563eb; font-weight: 700; }
+.bk-form-body { padding: 18px; }
+
+.bk-field { margin-bottom: 15px; }
+.bk-field:last-of-type { margin-bottom: 0; }
+.bk-field label {
+  display: block;
+  font-size: 12px; font-weight: 700; color: #475569;
+  margin-bottom: 5px;
+}
+.bk-field label span { font-weight: 500; color: #94a3b8; }
+.bk-field input,
+.bk-field textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #fafafa;
+  font-family: inherit;
+  font-size: 16px;              /* 16px avoids the iOS zoom-on-focus jump */
+  color: #0f172a;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.bk-field textarea { min-height: 84px; resize: vertical; }
+.bk-field input:focus,
+.bk-field textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+  background: #fff;
+}
+
+.bk-submit {
+  width: 100%;
+  margin-top: 18px;
+  padding: 13px;
+  border: none;
+  border-radius: 11px;
+  background: #2563eb;
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.bk-submit:hover:not(:disabled) { background: #1d4ed8; }
+.bk-submit:disabled { background: #cbd5e1; cursor: default; }
+
+.bk-msg {
+  margin-top: 14px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  display: none;
+}
+.bk-msg.show { display: block; }
+.bk-msg.error { background: #fef2f2; border: 1.5px solid #fecaca; color: #dc2626; }
+
+/* ── Success ── */
+.bk-done { padding: 46px 24px; text-align: center; }
+.bk-done-mark {
+  width: 58px; height: 58px; margin: 0 auto 18px;
+  border-radius: 50%;
+  background: #dcfce7;
+  display: flex; align-items: center; justify-content: center;
+}
+.bk-done h2 { margin: 0 0 8px; font-size: 21px; font-weight: 800; }
+.bk-done p  { margin: 0 0 22px; font-size: 15px; color: #475569; line-height: 1.6; }
+.bk-done strong { color: #0f172a; }
+.bk-again {
+  padding: 11px 24px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 14px; font-weight: 700; color: #475569;
+  cursor: pointer;
+}
+.bk-again:hover { background: #f8fafc; }
+
+.bk-foot { text-align: center; margin-top: 26px; font-size: 12px; color: #94a3b8; }
+
+@media (max-width: 560px) {
+  .bk-intro h1 { font-size: 21px; }
+  .bk-wrap { padding: 20px 12px 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bk-slot, .bk-arrow, .bk-submit { transition: none; }
+  .bk-slot.is-open:hover { transform: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="bk-topbar">
+  <img src="/static/images/ApexTrack.png" alt="">
+  <span>ApexTrack</span>
+</div>
+
+<div class="bk-wrap">
+
+  <div class="bk-intro">
+    <h1>Book an appointment</h1>
+    <p>Pick an available time below, then add the client's details. All times are Mountain Time.</p>
+  </div>
+
+  <div class="bk-card" id="gridCard">
+    <div class="bk-nav">
+      <button class="bk-arrow" id="prevBtn" aria-label="Previous week">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="bk-nav-label" id="weekLabel">Loading…</div>
+      <button class="bk-arrow" id="nextBtn" aria-label="Next week">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+
+    <div class="bk-grid-scroll">
+      <div class="bk-grid" id="grid">
+        <div class="bk-empty">Loading availability…</div>
+      </div>
+    </div>
+
+    <div class="bk-legend">
+      <span><i style="background:#eff6ff;border:1.5px solid #bfdbfe;"></i>Available</span>
+      <span><i style="background:#f8fafc;border:1.5px solid #f1f5f9;"></i>Unavailable</span>
+    </div>
+  </div>
+
+  <div class="bk-card bk-form" id="formCard" style="display:none;">
+    <div class="bk-form-head">
+      <h2>Appointment details</h2>
+      <p id="chosenLabel"></p>
+    </div>
+    <div class="bk-form-body">
+      <div class="bk-field">
+        <label for="f_name">Client name</label>
+        <input id="f_name" type="text" maxlength="200" autocomplete="off" placeholder="Full name">
+      </div>
+      <div class="bk-field">
+        <label for="f_phone">Phone <span>(optional)</span></label>
+        <input id="f_phone" type="tel" maxlength="30" autocomplete="off" placeholder="(403) 555-0134">
+      </div>
+      <div class="bk-field">
+        <label for="f_agent">Booked by <span>(optional)</span></label>
+        <input id="f_agent" type="text" maxlength="120" autocomplete="off" placeholder="Your name">
+      </div>
+      <div class="bk-field">
+        <label for="f_comments">Notes <span>(optional)</span></label>
+        <textarea id="f_comments" maxlength="2000" placeholder="Anything useful — address, referral source, best contact time"></textarea>
+      </div>
+      <button class="bk-submit" id="submitBtn">Confirm booking</button>
+      <div class="bk-msg" id="formMsg"></div>
+    </div>
+  </div>
+
+  <div class="bk-card" id="doneCard" style="display:none;">
+    <div class="bk-done">
+      <div class="bk-done-mark">
+        <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <h2>Appointment booked</h2>
+      <p id="doneText"></p>
+      <button class="bk-again" id="againBtn">Book another</button>
+    </div>
+  </div>
+
+  <div class="bk-foot">Powered by ApexTrack</div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SLUG = location.pathname.split("/").filter(Boolean).pop();
+  var DOW  = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MON  = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  var data       = null;   // availability payload from the server
+  var weekStart  = 0;      // index into data.days for the leftmost visible day
+  var selected   = null;   // { date, hour }
+
+  var el = {
+    grid:    document.getElementById("grid"),
+    label:   document.getElementById("weekLabel"),
+    prev:    document.getElementById("prevBtn"),
+    next:    document.getElementById("nextBtn"),
+    formCard:document.getElementById("formCard"),
+    doneCard:document.getElementById("doneCard"),
+    gridCard:document.getElementById("gridCard"),
+    chosen:  document.getElementById("chosenLabel"),
+    msg:     document.getElementById("formMsg"),
+    submit:  document.getElementById("submitBtn")
+  };
+
+  function esc(str) {
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function parseDate(iso) {
+    var p = iso.split("-");
+    return new Date(+p[0], +p[1] - 1, +p[2]);
+  }
+
+  function fmtHour(h) {
+    var suffix = h >= 12 ? "PM" : "AM";
+    var hr = h % 12; if (hr === 0) hr = 12;
+    return hr + ":00 " + suffix;
+  }
+
+  function showError(text) {
+    el.msg.textContent = text;
+    el.msg.className = "bk-msg error show";
+  }
+
+  function clearError() {
+    el.msg.className = "bk-msg";
+  }
+
+  // ── Load ──────────────────────────────────────────────────────
+  async function load() {
+    try {
+      var res = await fetch("/api/book/" + encodeURIComponent(SLUG) + "/availability");
+      if (!res.ok) throw new Error("unavailable");
+      data = await res.json();
+      render();
+    } catch (e) {
+      el.grid.innerHTML =
+        '<div class="bk-empty">This booking link is no longer available.<br>' +
+        'Please contact the office for a current link.</div>';
+      el.label.textContent = "";
+      el.prev.disabled = el.next.disabled = true;
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────
+  function render() {
+    var days = data.days.slice(weekStart, weekStart + 7);
+
+    if (!data.hours.length || !days.length) {
+      el.grid.innerHTML = '<div class="bk-empty">No times are currently available.</div>';
+      el.label.textContent = "";
+      return;
+    }
+
+    var first = parseDate(days[0].date);
+    var last  = parseDate(days[days.length - 1].date);
+    el.label.textContent =
+      MON[first.getMonth()] + " " + first.getDate() + " – " +
+      MON[last.getMonth()]  + " " + last.getDate()  + ", " + last.getFullYear();
+
+    el.prev.disabled = weekStart === 0;
+    el.next.disabled = weekStart + 7 >= data.days.length;
+
+    var html = '<div class="bk-row"><div class="bk-gutter"></div>';
+    days.forEach(function (day) {
+      var d = parseDate(day.date);
+      html += '<div class="bk-head' + (day.closed ? " is-closed" : "") + '">' +
+                '<div class="bk-head-dow">' + DOW[d.getDay()] + "</div>" +
+                '<div class="bk-head-day">' + d.getDate() + "</div>" +
+              "</div>";
+    });
+    html += "</div>";
+
+    data.hours.forEach(function (hour, hIdx) {
+      html += '<div class="bk-row"><div class="bk-gutter">' + fmtHour(hour) + "</div>";
+      days.forEach(function (day) {
+        var open = !day.closed && day.slots[hIdx];
+        var isSel = selected && selected.date === day.date && selected.hour === hour;
+        if (open) {
+          html += '<button class="bk-slot is-open' + (isSel ? " is-selected" : "") + '"' +
+                  ' data-date="' + day.date + '" data-hour="' + hour + '">' +
+                  (isSel ? "Selected" : "Open") + "</button>";
+        } else {
+          html += '<div class="bk-slot is-taken" aria-hidden="true"></div>';
+        }
+      });
+      html += "</div>";
+    });
+
+    el.grid.innerHTML = html;
+
+    Array.prototype.forEach.call(el.grid.querySelectorAll(".bk-slot.is-open"), function (btn) {
+      btn.addEventListener("click", function () {
+        selected = { date: btn.dataset.date, hour: parseInt(btn.dataset.hour, 10) };
+        clearError();
+        render();
+        showForm();
+      });
+    });
+  }
+
+  function showForm() {
+    var d = parseDate(selected.date);
+    el.chosen.textContent =
+      DOW[d.getDay()] + ", " + MON[d.getMonth()] + " " + d.getDate() +
+      " at " + fmtHour(selected.hour);
+    el.formCard.style.display = "";
+    el.formCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    document.getElementById("f_name").focus({ preventScroll: true });
+  }
+
+  el.prev.addEventListener("click", function () {
+    weekStart = Math.max(0, weekStart - 7); render();
+  });
+  el.next.addEventListener("click", function () {
+    if (weekStart + 7 < data.days.length) { weekStart += 7; render(); }
+  });
+
+  // ── Submit ────────────────────────────────────────────────────
+  el.submit.addEventListener("click", async function () {
+    if (!selected) { showError("Please choose a time first."); return; }
+
+    var name = document.getElementById("f_name").value.trim();
+    if (!name) {
+      showError("Client name is required.");
+      document.getElementById("f_name").focus();
+      return;
+    }
+
+    clearError();
+    el.submit.disabled = true;
+    el.submit.textContent = "Booking…";
+
+    var body = {
+      lead_name:     name,
+      scheduled_for: selected.date + "T" +
+                     String(selected.hour).padStart(2, "0") + ":00",
+      phone_number:  document.getElementById("f_phone").value.trim(),
+      comments:      document.getElementById("f_comments").value.trim(),
+      booked_by:     document.getElementById("f_agent").value.trim()
+    };
+
+    try {
+      var res = await fetch("/api/book/" + encodeURIComponent(SLUG), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      var out = await res.json().catch(function () { return {}; });
+
+      if (res.ok) {
+        document.getElementById("doneText").innerHTML =
+          "<strong>" + esc(name) + "</strong> is booked for<br>" +
+          "<strong>" + esc(out.date || "") + " at " + esc(out.time || "") + "</strong>.";
+        el.gridCard.style.display = "none";
+        el.formCard.style.display = "none";
+        el.doneCard.style.display = "";
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+
+      showError(out.detail || "Could not book that time. Please try another.");
+      // The slot may have just been taken — refresh so the grid tells the truth.
+      if (res.status === 409) { selected = null; await load(); }
+    } catch (e) {
+      showError("Network error. Please try again.");
+    } finally {
+      el.submit.disabled = false;
+      el.submit.textContent = "Confirm booking";
+    }
+  });
+
+  document.getElementById("againBtn").addEventListener("click", function () {
+    selected = null;
+    ["f_name", "f_phone", "f_agent", "f_comments"].forEach(function (id) {
+      document.getElementById(id).value = "";
+    });
+    clearError();
+    el.doneCard.style.display = "none";
+    el.gridCard.style.display = "";
+    load();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
+  load();
+})();
+</script>
+
+</body>
+</html>

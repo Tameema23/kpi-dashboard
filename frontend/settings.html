@@ -208,6 +208,21 @@
       <div style="padding:6px 0;color:#94a3b8;font-size:13px;">Checking install status...</div>
     </div>
 
+    <!-- Agent Booking Link Card (admin only) -->
+    <div class="card" id="bookingCard" style="display:none;margin-bottom:22px;">
+      <div class="settings-card-header">
+        <div class="settings-icon icon-blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M12 14v4"/><path d="M10 16h4"/></svg>
+        </div>
+        <div>
+          <h2 style="margin:0 0 2px 0; font-size:17px;">Agent Booking Link</h2>
+          <p style="margin:0; font-size:13px; color:#64748b;">A public link for outside agents to see availability and book appointments</p>
+        </div>
+      </div>
+
+      <div id="bookingBody" style="padding:4px 0;color:#94a3b8;font-size:13px;">Loading…</div>
+    </div>
+
     <!-- Assistant Accounts Card (admin only) -->
     <div class="card" id="assistantCard" style="display:none;">
       <div class="settings-card-header">
@@ -469,8 +484,125 @@
     } catch { msg.innerText = "Server error. Please try again."; msg.style.color = "#dc2626"; }
   }
 
+  // ── Agent booking link (admin only) ───────────────────────────
+  var _booking = null;
+
+  function renderBooking() {
+    var body = document.getElementById("bookingBody");
+    if (!_booking) {
+      body.innerHTML = '<div style="color:#dc2626;font-size:13px;">Could not load booking settings.</div>';
+      return;
+    }
+
+    var url = location.origin + _booking.path;
+    var on  = _booking.enabled;
+
+    body.innerHTML =
+      '<div style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;' +
+           'background:' + (on ? "#f0fdf4" : "#f8fafc") + ';border:1.5px solid ' + (on ? "#bbf7d0" : "#e2e8f0") + ';margin-bottom:16px;">' +
+        '<div style="width:9px;height:9px;border-radius:50%;background:' + (on ? "#16a34a" : "#cbd5e1") + ';flex-shrink:0;"></div>' +
+        '<div style="flex:1;">' +
+          '<div style="font-size:14px;font-weight:700;color:#0f172a;">' + (on ? "Link is live" : "Link is off") + '</div>' +
+          '<div style="font-size:12.5px;color:#64748b;margin-top:1px;">' +
+            (on ? "Anyone with the link can view availability and book."
+                : "The link returns \u201Cnot available\u201D until you turn it on.") +
+          '</div>' +
+        '</div>' +
+        '<button id="bkToggle" class="btn small" style="' +
+          (on ? "background:#f1f5f9;color:#475569;" : "") + '">' +
+          (on ? "Turn off" : "Turn on") + '</button>' +
+      '</div>' +
+
+      '<label style="display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:5px;">Booking link</label>' +
+      '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+        '<input id="bkUrl" type="text" readonly value="' + url + '" ' +
+          'style="flex:1;min-width:0;padding:10px 14px;border-radius:10px;border:1.5px solid #e2e8f0;' +
+          'background:#fafafa;font-size:13px;color:#0f172a;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">' +
+        '<button id="bkCopy" class="btn small">Copy</button>' +
+      '</div>' +
+      '<div style="font-size:11.5px;color:#94a3b8;line-height:1.5;margin-bottom:18px;">' +
+        'Agents need no account and can only add appointments \u2014 they cannot view client details, ' +
+        'edit anything, or delete anything.' +
+      '</div>' +
+
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;' +
+           'padding-top:16px;border-top:1.5px solid #f1f5f9;">' +
+        '<div>' +
+          '<div style="font-size:13.5px;font-weight:700;color:#0f172a;">Regenerate link</div>' +
+          '<div style="font-size:12px;color:#64748b;margin-top:1px;">Creates a new link and stops the old one working immediately.</div>' +
+        '</div>' +
+        '<button id="bkRotate" class="btn small" style="background:#fff1f2;color:#dc2626;">Regenerate</button>' +
+      '</div>';
+
+    document.getElementById("bkToggle").onclick = function () {
+      patchBooking({ enabled: !_booking.enabled });
+    };
+
+    document.getElementById("bkCopy").onclick = function () {
+      var input = document.getElementById("bkUrl");
+      input.select();
+      input.setSelectionRange(0, 99999);          // iOS needs the explicit range
+      navigator.clipboard.writeText(input.value).then(function () {
+        showToast("Link copied.");
+      }).catch(function () {
+        document.execCommand("copy");             // older Safari fallback
+        showToast("Link copied.");
+      });
+    };
+
+    document.getElementById("bkRotate").onclick = function () {
+      showConfirm(
+        "Generate a new booking link?<br><br>Any agent using the current link will " +
+        "no longer be able to book until you send them the new one.",
+        async function () {
+          try {
+            var res = await fetch("/booking-config/regenerate", {
+              method: "POST",
+              headers: { Authorization: "Bearer " + localStorage.getItem("token") }
+            });
+            if (!res.ok) throw new Error();
+            _booking = await res.json();
+            renderBooking();
+            showToast("New link generated.");
+          } catch (e) { showToast("Could not regenerate the link.", "error"); }
+        },
+        { confirmText: "Regenerate" }
+      );
+    };
+  }
+
+  async function patchBooking(payload) {
+    try {
+      var res = await fetch("/booking-config", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + localStorage.getItem("token")
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error();
+      _booking = await res.json();
+      renderBooking();
+      showToast(_booking.enabled ? "Booking link is live." : "Booking link turned off.");
+    } catch (e) { showToast("Could not update the booking link.", "error"); }
+  }
+
+  async function loadBooking() {
+    try {
+      var res = await fetch("/booking-config", {
+        headers: { Authorization: "Bearer " + localStorage.getItem("token") }
+      });
+      if (!res.ok) throw new Error();
+      _booking = await res.json();
+    } catch (e) { _booking = null; }
+    renderBooking();
+  }
+
   // ── Assistant management (admin only) ─────────────────────────
   if (_role === "admin" || !_role) {
+    document.getElementById("bookingCard").style.display = "block";
+    loadBooking();
     document.getElementById("assistantCard").style.display = "block";
     loadAssistants();
   }
