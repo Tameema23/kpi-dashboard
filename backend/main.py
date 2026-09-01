@@ -876,6 +876,78 @@ def _check_confirmations_access(user: User):
 def get_owner_id(user: User) -> int:
     return user.owner_id if user.role == "assistant" else user.id
 
+
+# ── Availability ──────────────────────────────────────────────────────────────
+# Working hours and days off are NOT hardcoded. They are whatever the admin has
+# configured via the blocked-day / blocked-date / blocked-hour tables, so a
+# different client with different hours needs no code change. Every consumer —
+# the planner, and later the public booking page — asks these helpers rather
+# than carrying its own copy of the rules.
+
+DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday",
+             "Thursday", "Friday", "Saturday"]
+
+
+def js_dow(date_str: str) -> int:
+    """Day-of-week for YYYY-MM-DD in JS convention: 0=Sunday … 6=Saturday."""
+    return (datetime.strptime(date_str[:10], "%Y-%m-%d").weekday() + 1) % 7
+
+
+def blocked_day_reason(db: Session, owner: int, date_str: str) -> Optional[str]:
+    """Why this whole date is unavailable, or None if it is open."""
+    dow = js_dow(date_str)
+    if db.query(BlockedDay).filter(
+        BlockedDay.owner_id == owner, BlockedDay.day_of_week == dow
+    ).first():
+        return (f"{DAY_NAMES[dow]} is marked as unavailable. "
+                f"Appointments cannot be scheduled on this day.")
+    if db.query(BlockedDate).filter(
+        BlockedDate.owner_id == owner, BlockedDate.date == date_str[:10]
+    ).first():
+        return (f"{date_str[:10]} is marked as unavailable. "
+                f"Appointments cannot be scheduled on this date.")
+    return None
+
+
+def blocked_hour_reason(db: Session, owner: int, scheduled_for: str) -> Optional[str]:
+    """
+    Why this specific hour is unavailable, or None if it is open.
+    Covers one-off hour blocks and recurring blocks (daily or per-weekday).
+    """
+    date_str = scheduled_for[:10]
+    try:
+        hour = int(scheduled_for[11:13])
+    except (ValueError, IndexError):
+        return None
+
+    one_off = db.query(BlockedHour).filter(
+        BlockedHour.owner_id   == owner,
+        BlockedHour.date       == date_str,
+        BlockedHour.start_hour <= hour,
+        BlockedHour.end_hour   >  hour,
+    ).first()
+    if one_off:
+        return f"{one_off.label or 'This time'} is blocked on {date_str}."
+
+    dow = js_dow(date_str)
+    for r in db.query(BlockedHourRecurring).filter(
+        BlockedHourRecurring.owner_id   == owner,
+        BlockedHourRecurring.start_hour <= hour,
+        BlockedHourRecurring.end_hour   >  hour,
+    ).all():
+        r_dow = getattr(r, "day_of_week", None)
+        if r_dow is None or r_dow == dow:
+            when = "every day" if r_dow is None else f"every {DAY_NAMES[dow]}"
+            return f"{r.label or 'This time'} is blocked {when}."
+    return None
+
+
+def slot_unavailable_reason(db: Session, owner: int,
+                            scheduled_for: str) -> Optional[str]:
+    """Combined check. None means the slot is free to book."""
+    return (blocked_day_reason(db, owner, scheduled_for)
+            or blocked_hour_reason(db, owner, scheduled_for))
+
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
 class UserPayload(BaseModel):
@@ -1233,6 +1305,9 @@ class AppointmentPayload(BaseModel):
     appt_type:     Optional[str] = "appointment"
     booking_tz:    Optional[str] = "America/Edmonton"
     recipients:    Optional[List[RecipientPayload]] = None  # extra SMS recipients
+    # Admin-only escape hatch: book into an hour the admin has blocked.
+    # Ignored for assistants and for the public booking page.
+    override_block: Optional[bool] = False
 
 
 def _sync_recipients(db: Session, appt: Appointment, recipients):
@@ -1266,24 +1341,24 @@ def create_appointment(data: AppointmentPayload,
     lead_name = sanitize_str(data.lead_name, 200)
     if not lead_name:
         raise HTTPException(400, "Lead name is required.")
-    # ── Blocked-day enforcement ──────────────────────────────
+    # ── Availability enforcement ─────────────────────────────
+    # Days off and blocked dates are absolute for everyone.
     owner = get_owner_id(user)
     sched = validate_datetime(data.scheduled_for)
-    sched_date = datetime.strptime(sched[:10], "%Y-%m-%d")
-    sched_dow  = sched_date.weekday()            # Mon=0 … Sun=6
-    sched_dow  = (sched_dow + 1) % 7             # convert to JS style: Sun=0 … Sat=6
-    blocked = db.query(BlockedDay).filter(
-        BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
-    ).first()
-    if blocked:
-        DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
-        raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be scheduled on this day.")
-    # ── One-time blocked date enforcement ─────────────────────
-    blocked_date = db.query(BlockedDate).filter(
-        BlockedDate.owner_id == owner, BlockedDate.date == sched[:10]
-    ).first()
-    if blocked_date:
-        raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be scheduled on this date.")
+    day_reason = blocked_day_reason(db, owner, sched)
+    if day_reason:
+        raise HTTPException(400, day_reason)
+    # Blocked hours are absolute too, except an admin may knowingly override
+    # their own block. 409 signals "blocked, but overridable" so the client can
+    # offer a confirmation; assistants get a plain 400 with no way through.
+    hour_reason = blocked_hour_reason(db, owner, sched)
+    if hour_reason:
+        if user.role == "admin" and bool(getattr(data, "override_block", False)):
+            audit(db, user.id, "override_blocked_hour", f"{sched} — {hour_reason}")
+        elif user.role == "admin":
+            raise HTTPException(409, hour_reason)
+        else:
+            raise HTTPException(400, hour_reason)
     # Normalize phone: strip everything except digits, keep leading +
     raw_phone = re.sub(r"[^\d+]", "", data.phone_number or "")
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
@@ -1342,7 +1417,6 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
     ).first()
     if blocked:
-        DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
         raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be rescheduled to this day.")
     # ── One-time blocked date enforcement ─────────────────────
     blocked_date = db.query(BlockedDate).filter(
@@ -1359,6 +1433,21 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
 
     # ── Smart SMS reset on reschedule ───────────────────────────
     new_sched  = validate_datetime(data.scheduled_for)
+
+    # Rescheduling into a blocked hour follows the same rules as booking one.
+    # Only checked when the time actually moves, so editing a name or comment
+    # on an appointment that already sits inside a block still works.
+    if new_sched != (appt.scheduled_for or ""):
+        hour_reason = blocked_hour_reason(db, owner, new_sched)
+        if hour_reason:
+            if user.role == "admin" and bool(getattr(data, "override_block", False)):
+                audit(db, user.id, "override_blocked_hour",
+                      f"{new_sched} — {hour_reason}")
+            elif user.role == "admin":
+                raise HTTPException(409, hour_reason)
+            else:
+                raise HTTPException(400, hour_reason)
+
     old_date   = appt.scheduled_for[:10] if appt.scheduled_for else ""
     new_date   = new_sched[:10]
     old_time   = appt.scheduled_for[11:16] if appt.scheduled_for and len(appt.scheduled_for) > 10 else ""
@@ -1487,7 +1576,6 @@ def add_blocked_day(data: BlockedDayPayload,
         return {"status": "already blocked"}
     db.add(BlockedDay(owner_id=owner, day_of_week=dow))
     db.commit()
-    DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
     audit(db, user.id, "block_day", f"Blocked {DAY_NAMES[dow]}")
     return {"status": "blocked"}
 
@@ -1506,7 +1594,6 @@ def remove_blocked_day(dow: int,
     if row:
         db.delete(row)
         db.commit()
-        DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
         audit(db, user.id, "unblock_day", f"Unblocked {DAY_NAMES[dow]}")
     return {"status": "unblocked"}
 
@@ -1619,9 +1706,10 @@ def remove_blocked_hour(block_id: int,
 # ── Blocked Hours Recurring (every day, specific hour range) ──────────────────
 
 class BlockedHourRecurringPayload(BaseModel):
-    start_hour: int        # 7–21
-    end_hour:   int        # 7–21, must be > start_hour
-    label:      Optional[str] = ""
+    start_hour:  int        # 7–21
+    end_hour:    int        # 7–21, must be > start_hour
+    label:       Optional[str] = ""
+    day_of_week: Optional[int] = None   # None = every day; 0=Sun … 6=Sat
 
 @app.get("/blocked-hours-recurring")
 def get_blocked_hours_recurring(user: User = Depends(get_current_user),
@@ -1629,8 +1717,9 @@ def get_blocked_hours_recurring(user: User = Depends(get_current_user),
     """Return all recurring daily hour blocks for this admin's owner."""
     owner = get_owner_id(user)
     rows = db.query(BlockedHourRecurring).filter(BlockedHourRecurring.owner_id == owner).all()
-    return [{"id": r.id, "start_hour": r.start_hour,
-             "end_hour": r.end_hour, "label": r.label or ""} for r in rows]
+    return [{"id": r.id, "start_hour": r.start_hour, "end_hour": r.end_hour,
+             "label": r.label or "",
+             "day_of_week": getattr(r, "day_of_week", None)} for r in rows]
 
 @app.post("/blocked-hours-recurring", status_code=201)
 def add_blocked_hour_recurring(data: BlockedHourRecurringPayload,
@@ -1638,29 +1727,39 @@ def add_blocked_hour_recurring(data: BlockedHourRecurringPayload,
                                 db: Session = Depends(get_db)):
     """Admin-only: block a range of hours every single day (recurring)."""
     _require_admin(user)
+    owner = get_owner_id(user)
     if data.start_hour < 7 or data.end_hour > 22 or data.start_hour >= data.end_hour:
         raise HTTPException(400, "Invalid hour range. Start must be 7–21, end must be 8–22, and start < end.")
-    # Prevent exact duplicates
+    dow = data.day_of_week
+    if dow is not None and dow not in range(7):
+        raise HTTPException(400, "day_of_week must be 0–6 (0=Sunday) or omitted for every day.")
+    # Prevent exact duplicates — same range on the same repeat pattern
     existing = db.query(BlockedHourRecurring).filter(
-        BlockedHourRecurring.owner_id == user.id,
-        BlockedHourRecurring.start_hour == data.start_hour,
-        BlockedHourRecurring.end_hour   == data.end_hour,
+        BlockedHourRecurring.owner_id    == owner,
+        BlockedHourRecurring.start_hour  == data.start_hour,
+        BlockedHourRecurring.end_hour    == data.end_hour,
+        BlockedHourRecurring.day_of_week.is_(None) if dow is None
+            else BlockedHourRecurring.day_of_week == dow,
     ).first()
     if existing:
         return {"id": existing.id, "start_hour": existing.start_hour,
-                "end_hour": existing.end_hour, "label": existing.label or ""}
+                "end_hour": existing.end_hour, "label": existing.label or "",
+                "day_of_week": getattr(existing, "day_of_week", None)}
     row = BlockedHourRecurring(
-        owner_id   = user.id,
-        start_hour = data.start_hour,
-        end_hour   = data.end_hour,
-        label      = sanitize_str(data.label or "", 100)
+        owner_id    = owner,
+        start_hour  = data.start_hour,
+        end_hour    = data.end_hour,
+        label       = sanitize_str(data.label or "", 100),
+        day_of_week = dow,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
-    audit(db, user.id, "block_hours_recurring", f"Recurring block {data.start_hour}:00–{data.end_hour}:00 every day")
-    return {"id": row.id, "start_hour": row.start_hour,
-            "end_hour": row.end_hour, "label": row.label or ""}
+    when = "every day" if dow is None else f"every {DAY_NAMES[dow]}"
+    audit(db, user.id, "block_hours_recurring",
+          f"Recurring block {data.start_hour}:00–{data.end_hour}:00 {when}")
+    return {"id": row.id, "start_hour": row.start_hour, "end_hour": row.end_hour,
+            "label": row.label or "", "day_of_week": row.day_of_week}
 
 @app.delete("/blocked-hours-recurring/{block_id}")
 def remove_blocked_hour_recurring(block_id: int,
@@ -1669,7 +1768,8 @@ def remove_blocked_hour_recurring(block_id: int,
     """Admin-only: remove a recurring daily hour block."""
     _require_admin(user)
     row = db.query(BlockedHourRecurring).filter(
-        BlockedHourRecurring.id == block_id, BlockedHourRecurring.owner_id == user.id
+        BlockedHourRecurring.id == block_id,
+        BlockedHourRecurring.owner_id == get_owner_id(user)
     ).first()
     if not row:
         raise HTTPException(404, "Recurring block not found.")

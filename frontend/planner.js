@@ -54,9 +54,13 @@
   // Array of {id, date, start_hour, end_hour, label} objects.
   var blockedHours = [];
 
-  // ── Blocked hours recurring (every day) ──────────────────────
-  // Array of {id, start_hour, end_hour, label} objects.
+  // ── Blocked hours recurring ──────────────────────────────────
+  // Array of {id, start_hour, end_hour, label, day_of_week} objects.
+  // day_of_week: null = repeats every day; 0=Sun…6=Sat = that weekday only.
   var blockedHoursRecurring = [];
+
+  var DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday",
+                   "Thursday", "Friday", "Saturday"];
 
   // Helper: is a specific hour on a specific date blocked?
   // Returns the block object (with a .recurring flag) or null.
@@ -66,9 +70,13 @@
       return b.date === dateStr && hour >= b.start_hour && hour < b.end_hour;
     });
     if (oneTime) return oneTime;
-    // Then check recurring blocks
+    // Then check recurring blocks. A block with day_of_week === null repeats
+    // every day; otherwise it only applies to that weekday.
+    var cellDow = new Date(dateStr + "T00:00:00").getDay();
     var recurring = blockedHoursRecurring.find(function(b) {
-      return hour >= b.start_hour && hour < b.end_hour;
+      if (hour < b.start_hour || hour >= b.end_hour) return false;
+      return b.day_of_week === null || b.day_of_week === undefined
+             || b.day_of_week === cellDow;
     });
     if (recurring) return Object.assign({}, recurring, { recurring: true, date: dateStr });
     return null;
@@ -429,7 +437,13 @@
         if (hourBlock) {
           var lbl = document.createElement("span");
           lbl.className = "pg-hour-block-label";
-          lbl.innerText = (hourBlock.label || "Blocked") + (hourBlock.recurring ? " (Daily)" : "");
+          var repeatSuffix = "";
+          if (hourBlock.recurring) {
+            repeatSuffix = (hourBlock.day_of_week === null || hourBlock.day_of_week === undefined)
+              ? " (Daily)"
+              : " (Weekly)";
+          }
+          lbl.innerText = (hourBlock.label || "Blocked") + repeatSuffix;
           cell.appendChild(lbl);
           if (role === "admin") {
             cell.title = "Click to remove this block";
@@ -862,6 +876,20 @@
       endOptions += '<option value="' + h + '">' + fmtTime(String(h).padStart(2,"0") + ":00") + '</option>';
     }
 
+    // Repeat options: one-off, every day, or a specific weekday. The weekday of
+    // the cell that was clicked is listed first among the weekdays so the common
+    // case ("block 3-4pm every Wednesday" from a Wednesday cell) is one click.
+    var clickedDow  = new Date(dateStr + "T00:00:00").getDay();
+    var repeatOptions =
+      '<option value="once">Does not repeat</option>' +
+      '<option value="daily">Every day</option>' +
+      '<option value="dow:' + clickedDow + '">Every ' + DAY_NAMES[clickedDow] + '</option>';
+    for (var d = 0; d < 7; d++) {
+      if (d !== clickedDow) {
+        repeatOptions += '<option value="dow:' + d + '">Every ' + DAY_NAMES[d] + '</option>';
+      }
+    }
+
     var dlg = document.createElement("div");
     dlg.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);";
     dlg.innerHTML =
@@ -887,14 +915,9 @@
         '<input id="bh_label" type="text" placeholder="e.g. Personal, 9PM Block" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;box-sizing:border-box;">' +
       '</div>' +
 
-      '<div style="margin-bottom:16px;padding:12px;background:#f8fafc;border-radius:10px;border:1.5px solid #e2e8f0;">' +
-        '<label style="display:flex;align-items:center;gap:10px;cursor:pointer;">' +
-          '<input type="checkbox" id="bh_repeat" style="width:16px;height:16px;cursor:pointer;">' +
-          '<div>' +
-            '<div style="font-size:13px;font-weight:700;color:#0f172a;">Repeat every day</div>' +
-            '<div style="font-size:11px;color:#64748b;margin-top:1px;">Block this time on all days, permanently</div>' +
-          '</div>' +
-        '</label>' +
+      '<div style="margin-bottom:16px;">' +
+        '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Repeats</label>' +
+        '<select id="bh_repeat" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;background:#fff;">' + repeatOptions + '</select>' +
       '</div>' +
 
       '<div id="bh_error" style="font-size:12px;color:#dc2626;margin-bottom:8px;display:none;"></div>' +
@@ -920,7 +943,15 @@
     });
 
     repeatChk.addEventListener("change", function() {
-      dateLabel.innerText = repeatChk.checked ? "Every day — repeats indefinitely" : displayDate;
+      var v = repeatChk.value;
+      if (v === "once") {
+        dateLabel.innerText = displayDate;
+      } else if (v === "daily") {
+        dateLabel.innerText = "Every day — repeats indefinitely";
+      } else {
+        dateLabel.innerText = "Every " + DAY_NAMES[parseInt(v.split(":")[1], 10)]
+                            + " — repeats indefinitely";
+      }
     });
 
     dlg.querySelector("#bh_cancel").onclick = function() { document.body.removeChild(dlg); };
@@ -930,7 +961,11 @@
       var startH = parseInt(startSel.value);
       var endH   = parseInt(endSel.value);
       var label  = dlg.querySelector("#bh_label").value.trim();
-      var repeat = repeatChk.checked;
+      var repeatVal = repeatChk.value;
+      var repeat    = repeatVal !== "once";
+      var repeatDow = repeatVal.indexOf("dow:") === 0
+        ? parseInt(repeatVal.split(":")[1], 10)
+        : null;
       var errEl  = dlg.querySelector("#bh_error");
 
       if (endH <= startH) {
@@ -942,7 +977,7 @@
       try {
         var endpoint = repeat ? API + "/blocked-hours-recurring" : API + "/blocked-hours";
         var payload  = repeat
-          ? { start_hour: startH, end_hour: endH, label: label }
+          ? { start_hour: startH, end_hour: endH, label: label, day_of_week: repeatDow }
           : { date: dateStr, start_hour: startH, end_hour: endH, label: label };
 
         var res = await fetch(endpoint, {
@@ -956,7 +991,10 @@
           var toStr   = fmtTime(String(endH).padStart(2,"00") + ":00");
           if (repeat) {
             blockedHoursRecurring.push(newBlock);
-            showToast(fromStr + " – " + toStr + " blocked every day.", "info");
+            var whenStr = repeatDow === null
+              ? "every day"
+              : "every " + DAY_NAMES[repeatDow];
+            showToast(fromStr + " – " + toStr + " blocked " + whenStr + ".", "info");
           } else {
             blockedHours.push(newBlock);
             showToast(fromStr + " – " + toStr + " blocked on " + displayDate + ".", "info");
@@ -1204,29 +1242,58 @@
       recipients:    collectRecipients()
     };
 
-    try {
-      var res;
+    // Sends the appointment. The server answers 409 when the slot sits inside an
+    // hour the admin has blocked — that is recoverable, so we ask rather than
+    // silently failing. Any other non-OK status is a real error.
+    async function submitAppt(body) {
       if (editingId) {
-        res = await fetch(API + "/appointments/" + editingId, {
+        return fetch(API + "/appointments/" + editingId, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
-          body: JSON.stringify(payload)
-        });
-      } else {
-        res = await fetch(API + "/appointments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(body)
         });
       }
+      return fetch(API + "/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+        body: JSON.stringify(body)
+      });
+    }
 
+    async function finishSave(res) {
       if (res.ok) {
         showToast(editingId ? "Appointment updated!" : "Appointment booked!");
         closeModal();
         await loadAppointments();
-      } else {
-        showToast("Failed to save. Please try again.", "error");
+        return true;
       }
+      return false;
+    }
+
+    try {
+      var res = await submitAppt(payload);
+      if (await finishSave(res)) return;
+
+      if (res.status === 409) {
+        var info = await res.json().catch(function() { return {}; });
+        var reason = info.detail || "This time is blocked.";
+        showConfirm(
+          reason + "<br><br>Book over it anyway?",
+          async function() {
+            payload.override_block = true;
+            var res2 = await submitAppt(payload);
+            if (!(await finishSave(res2))) {
+              var e2 = await res2.json().catch(function() { return {}; });
+              showToast(e2.detail || "Failed to save.", "error");
+            }
+          },
+          { danger: false, confirmText: "Book anyway" }
+        );
+        return;
+      }
+
+      var err = await res.json().catch(function() { return {}; });
+      showToast(err.detail || "Failed to save. Please try again.", "error");
     } catch (e) {
       showToast("Server error.", "error");
     }

@@ -343,17 +343,23 @@ class BlockedHour(Base):
 
 class BlockedHourRecurring(Base):
     """
-    A recurring daily hour-range block — applies every single day.
-    Use case: blocking 9pm every day, or lunch hours every day.
-    Unlike BlockedHour (one-time), this repeats indefinitely until removed.
+    A recurring hour-range block that repeats indefinitely until removed.
+
+    day_of_week controls how often it repeats:
+      None  → every day        (e.g. block 9pm nightly)
+      0–6   → that weekday only (0=Sun … 6=Sat; e.g. 3pm–4pm every Wednesday)
+
+    NULL is the historical behaviour, so rows created before day_of_week
+    existed keep repeating daily with no migration of their data.
     """
     __tablename__ = "blocked_hours_recurring"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    owner_id   = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    start_hour = Column(Integer, nullable=False)   # 7–21
-    end_hour   = Column(Integer, nullable=False)   # 7–21, exclusive
-    label      = Column(String(100), default="")
+    id          = Column(Integer, primary_key=True, index=True)
+    owner_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    start_hour  = Column(Integer, nullable=False)   # 7–21
+    end_hour    = Column(Integer, nullable=False)   # 7–21, exclusive
+    label       = Column(String(100), default="")
+    day_of_week = Column(Integer, nullable=True)    # None = every day; 0=Sun … 6=Sat
 
 
 def create_db():
