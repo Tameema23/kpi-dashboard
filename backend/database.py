@@ -112,6 +112,10 @@ class Appointment(Base):
     sms_sent_reminder = Column(Boolean,     default=False)  # 1hr-before reminder sent
     sms_sent_booking  = Column(Boolean,     default=False)  # ~5min after booking sent
     sms_sent_midpoint = Column(Boolean,     default=False)  # halfway-point reminder sent
+    # True once the manual "Send Confirmation Texts" button has texted this
+    # appointment. Kept separate from the scheduled-job flags so the manual
+    # send stays independent, but the YES webhook must still match on it.
+    sms_sent_manual   = Column(Boolean,     default=False)
     midpoint_send_date = Column(String(10), default="")     # YYYY-MM-DD when midpoint fires
     # True once the "your appointment is confirmed" notice has been sent.
     # Guarantees the confirmed notice fires exactly once per appointment.

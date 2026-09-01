@@ -275,7 +275,13 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
             )
             sent   += summary["sent"]
             failed += summary["failed"]
+            # Mark that a YES-prompt text went out via the manual button, so the
+            # inbound webhook can match this appointment. Without this the client
+            # replies YES and nothing happens.
+            if summary["sent"] > 0:
+                appt.sms_sent_manual = True
 
+        db.commit()
         return {"sent": sent, "failed": failed, "skipped": skipped, "total": len(appts)}
     except Exception as e:
         logger.error(f"Manual confirmation texts error ({target_date}): {e}")
@@ -1365,6 +1371,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         appt.sms_sent_reminder = False
         appt.sms_sent_booking  = False
         appt.sms_sent_midpoint = False
+        appt.sms_sent_manual   = False
         appt.sms_status        = ""
         # A confirmation belongs to the OLD date/time. Drop it so the
         # rescheduled appointment starts pending and must be re-confirmed.
@@ -1394,6 +1401,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         # Same date, time changed — reset evening + status only
         appt.sms_sent_evening  = False
         appt.sms_sent_reminder = False
+        appt.sms_sent_manual   = False
         appt.sms_status        = ""
         if (getattr(appt, "appt_status", "") or "") == "confirmed":
             appt.appt_status = ""
@@ -1445,6 +1453,7 @@ def _appt_dict(appt, db):
             "sms_sent_reminder": bool(appt.sms_sent_reminder),
             "sms_sent_booking": bool(getattr(appt, "sms_sent_booking", False)),
             "sms_sent_midpoint": bool(getattr(appt, "sms_sent_midpoint", False)),
+            "sms_sent_manual": bool(getattr(appt, "sms_sent_manual", False)),
             "midpoint_send_date": getattr(appt, "midpoint_send_date", "") or ""}
 
 # ── Blocked Days (Unavailable Days) ────────────────────────────────────────────
@@ -2678,36 +2687,49 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     sender_digits = re.sub(r"[^\d]", "", sender)
 
     # Match any unconfirmed appointment that has received ANY outbound SMS
-    # (booking, evening, or morning — all of them include the YES prompt for unconfirmed clients)
+    # (booking, evening, morning, or the manual Send Confirmation Texts button —
+    # all of them include the YES prompt for unconfirmed clients)
     appts = db.query(Appointment).filter(
         Appointment.sms_status != "confirmed",
     ).filter(
         (Appointment.sms_sent_morning == True) |
         (Appointment.sms_sent_evening == True) |
-        (Appointment.sms_sent_booking == True)
-    ).all()
+        (Appointment.sms_sent_booking == True) |
+        (Appointment.sms_sent_manual  == True)
+    ).order_by(Appointment.scheduled_for).all()
 
     sender_tail = sender_digits[-10:]
-    matched = None
-    for a in appts:
-        # Primary number
+
+    def _phone_matches(a) -> bool:
+        """True if the sender is the primary number or any extra recipient."""
         appt_digits = re.sub(r"[^\d]", "", a.phone_number or "")
         if appt_digits and appt_digits[-10:] == sender_tail:
-            matched = a
-            break
-        # Extra recipients (e.g. spouse) — a YES from any of them confirms the appt
+            return True
         extras = db.query(AppointmentRecipient).filter(
             AppointmentRecipient.appointment_id == a.id
         ).all()
-        hit = False
         for r in extras:
             rd = re.sub(r"[^\d]", "", r.phone_number or "")
             if rd and rd[-10:] == sender_tail:
-                matched = a
-                hit = True
-                break
-        if hit:
-            break
+                return True
+        return False
+
+    # A client may have more than one unconfirmed appointment on file. Taking
+    # whichever row the DB happened to return first can confirm the wrong one,
+    # so choose deliberately: the soonest still-upcoming appointment, or failing
+    # that the most recent past one (a YES that arrives just after the start
+    # time still belongs to the appointment that just began).
+    candidates = [a for a in appts if _phone_matches(a)]
+    matched = None
+    if candidates:
+        now_mt = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+        upcoming = [a for a in candidates if (a.scheduled_for or "") >= now_mt]
+        matched = upcoming[0] if upcoming else candidates[-1]
+        if len(candidates) > 1:
+            logger.info(
+                f"RC webhook: {len(candidates)} unconfirmed appts for {sender}; "
+                f"chose {matched.id} ({matched.scheduled_for})"
+            )
 
     if matched:
         matched.sms_status  = "confirmed"
