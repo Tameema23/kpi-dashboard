@@ -277,8 +277,8 @@ body {
         <input id="f_agent" type="text" maxlength="120" autocomplete="off" placeholder="Your name">
       </div>
       <div class="bk-field">
-        <label for="f_comments">Notes <span>(optional)</span></label>
-        <textarea id="f_comments" maxlength="2000" placeholder="Anything useful — address, referral source, best contact time"></textarea>
+        <label for="f_comments">Comments / Notes <span>(optional)</span></label>
+        <textarea id="f_comments" maxlength="2000" placeholder="Add a note..."></textarea>
       </div>
       <button class="bk-submit" id="submitBtn">Confirm booking</button>
       <div class="bk-msg" id="formMsg"></div>
@@ -486,7 +486,7 @@ body {
       }
 
       showError(out.detail || "Could not book that time. Please try another.");
-      // The slot may have just been taken — refresh so the grid tells the truth.
+      // The slot may have just been taken, so refresh and let the grid tell the truth.
       if (res.status === 409) { selected = null; await load(); }
     } catch (e) {
       showError("Network error. Please try again.");
