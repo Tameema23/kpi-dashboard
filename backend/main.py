@@ -604,7 +604,7 @@ ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(
         "ALLOWED_ORIGINS",
-        "https://data-log.onrender.com"
+        "https://apextrack.oneconnectors.com,https://data-log.onrender.com"
     ).split(",")
     if o.strip()
 ]
@@ -635,7 +635,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
-            "connect-src 'self' https://data-log.onrender.com; "
+            "connect-src 'self'; "
             "frame-ancestors 'none';"
         )
         # HTML pages must never be cached — ensures fresh content on every navigation

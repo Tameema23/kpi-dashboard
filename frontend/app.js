@@ -125,7 +125,7 @@ async function loadUpcomingAppointments() {
   } catch(e) { console.error(e); }
 }
 
-const API = "https://data-log.onrender.com";
+const API = "";
 const API_BASE = API;
 const TOKEN = localStorage.getItem("token");
 
@@ -1688,20 +1688,6 @@ window.uninstallPWA = function() {
   // Re-show the auto-banner next time they visit any page
   showToast("Install prompt reset. Use the button below to reinstall.", "info");
 };
-
-/* ── #37  Environment-based API URL ──────────────────────────────
-   Reads API_BASE from a <meta name="api-base"> tag if present,
-   falling back to the hardcoded URL. Add this to all HTML heads:
-   <meta name="api-base" content="https://your-host.onrender.com">
-   Already works without the tag — this is a progressive upgrade. */
-(function() {
-  var metaTag = document.querySelector('meta[name="api-base"]');
-  if (metaTag && metaTag.content) {
-    // Override the constants — must run after they're declared
-    // Use a MutationObserver trick if needed, but direct override works here
-    window.API_BASE_OVERRIDE = metaTag.content;
-  }
-})();
 
 /* ── #38  Error boundaries on all API calls ──────────────────────
    Wraps loadHistory and loadWeekly with user-visible error states. */
