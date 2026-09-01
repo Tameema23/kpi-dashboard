@@ -2187,6 +2187,15 @@ function applyConfirmationsNav() {
   });
 }
 
+/* Run it automatically on every page that loads app.js. Relying on each page
+   to remember the call meant it was never made anywhere, so the Confirmations
+   link stayed hidden even for admins. A no-op on pages without the markup. */
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", applyConfirmationsNav);
+} else {
+  applyConfirmationsNav();
+}
+
 /* ── NAV DEDUPLICATION — renderNav() ────────────────────────────
    Call renderNav() from any page to stamp the topbar + bottom nav.
    Pass `activePage` as one of: home, log, reports, history,
