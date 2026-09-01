@@ -59,9 +59,6 @@
   // day_of_week: null = repeats every day; 0=Sun…6=Sat = that weekday only.
   var blockedHoursRecurring = [];
 
-  var DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday",
-                   "Thursday", "Friday", "Saturday"];
-
   // Helper: is a specific hour on a specific date blocked?
   // Returns the block object (with a .recurring flag) or null.
   function isHourBlocked(dateStr, hour) {
@@ -876,57 +873,84 @@
       endOptions += '<option value="' + h + '">' + fmtTime(String(h).padStart(2,"0") + ":00") + '</option>';
     }
 
-    // Repeat options: one-off, every day, or a specific weekday. The weekday of
-    // the cell that was clicked is listed first among the weekdays so the common
-    // case ("block 3-4pm every Wednesday" from a Wednesday cell) is one click.
-    var clickedDow  = new Date(dateStr + "T00:00:00").getDay();
+    // Repeat options: one-off, every day, or one weekday. Weekdays stay in
+    // natural Sun→Sat order under their own group heading so the list reads
+    // predictably; DAY_NAMES is the same short form used on the day headers.
     var repeatOptions =
       '<option value="once">Does not repeat</option>' +
       '<option value="daily">Every day</option>' +
-      '<option value="dow:' + clickedDow + '">Every ' + DAY_NAMES[clickedDow] + '</option>';
+      '<optgroup label="Weekly">';
     for (var d = 0; d < 7; d++) {
-      if (d !== clickedDow) {
-        repeatOptions += '<option value="dow:' + d + '">Every ' + DAY_NAMES[d] + '</option>';
-      }
+      repeatOptions += '<option value="dow:' + d + '">Every ' + DAY_NAMES[d] + '</option>';
     }
+    repeatOptions += '</optgroup>';
 
     var dlg = document.createElement("div");
-    dlg.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);";
+    dlg.className = "modal-backdrop";
+    dlg.style.zIndex = "1200";   // above the planner, below showConfirm (9999)
+    dlg.setAttribute("role", "dialog");
+    dlg.setAttribute("aria-modal", "true");
+    dlg.setAttribute("aria-label", "Block time");
     dlg.innerHTML =
-      '<div style="background:#fff;border-radius:16px;padding:24px;width:330px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">' +
-      '<div style="font-size:15px;font-weight:800;color:#0f172a;margin-bottom:4px;">Block Time</div>' +
-      '<div style="font-size:13px;color:#64748b;margin-bottom:16px;" id="bh_date_label">' + displayDate + '</div>' +
+      '<div class="modal-card bh-card" style="max-width:380px;">' +
 
-      // From row
-      '<div style="display:flex;gap:10px;margin-bottom:12px;">' +
-        '<div style="flex:1;">' +
-          '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">From</label>' +
-          '<select id="bh_start" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;">' + startOptions + '</select>' +
+        '<div class="modal-header" style="display:block;">' +
+          '<h3>Block Time</h3>' +
+          '<div class="bh-subtitle" id="bh_date_label">' + displayDate + '</div>' +
         '</div>' +
-        '<div style="flex:1;">' +
-          '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">To</label>' +
-          '<select id="bh_end" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;">' + endOptions + '</select>' +
+
+        '<div class="modal-body">' +
+
+          '<div class="bh-row">' +
+            '<div class="form-field">' +
+              '<label for="bh_start">From</label>' +
+              '<select id="bh_start">' + startOptions + '</select>' +
+            '</div>' +
+            '<div class="form-field">' +
+              '<label for="bh_end">To</label>' +
+              '<select id="bh_end">' + endOptions + '</select>' +
+            '</div>' +
+          '</div>' +
+          '<div class="bh-hint">Blocks the full range. To block just 9 PM, choose 9:00 PM to 10:00 PM.</div>' +
+
+          '<div class="form-field">' +
+            '<label for="bh_label">Label <span style="font-weight:500;color:#94a3b8;">(optional)</span></label>' +
+            '<input id="bh_label" type="text" placeholder="e.g. Personal, Gym" maxlength="100">' +
+          '</div>' +
+
+          '<div class="form-field" style="margin-bottom:0;">' +
+            '<label for="bh_repeat">Repeats</label>' +
+            '<select id="bh_repeat">' + repeatOptions + '</select>' +
+          '</div>' +
+
         '</div>' +
-      '</div>' +
-      '<div style="margin-top:-8px;margin-bottom:12px;font-size:11px;color:#94a3b8;">Select any range. To block just 9 PM, set From: 9:00 PM → To: 10:00 PM.</div>' +
 
-      '<div style="margin-bottom:12px;">' +
-        '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Label (optional)</label>' +
-        '<input id="bh_label" type="text" placeholder="e.g. Personal, 9PM Block" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;box-sizing:border-box;">' +
-      '</div>' +
+        '<div class="modal-footer bh-footer">' +
+          '<div class="bh-error" id="bh_error"></div>' +
+          '<button id="bh_cancel" class="btn-secondary" type="button">Cancel</button>' +
+          '<button id="bh_save" class="btn" type="button">Block Time</button>' +
+        '</div>' +
 
-      '<div style="margin-bottom:16px;">' +
-        '<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">Repeats</label>' +
-        '<select id="bh_repeat" style="width:100%;padding:8px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;background:#fff;">' + repeatOptions + '</select>' +
-      '</div>' +
-
-      '<div id="bh_error" style="font-size:12px;color:#dc2626;margin-bottom:8px;display:none;"></div>' +
-      '<div style="display:flex;gap:8px;">' +
-        '<button id="bh_save" style="flex:1;padding:9px;border-radius:8px;background:#2563eb;color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;">Block Time</button>' +
-        '<button id="bh_cancel" style="flex:1;padding:9px;border-radius:8px;background:#f1f5f9;color:#475569;font-size:13px;font-weight:600;border:none;cursor:pointer;">Cancel</button>' +
-      '</div></div>';
+      '</div>';
 
     document.body.appendChild(dlg);
+
+    function showBhError(msg) {
+      var el = dlg.querySelector("#bh_error");
+      el.innerText = msg;
+      el.classList.add("show");
+    }
+
+    function closeBhDialog() {
+      document.removeEventListener("keydown", onBhKey);
+      if (dlg.parentNode) document.body.removeChild(dlg);
+    }
+
+    function onBhKey(e) {
+      if (e.key === "Escape") closeBhDialog();
+    }
+    document.addEventListener("keydown", onBhKey);
+
     var startSel  = dlg.querySelector("#bh_start");
     var endSel    = dlg.querySelector("#bh_end");
     var repeatChk = dlg.querySelector("#bh_repeat");
@@ -940,6 +964,10 @@
     startSel.addEventListener("change", function() {
       var s = parseInt(startSel.value);
       if (parseInt(endSel.value) <= s) endSel.value = Math.min(s + 1, 22);
+      dlg.querySelector("#bh_error").classList.remove("show");
+    });
+    endSel.addEventListener("change", function() {
+      dlg.querySelector("#bh_error").classList.remove("show");
     });
 
     repeatChk.addEventListener("change", function() {
@@ -954,8 +982,8 @@
       }
     });
 
-    dlg.querySelector("#bh_cancel").onclick = function() { document.body.removeChild(dlg); };
-    dlg.addEventListener("click", function(e) { if (e.target === dlg) document.body.removeChild(dlg); });
+    dlg.querySelector("#bh_cancel").onclick = closeBhDialog;
+    dlg.addEventListener("click", function(e) { if (e.target === dlg) closeBhDialog(); });
 
     dlg.querySelector("#bh_save").onclick = async function() {
       var startH = parseInt(startSel.value);
@@ -966,11 +994,9 @@
       var repeatDow = repeatVal.indexOf("dow:") === 0
         ? parseInt(repeatVal.split(":")[1], 10)
         : null;
-      var errEl  = dlg.querySelector("#bh_error");
 
       if (endH <= startH) {
-        errEl.innerText = "End time must be after start time.";
-        errEl.style.display = "block";
+        showBhError("End time must be after start time.");
         return;
       }
 
@@ -999,14 +1025,13 @@
             blockedHours.push(newBlock);
             showToast(fromStr + " – " + toStr + " blocked on " + displayDate + ".", "info");
           }
-          document.body.removeChild(dlg);
+          closeBhDialog();
           renderPlanner();
         } else {
           var err = await res.json().catch(function() { return {}; });
-          errEl.innerText = err.detail || "Failed to save.";
-          errEl.style.display = "block";
+          showBhError(err.detail || "Failed to save.");
         }
-      } catch(e) { errEl.innerText = "Server error."; errEl.style.display = "block"; }
+      } catch(e) { showBhError("Server error."); }
     };
   }
 

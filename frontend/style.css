@@ -3206,3 +3206,100 @@ select {
   font-weight: 600;
   margin-top: 8px;
 }
+
+/* =============================================
+   BLOCK TIME DIALOG
+   Built from the app's own .modal-* / .form-field / .btn classes so it
+   matches every other dialog. Only the pieces those classes don't already
+   cover live here. Appended at the end so these win over earlier base rules.
+   ============================================= */
+
+/* Selects were never styled — inputs were. Match them exactly.
+   Native appearance is left alone on purpose: overriding it has caused
+   input-rendering problems on iOS Safari elsewhere in this app. */
+.form-field select {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fafafa;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-field select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+  background: #fff;
+}
+
+/* Two fields side by side (From / To). */
+.bh-row {
+  display: flex;
+  gap: 12px;
+}
+.bh-row .form-field { flex: 1; margin-bottom: 0; }
+
+/* Subtitle under the dialog title showing which day(s) the block applies to. */
+.bh-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* Quiet helper line under the From/To row. */
+.bh-hint {
+  font-size: 11.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 8px 0 16px;
+}
+
+/* Inline validation message. */
+.bh-error {
+  font-size: 12.5px;
+  color: #dc2626;
+  font-weight: 600;
+  background: #fef2f2;
+  border: 1.5px solid #fecaca;
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin-bottom: 12px;
+  display: none;
+}
+.bh-error.show { display: block; }
+
+/* When an error is showing, the footer stacks so the message gets its own row. */
+.bh-footer { flex-wrap: wrap; }
+.bh-footer .bh-error { flex-basis: 100%; }
+
+/* Secondary action, paired with .btn for the primary. */
+.btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+  border: none;
+  padding: 11px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-secondary:hover { background: #e2e8f0; color: #0f172a; }
+
+.bh-footer { justify-content: flex-end; }
+
+@keyframes bhIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.bh-card { animation: bhIn 0.18s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bh-card { animation: none; }
+}
