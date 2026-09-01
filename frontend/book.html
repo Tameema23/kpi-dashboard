@@ -210,9 +210,86 @@ body {
 
 .bk-foot { text-align: center; margin-top: 26px; font-size: 12px; color: #94a3b8; }
 
+/* ── Mobile layout ──────────────────────────────────────────────
+   A seven column time grid cannot work at phone width, so under 560px the
+   week becomes a row of day chips and the chosen day expands into a plain
+   vertical list of times. Desktop keeps the grid. */
+
+.bk-days { display: none; }
+
+.bk-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px;
+  scrollbar-width: none;
+}
+.bk-chips::-webkit-scrollbar { display: none; }
+
+.bk-chip {
+  flex: 0 0 auto;
+  min-width: 58px;
+  padding: 9px 6px;
+  border-radius: 12px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  font-family: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+.bk-chip-dow { font-size: 10.5px; font-weight: 700; color: #94a3b8; letter-spacing: 0.4px; }
+.bk-chip-day { font-size: 17px; font-weight: 800; color: #0f172a; margin-top: 1px; }
+.bk-chip-dot { width: 5px; height: 5px; border-radius: 50%; background: #2563eb; margin: 4px auto 0; }
+
+.bk-chip.is-active { background: #2563eb; border-color: #2563eb; }
+.bk-chip.is-active .bk-chip-dow,
+.bk-chip.is-active .bk-chip-day { color: #fff; }
+.bk-chip.is-active .bk-chip-dot { background: rgba(255,255,255,0.85); }
+
+.bk-chip:disabled { opacity: 0.45; cursor: default; }
+.bk-chip:disabled .bk-chip-dot { visibility: hidden; }
+
+.bk-times { padding: 4px 16px 18px; }
+.bk-time {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  margin-bottom: 8px;
+  border-radius: 11px;
+  border: 1.5px solid #bfdbfe;
+  background: #eff6ff;
+  color: #2563eb;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+.bk-time.is-selected { background: #2563eb; border-color: #2563eb; color: #fff; }
+.bk-time:last-child { margin-bottom: 0; }
+
+.bk-none {
+  padding: 30px 16px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 @media (max-width: 560px) {
   .bk-intro h1 { font-size: 21px; }
-  .bk-wrap { padding: 20px 12px 48px; }
+  .bk-wrap { padding: 20px 12px calc(48px + env(safe-area-inset-bottom)); }
+  .bk-grid-scroll { display: none; }
+  .bk-legend    { display: none; }
+  .bk-days      { display: block; }
+  .bk-nav       { padding: 12px 16px; }
+  .bk-nav-label { font-size: 13.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bk-chip, .bk-time { transition: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -248,9 +325,11 @@ body {
 
     <div class="bk-grid-scroll">
       <div class="bk-grid" id="grid">
-        <div class="bk-empty">Loading availability…</div>
+        <div class="bk-empty">Loading availability...</div>
       </div>
     </div>
+
+    <div class="bk-days" id="days"></div>
 
     <div class="bk-legend">
       <span><i style="background:#eff6ff;border:1.5px solid #bfdbfe;"></i>Available</span>
@@ -312,12 +391,18 @@ body {
   var data       = null;   // availability payload from the server
   var weekStart  = 0;      // index into data.days for the leftmost visible day
   var selected   = null;   // { date, hour }
+  var openDay    = null;   // mobile only: which day's times are expanded
+
+  // A seven column grid is unusable at phone width, so below this the same
+  // data is presented as day chips plus a vertical list of times.
+  var mq = window.matchMedia("(max-width: 560px)");
 
   var el = {
     grid:    document.getElementById("grid"),
     label:   document.getElementById("weekLabel"),
     prev:    document.getElementById("prevBtn"),
     next:    document.getElementById("nextBtn"),
+    days:    document.getElementById("days"),
     formCard:document.getElementById("formCard"),
     doneCard:document.getElementById("doneCard"),
     gridCard:document.getElementById("gridCard"),
@@ -369,15 +454,26 @@ body {
   }
 
   // ── Render ────────────────────────────────────────────────────
+  function dayHasOpening(day) {
+    return !day.closed && day.slots.indexOf(true) !== -1;
+  }
+
   function render() {
     var days = data.days.slice(weekStart, weekStart + 7);
 
     if (!data.hours.length || !days.length) {
       el.grid.innerHTML = '<div class="bk-empty">No times are currently available.</div>';
+      el.days.innerHTML = "";
       el.label.textContent = "";
       return;
     }
 
+    renderHeader(days);
+    renderGrid(days);
+    renderDays(days);
+  }
+
+  function renderHeader(days) {
     var first = parseDate(days[0].date);
     var last  = parseDate(days[days.length - 1].date);
     el.label.textContent =
@@ -386,7 +482,10 @@ body {
 
     el.prev.disabled = weekStart === 0;
     el.next.disabled = weekStart + 7 >= data.days.length;
+  }
 
+  // ── Desktop: hour grid ────────────────────────────────────────
+  function renderGrid(days) {
     var html = '<div class="bk-row"><div class="bk-gutter"></div>';
     days.forEach(function (day) {
       var d = parseDate(day.date);
@@ -415,7 +514,63 @@ body {
 
     el.grid.innerHTML = html;
 
-    Array.prototype.forEach.call(el.grid.querySelectorAll(".bk-slot.is-open"), function (btn) {
+    bindSlots(el.grid.querySelectorAll(".bk-slot.is-open"));
+  }
+
+  // ── Mobile: day chips plus a vertical list of times ───────────
+  function renderDays(days) {
+    // Default to the first day in view that actually has an opening.
+    if (openDay === null || days.map(function (d) { return d.date; }).indexOf(openDay) === -1) {
+      var firstOpen = days.filter(dayHasOpening)[0];
+      openDay = firstOpen ? firstOpen.date : null;
+    }
+
+    var chips = '<div class="bk-chips">';
+    days.forEach(function (day) {
+      var d       = parseDate(day.date);
+      var bookable = dayHasOpening(day);
+      chips += '<button class="bk-chip' + (day.date === openDay ? " is-active" : "") + '"' +
+               ' data-date="' + day.date + '"' + (bookable ? "" : " disabled") + '>' +
+                 '<div class="bk-chip-dow">' + DOW[d.getDay()] + "</div>" +
+                 '<div class="bk-chip-day">' + d.getDate() + "</div>" +
+                 '<div class="bk-chip-dot"></div>' +
+               "</button>";
+    });
+    chips += "</div>";
+
+    var day = days.filter(function (x) { return x.date === openDay; })[0];
+    var body;
+
+    if (!day) {
+      body = '<div class="bk-none">No openings this week.<br>Try the next week.</div>';
+    } else {
+      var times = "";
+      data.hours.forEach(function (hour, hIdx) {
+        if (!day.slots[hIdx]) return;
+        var isSel = selected && selected.date === day.date && selected.hour === hour;
+        times += '<button class="bk-time' + (isSel ? " is-selected" : "") + '"' +
+                 ' data-date="' + day.date + '" data-hour="' + hour + '">' +
+                 fmtHour(hour) + "</button>";
+      });
+      body = times
+        ? '<div class="bk-times">' + times + "</div>"
+        : '<div class="bk-none">No openings on this day.</div>';
+    }
+
+    el.days.innerHTML = chips + body;
+
+    Array.prototype.forEach.call(el.days.querySelectorAll(".bk-chip"), function (chip) {
+      chip.addEventListener("click", function () {
+        openDay = chip.dataset.date;
+        renderDays(data.days.slice(weekStart, weekStart + 7));
+      });
+    });
+
+    bindSlots(el.days.querySelectorAll(".bk-time"));
+  }
+
+  function bindSlots(nodes) {
+    Array.prototype.forEach.call(nodes, function (btn) {
       btn.addEventListener("click", function () {
         selected = { date: btn.dataset.date, hour: parseInt(btn.dataset.hour, 10) };
         clearError();
@@ -435,11 +590,18 @@ body {
     document.getElementById("f_name").focus({ preventScroll: true });
   }
 
+  // Rotating the phone or resizing the window can cross the breakpoint. Both
+  // layouts are already in the DOM, but the chips need their selection state
+  // recalculated for the newly visible week.
+  var onBreakpoint = function () { if (data) render(); };
+  if (mq.addEventListener) { mq.addEventListener("change", onBreakpoint); }
+  else if (mq.addListener) { mq.addListener(onBreakpoint); }
+
   el.prev.addEventListener("click", function () {
-    weekStart = Math.max(0, weekStart - 7); render();
+    weekStart = Math.max(0, weekStart - 7); openDay = null; render();
   });
   el.next.addEventListener("click", function () {
-    if (weekStart + 7 < data.days.length) { weekStart += 7; render(); }
+    if (weekStart + 7 < data.days.length) { weekStart += 7; openDay = null; render(); }
   });
 
   // ── Submit ────────────────────────────────────────────────────
