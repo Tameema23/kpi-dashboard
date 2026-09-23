@@ -233,16 +233,20 @@ async function loadWeekly() {
   // Show zero state if filter returns no data (but don't trigger onboarding — data exists)
   if (!filteredData.length) {
     // Hide skeletons, show empty KPI grids with dashes
-    ['kpi-skeleton-grid','kpi-ref-skeleton','charts-skeleton'].forEach(function(id) {
+    ['kpi-skeleton-grid','kpi-ref-skeleton','kpi-resolve-skeleton','charts-skeleton'].forEach(function(id) {
       var el = document.getElementById(id); if (el) el.classList.add('hidden');
     });
-    ['kpi-real-grid','kpi-ref-grid','charts-real'].forEach(function(id) {
+    ['kpi-real-grid','kpi-ref-grid','kpi-resolve-grid','charts-real'].forEach(function(id) {
       var el = document.getElementById(id); if (el) el.classList.remove('hidden');
     });
     ['wk_pres','wk_sales','wk_ytd_alp','wk_show','wk_close','wk_alp','wk_conv',
      'wk_bad_lead','wk_ref_collected','wk_ref_pres','wk_ref_sales_total',
-     'wk_ref_close_ratio','wk_ref_conv_ratio','wk_total_sales','wk_ref_sales_pct'].forEach(function(id) {
+     'wk_ref_close_ratio','wk_ref_conv_ratio','wk_total_sales','wk_ref_sales_pct',
+     'wk_res_total','wk_res_bad_number','wk_res_pres_refused','wk_res_duplicate'].forEach(function(id) {
       var el = document.getElementById(id); if (el) el.innerText = '—';
+    });
+    ['wk_res_bad_number_pct','wk_res_pres_refused_pct','wk_res_duplicate_pct'].forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.innerText = '';
     });
     return;
   }
@@ -301,6 +305,9 @@ async function loadWeekly() {
   let ytdRefSales = 0;
   let ytdAssignedLeads = 0;
   let ytdBadLeads = 0;
+  let ytdResBadNumber = 0;
+  let ytdResPresRefused = 0;
+  let ytdResDuplicate = 0;
 
   Object.keys(weeks).sort().forEach(week => {
 
@@ -324,6 +331,9 @@ async function loadWeekly() {
       refSales += (d.referral_sales || 0);
       assignedLeads += (d.assigned_leads || 0);
       badLeads += (d.bad_leads || 0);
+      ytdResBadNumber   += (d.resolves_bad_number || 0);
+      ytdResPresRefused += (d.resolves_pres_refused || 0);
+      ytdResDuplicate   += (d.resolves_duplicate || 0);
     });
     ytdPres += pres;
     ytdSales += sales;
@@ -393,6 +403,11 @@ async function loadWeekly() {
 
   const lastIndex = weekLabels.length - 1;
 
+  const ytdResolvesTotal = ytdResBadNumber + ytdResPresRefused + ytdResDuplicate;
+  const resPct = function(part) {
+    return ytdResolvesTotal ? (part / ytdResolvesTotal) * 100 : 0;
+  };
+
   const ytdConvRatio = ytdAssignedLeads ? (ytdPres / ytdAssignedLeads) * 100 : 0;
   const ytdBadLeadRatio = ytdAssignedLeads ? (ytdBadLeads / ytdAssignedLeads) * 100 : 0;
 
@@ -401,12 +416,16 @@ async function loadWeekly() {
   const realGrid = document.getElementById("kpi-real-grid");
   const refSkelGrid = document.getElementById("kpi-ref-skeleton");
   const refRealGrid = document.getElementById("kpi-ref-grid");
+  const resSkelGrid = document.getElementById("kpi-resolve-skeleton");
+  const resRealGrid = document.getElementById("kpi-resolve-grid");
   const chartsSkel = document.getElementById("charts-skeleton");
   const chartsReal = document.getElementById("charts-real");
   if (skelGrid)    skelGrid.classList.add("hidden");
   if (realGrid)    realGrid.classList.remove("hidden");
   if (refSkelGrid) refSkelGrid.classList.add("hidden");
   if (refRealGrid) refRealGrid.classList.remove("hidden");
+  if (resSkelGrid) resSkelGrid.classList.add("hidden");
+  if (resRealGrid) resRealGrid.classList.remove("hidden");
   if (chartsSkel)  chartsSkel.classList.add("hidden");
   if (chartsReal)  chartsReal.classList.remove("hidden");
 
@@ -442,6 +461,27 @@ async function loadWeekly() {
   countUp("wk_ref_conv_ratio",  ytdRefConvRatio,    "", "%");
   countUp("wk_total_sales",     ytdTotalSales);
   countUp("wk_ref_sales_pct",   ytdRefSalesRatio,   "", "%");
+  // Resolve KPIs
+  countUp("wk_res_total",       ytdResolvesTotal);
+  countUp("wk_res_bad_number",  ytdResBadNumber);
+  countUp("wk_res_pres_refused", ytdResPresRefused);
+  countUp("wk_res_duplicate",   ytdResDuplicate);
+
+  // Share-of-resolves sublabels (blank when there is nothing to divide by)
+  (function() {
+    var shares = [
+      ["wk_res_bad_number_pct",   ytdResBadNumber],
+      ["wk_res_pres_refused_pct", ytdResPresRefused],
+      ["wk_res_duplicate_pct",    ytdResDuplicate]
+    ];
+    shares.forEach(function(pair) {
+      var el = document.getElementById(pair[0]);
+      if (!el) return;
+      el.innerText = ytdResolvesTotal
+        ? resPct(pair[1]).toFixed(0) + "% of resolves"
+        : "";
+    });
+  })();
 
   // Color-code ratios
   setTimeout(() => {
@@ -774,6 +814,29 @@ function drawChart({
   }
 }
 
+/* ================= RESOLVE TOTAL (LOG PAGE) =================
+   The three resolve types are the source of truth. The total is never
+   stored or typed — it is always the sum, so the two cannot disagree. */
+
+function updateResolveTotal() {
+  var out = document.getElementById("resolve_total");
+  if (!out) return;
+  var total = ["resolves_bad_number","resolves_pres_refused","resolves_duplicate"]
+    .reduce(function(sum, id) {
+      var el = document.getElementById(id);
+      return sum + (el ? Number(el.value || 0) : 0);
+    }, 0);
+  out.innerText = total;
+}
+
+function initResolveTotal() {
+  ["resolves_bad_number","resolves_pres_refused","resolves_duplicate"].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener("input", updateResolveTotal);
+  });
+  updateResolveTotal();
+}
+
 /* ================= SAVE DAY ================= */
 
 async function save() {
@@ -792,7 +855,10 @@ async function save() {
     referral_presentations: Number(referral_presentations.value || 0),
     referral_sales: Number(referral_sales.value || 0),
     assigned_leads: Number(assigned_leads.value || 0),
-    bad_leads: Number(bad_leads.value || 0)
+    bad_leads: Number(bad_leads.value || 0),
+    resolves_bad_number: Number(document.getElementById("resolves_bad_number")?.value || 0),
+    resolves_pres_refused: Number(document.getElementById("resolves_pres_refused")?.value || 0),
+    resolves_duplicate: Number(document.getElementById("resolves_duplicate")?.value || 0)
   };
 
   const res = await fetch(`${API_BASE}/log-day`, {
@@ -852,6 +918,10 @@ async function loadHistory(){
     <td>${d.referral_sales}</td>
     <td>${d.assigned_leads ?? 0}</td>
     <td>${d.bad_leads ?? 0}</td>
+    <td>${d.resolves_bad_number ?? 0}</td>
+    <td>${d.resolves_pres_refused ?? 0}</td>
+    <td>${d.resolves_duplicate ?? 0}</td>
+    <td>${(d.resolves_bad_number ?? 0) + (d.resolves_pres_refused ?? 0) + (d.resolves_duplicate ?? 0)}</td>
     <td>
       <button class="btn small" onclick='editDay(${JSON.stringify(d)})'>Edit</button>
     </td>
@@ -982,8 +1052,18 @@ window.onload=()=>{
   if (document.getElementById("bad_leads"))
     document.getElementById("bad_leads").value = d.bad_leads ?? 0;
 
+  [["resolves_bad_number", d.resolves_bad_number],
+   ["resolves_pres_refused", d.resolves_pres_refused],
+   ["resolves_duplicate", d.resolves_duplicate]].forEach(function(pair) {
+    var el = document.getElementById(pair[0]);
+    if (el) el.value = pair[1] ?? 0;
+  });
+  if (typeof updateResolveTotal === "function") updateResolveTotal();
+
   localStorage.removeItem("editEntry");
  }
+
+ if (document.getElementById("resolve_total")) initResolveTotal();
 
  if(typeof historyBody!=="undefined") loadHistory();
 };
@@ -1169,16 +1249,23 @@ async function exportExcel() {
     total_presentations: "Presentations", total_sales: "Sales",
     total_alp: "Total ALP ($)", total_ah: "Total A&H ($)",
     referrals_collected: "Refs Collected", referral_presentations: "Ref Presentations",
-    referral_sales: "Ref Sales", assigned_leads: "Assigned Leads", bad_leads: "Bad Leads"
+    referral_sales: "Ref Sales", assigned_leads: "Assigned Leads", bad_leads: "Bad Leads",
+    resolves_bad_number: "Bad Phone Numbers", resolves_pres_refused: "Presentations Refused",
+    resolves_duplicate: "Duplicates"
   };
   const keys = Object.keys(HEADER_MAP);
-  const allHeaders = Object.values(HEADER_MAP).concat(["Closing %", "Show Ratio %", "ALP / Sale"]);
+  const allHeaders = Object.values(HEADER_MAP)
+    .concat(["Total Resolves", "Closing %", "Show Ratio %", "ALP / Sale"]);
   let csv = allHeaders.join(",") + "\n";
   data.forEach(row => {
     const closing = row.total_presentations > 0 ? ((row.total_sales / row.total_presentations) * 100).toFixed(1) : "0.0";
     const show    = row.appointments_start  > 0 ? ((row.total_presentations / row.appointments_start) * 100).toFixed(1) : "0.0";
     const alpSale = row.total_sales > 0 ? (row.total_alp / row.total_sales).toFixed(2) : "0.00";
-    csv += keys.map(k => row[k] !== undefined ? row[k] : 0).join(",") + "," + closing + "," + show + "," + alpSale + "\n";
+    const resolves = (row.resolves_bad_number || 0)
+                   + (row.resolves_pres_refused || 0)
+                   + (row.resolves_duplicate || 0);
+    csv += keys.map(k => row[k] !== undefined ? row[k] : 0).join(",")
+         + "," + resolves + "," + closing + "," + show + "," + alpSale + "\n";
   });
 
   const blob = new Blob([csv], { type: "text/csv" });
@@ -1366,7 +1453,8 @@ function initLogKeyNav() {
     "total_presentations","total_sales",
     "referrals_collected","referral_presentations","referral_sales",
     "total_alp","total_ah",
-    "assigned_leads","bad_leads"
+    "assigned_leads","bad_leads",
+    "resolves_bad_number","resolves_pres_refused","resolves_duplicate"
   ];
   order.forEach(function(id, i) {
     var el = document.getElementById(id);
@@ -1392,7 +1480,8 @@ function initUnsavedWarning() {
   var saved = false;
   var fields = ["appointments_start","appointments_finish","total_presentations",
     "total_sales","referrals_collected","referral_presentations","referral_sales",
-    "total_alp","total_ah","assigned_leads","bad_leads"];
+    "total_alp","total_ah","assigned_leads","bad_leads",
+    "resolves_bad_number","resolves_pres_refused","resolves_duplicate"];
   fields.forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener("input", function() {
@@ -1701,7 +1790,7 @@ window.uninstallPWA = function() {
         var body = document.getElementById("historyBody");
         if (body) {
           body.innerHTML =
-            '<tr><td colspan="14" style="text-align:center;padding:32px;color:#dc2626;">' +
+            '<tr><td colspan="18" style="text-align:center;padding:32px;color:#dc2626;">' +
             '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:8px;">' +
             '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
             'Failed to load history. <a href="#" onclick="loadHistory();return false;" style="color:#2563eb;font-weight:700;">Try again</a>' +

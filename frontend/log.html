@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=7">
   <title>Log Day</title>
 </head>
 <body>
@@ -86,6 +86,18 @@
         <div class="form-field"><label>Total A&amp;H ($)</label><input id="total_ah" placeholder="0.00" type="number" min="0" step="0.01"></div>
         <div class="form-field"><label>Assigned Leads</label><input id="assigned_leads" placeholder="0" type="number" min="0"></div>
         <div class="form-field"><label>Bad Leads</label><input id="bad_leads" placeholder="0" type="number" min="0"></div>
+
+        <p class="log-section-title" style="margin-top:22px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Resolves
+        </p>
+        <div class="form-field"><label>Bad Phone Numbers</label><input id="resolves_bad_number" placeholder="0" type="number" min="0"></div>
+        <div class="form-field"><label>Presentations Refused</label><input id="resolves_pres_refused" placeholder="0" type="number" min="0"></div>
+        <div class="form-field"><label>Duplicates</label><input id="resolves_duplicate" placeholder="0" type="number" min="0"></div>
+        <div class="form-field resolve-total-row">
+          <label>Total Resolves</label>
+          <span class="resolve-total" id="resolve_total">0</span>
+        </div>
       </div>
     </div>
 
@@ -134,7 +146,7 @@
   </div>
 </nav>
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 <script>
   // Role-based nav
   if (localStorage.getItem("role") === "assistant") {

@@ -85,6 +85,11 @@ class DailyLog(Base):
     referral_sales         = Column(Integer, default=0)
     assigned_leads         = Column(Integer, default=0)
     bad_leads              = Column(Integer, default=0)
+    # Resolve breakdown — why an appointment did not turn into a presentation.
+    # Added Sep 2026. Existing rows default to 0 (they predate tracking).
+    resolves_bad_number    = Column(Integer, default=0)
+    resolves_pres_refused  = Column(Integer, default=0)
+    resolves_duplicate     = Column(Integer, default=0)
 
     user = relationship("User", back_populates="logs")
 

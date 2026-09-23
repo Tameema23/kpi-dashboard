@@ -3315,3 +3315,44 @@ select {
   white-space: nowrap;
 }
 .pg-appt-agent { background: #ede9fe; color: #6d28d9; }
+
+
+/* ── Resolves (Sep 2026) ──────────────────────────────────────────
+   Share-of-resolves sublabel on the reports KPI cards, and the
+   read-only live total on the Log Day form. Appended at the bottom
+   so base .kpi-card / .form-field rules cannot override these. */
+.kpi-text .kpi-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  letter-spacing: 0.01em;
+}
+.kpi-text .kpi-sub:empty { display: none; }
+
+.form-field.resolve-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  border: 1.5px dashed #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.form-field.resolve-total-row label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.form-field.resolve-total-row .resolve-total {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}

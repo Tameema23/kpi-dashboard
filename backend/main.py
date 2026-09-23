@@ -109,11 +109,32 @@ def _first_name_of(full_name: str) -> str:
     return s.split()[0].capitalize()
 
 
+def _greeting_name_of(attendee_name: str, lead_name: str) -> str:
+    """
+    The name used in the SMS greeting.
+
+    If an attendee name is set it is used exactly as typed, so an attendee
+    of "Michelle & David" produces "Hi Michelle & David!". That field is
+    filled in specifically for messaging, so what is typed is what sends.
+
+    With no attendee name we fall back to the lead's FIRST name only,
+    because lead_name holds a full legal name and "Hi Jimmy Tandawadon!"
+    is not how we greet anyone.
+    """
+    attendee = (attendee_name or "").strip()
+    if attendee:
+        return attendee
+    return _first_name_of(lead_name)
+
+
 def _appt_recipients(db: Session, appt: Appointment):
     """
     Returns the full list of SMS recipients for an appointment as
-    [(display_name, phone_number), ...] - the primary attendee/lead first,
+    [(greeting_name, phone_number), ...] - the primary attendee/lead first,
     then any extra recipients. Only entries with a phone number are included.
+
+    The greeting name is already resolved here (see _greeting_name_of), so
+    callers send it straight into a message template without trimming it.
 
     Appointments booked through the public agent link are excluded entirely
     and permanently. Those clients have not agreed to hear from us, so even
@@ -127,8 +148,8 @@ def _appt_recipients(db: Session, appt: Appointment):
     out = []
     primary_phone = (appt.phone_number or "").strip()
     if primary_phone:
-        primary_name = (appt.attendee_name or "").strip() or (appt.lead_name or "").strip()
-        out.append((primary_name, primary_phone))
+        out.append((_greeting_name_of(appt.attendee_name, appt.lead_name),
+                    primary_phone))
     try:
         extras = db.query(AppointmentRecipient).filter(
             AppointmentRecipient.appointment_id == appt.id
@@ -138,7 +159,10 @@ def _appt_recipients(db: Session, appt: Appointment):
     for r in extras:
         ph = (r.phone_number or "").strip()
         if ph:
-            out.append(((r.name or "").strip(), ph))
+            # Extra recipients are typed for messaging too, so their name is
+            # used exactly as entered.
+            extra_name = (r.name or "").strip()
+            out.append((extra_name or "there", ph))
     return out
 
 
@@ -146,8 +170,8 @@ async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
                                    log_tag: str):
     """
     Sends an SMS to the primary recipient and every extra recipient on the
-    appointment. `build_message(first_name)` returns the personalized text for
-    a given recipient. Returns a dict summary: {sent, failed, total}.
+    appointment. `build_message(greeting_name)` returns the personalized text
+    for a given recipient. Returns a dict summary: {sent, failed, total}.
 
     This is the single fan-out point used by every automated SMS job, so that
     adding recipients requires no change to the individual jobs.
@@ -156,7 +180,8 @@ async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
     sent = 0
     failed = 0
     for (name, phone) in recipients:
-        message = build_message(_first_name_of(name))
+        # `name` is already the greeting name, used verbatim.
+        message = build_message(name)
         result = await send_sms(db, appt.owner_id, phone, message)
         ok = bool(result.get("sent") or result.get("dry_run"))
         if ok:
@@ -1249,6 +1274,9 @@ class LogPayload(BaseModel):
     referral_sales:         int
     assigned_leads:         int = 0
     bad_leads:              int = 0
+    resolves_bad_number:    int = 0
+    resolves_pres_refused:  int = 0
+    resolves_duplicate:     int = 0
 
     @field_validator("date")
     @classmethod
@@ -1260,7 +1288,9 @@ class LogPayload(BaseModel):
 
     @field_validator("appointments_start", "appointments_finish", "total_presentations",
                      "total_sales", "referrals_collected", "referral_presentations",
-                     "referral_sales", "assigned_leads", "bad_leads")
+                     "referral_sales", "assigned_leads", "bad_leads",
+                     "resolves_bad_number", "resolves_pres_refused",
+                     "resolves_duplicate")
     @classmethod
     def non_negative_int(cls, v):
         if v < 0:    raise ValueError("Cannot be negative.")
@@ -1309,7 +1339,10 @@ def history(user: User = Depends(get_current_user),
          "referral_presentations": l.referral_presentations,
          "referral_sales": l.referral_sales,
          "assigned_leads": l.assigned_leads or 0,
-         "bad_leads": l.bad_leads or 0}
+         "bad_leads": l.bad_leads or 0,
+         "resolves_bad_number": l.resolves_bad_number or 0,
+         "resolves_pres_refused": l.resolves_pres_refused or 0,
+         "resolves_duplicate": l.resolves_duplicate or 0}
         for l in logs
     ]
 
