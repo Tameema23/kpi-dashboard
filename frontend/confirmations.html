@@ -956,8 +956,13 @@
       });
       var data = await res.json();
       if (res.ok) {
-        var n = (data.sent != null) ? data.sent : 0;
-        showToast("Confirmation texts sent for " + dateVal + " (" + n + " client" + (n === 1 ? "" : "s") + ").");
+        var n  = (data.sent != null) ? data.sent : 0;
+        var sk = (data.skipped != null) ? data.skipped : 0;
+        var fl = (data.failed != null) ? data.failed : 0;
+        var msg = n + " text" + (n === 1 ? "" : "s") + " sent for " + dateVal + ".";
+        if (sk) msg += " " + sk + " skipped (already confirmed, already texted, or time passed).";
+        if (fl) msg += " " + fl + " failed.";
+        showToast(msg, fl ? "error" : undefined);
         loadConfirmations();
       } else {
         showToast(data.detail || "Failed to send confirmation texts.", "error");

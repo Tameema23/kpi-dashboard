@@ -98,7 +98,8 @@ def verify_password(plain: str, hashed: str) -> bool:
 # ── Scheduler ──────────────────────────────────────────────────────────────────
 # Runs two daily SMS jobs in Mountain Time:
 #   • 8:00 PM — evening reminder (night before appointment)
-#   • 9:00 AM — morning reminder (day of appointment)
+#   • Morning reminder (day of appointment) — 1 hour before the owner's first
+#     open hour that day, derived from blocked hours (see _morning_text_hour)
 # Both jobs respect dry_run mode — no real texts sent until live mode is on.
 
 def _first_name_of(full_name: str) -> str:
@@ -195,10 +196,84 @@ async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
     return {"sent": sent, "failed": failed, "total": len(recipients)}
 
 
-async def _run_sms_job(job_type: str):
+# ── Shared SMS eligibility rules ──────────────────────────────────────────────
+# Every automated and manual client text goes through these, so a status set on
+# the planner or confirmations page stops ALL texts, not just some of them.
+
+def _mt_now_str() -> str:
+    return datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+
+
+def _sms_status_allows_texting(appt: Appointment) -> bool:
+    """False for callbacks and for any appointment marked rescheduled,
+    cancelled or no-show on either status field."""
+    if (appt.appt_type or "") == "callback":
+        return False
+    if (appt.sms_status or "") == "rescheduled":
+        return False
+    if (getattr(appt, "appt_status", "") or "") in ("cancelled", "no_show", "rescheduled"):
+        return False
+    return True
+
+
+def _appt_is_upcoming(appt: Appointment, now_str: Optional[str] = None) -> bool:
+    """True if the appointment start time is still in the future (MT)."""
+    return (appt.scheduled_for or "") > (now_str or _mt_now_str())
+
+
+def _booked_within_minutes(appt: Appointment, minutes: int) -> bool:
+    """True if booked_at is within the last `minutes` minutes."""
+    try:
+        mt = ZoneInfo("America/Edmonton")
+        booked_dt = datetime.strptime(appt.booked_at, "%Y-%m-%dT%H:%M").replace(tzinfo=mt)
+        return (datetime.now(mt) - booked_dt) <= timedelta(minutes=minutes)
+    except Exception:
+        return False
+
+
+# If the booking confirmation went out this recently, the evening/morning
+# confirmation is a near-identical duplicate, so it is skipped.
+RECENT_BOOKING_TEXT_MINUTES = 120
+
+# ── Morning text time follows working hours ───────────────────────────────────
+# The morning confirmation goes out 1 hour before the owner's first open hour
+# that day, read from the same blocked-day / blocked-hour data the planner
+# uses. Change the hours in the planner and the text time follows, with no
+# code change. Examples: open at 10 → text at 9; open at 9 → text at 8.
+MORNING_TEXT_LEAD_HOURS    = 1
+EARLIEST_MORNING_TEXT_HOUR = 7   # never text clients before 7 AM MT
+DEFAULT_MORNING_TEXT_HOUR  = 9   # fallback when no open hour can be found
+
+
+def _first_open_hour(db: Session, owner: Optional[int], date_str: str) -> Optional[int]:
+    """First bookable hour on date_str for this owner, or None if the whole
+    day is blocked (or there is no owner to read hours from)."""
+    if owner is None:
+        return None
+    for h in range(PLANNER_FIRST_HOUR, PLANNER_LAST_HOUR + 1):
+        if not slot_unavailable_reason(db, owner, f"{date_str}T{h:02d}:00"):
+            return h
+    return None
+
+
+def _morning_text_hour(db: Session, owner: Optional[int], date_str: str) -> int:
+    """Hour (MT, 24h) the morning confirmation goes out for this owner/day."""
+    first = _first_open_hour(db, owner, date_str)
+    if first is None:
+        return DEFAULT_MORNING_TEXT_HOUR
+    return max(EARLIEST_MORNING_TEXT_HOUR, first - MORNING_TEXT_LEAD_HOURS)
+
+
+_ALL_OWNERS = object()   # sentinel: run a job across every owner
+
+
+async def _run_sms_job(job_type: str, owner_id=_ALL_OWNERS):
     """
     job_type: "evening" — sends to appointments TOMORROW
               "morning"  — sends to appointments TODAY
+    owner_id: limit to one owner's appointments (the morning job runs per
+              owner, because each owner's first open hour can differ).
+              None means appointments with no owner. Default: everyone.
     """
     db = SessionLocal()
     try:
@@ -225,13 +300,30 @@ async def _run_sms_job(job_type: str):
             Appointment.appt_type != "callback",
             Appointment.sms_status != "rescheduled",
         ).all()
-        # Filter cancelled/no_show safely at Python level (guards against missing column)
-        appts = [a for a in appts if getattr(a, "appt_status", "") not in ("cancelled", "no_show")]
+        if owner_id is not _ALL_OWNERS:
+            appts = [a for a in appts if a.owner_id == owner_id]
+        # Cancelled, no-show, rescheduled and callbacks never get texts
+        appts = [a for a in appts if _sms_status_allows_texting(a)]
+        now_str = _mt_now_str()
 
         for appt in appts:
             # Skip if already sent this message
             already_sent = getattr(appt, sent_flag)
             if already_sent:
+                continue
+
+            # Never text a confirmation for a time that has already passed
+            # (e.g. an 8:30 AM appointment when the 9 AM job runs).
+            if not _appt_is_upcoming(appt, now_str):
+                continue
+
+            # Already covered: the booking text sent this same confirmation
+            # very recently. Mark it done so the manual button doesn't
+            # re-send it either.
+            if (getattr(appt, "sms_sent_booking", False)
+                    and _booked_within_minutes(appt, RECENT_BOOKING_TEXT_MINUTES)):
+                setattr(appt, sent_flag, True)
+                db.commit()
                 continue
 
             # Format time and date in the booking timezone
@@ -243,15 +335,19 @@ async def _run_sms_job(job_type: str):
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
 
-            await _send_to_all_recipients(
+            summary = await _send_to_all_recipients(
                 db, appt,
                 lambda fn: _build_sms(fn, time_display, date_display, confirmed),
                 f"SMS {label.upper()}"
             )
 
-            # Mark as sent (even in dry run — so we don't log it repeatedly)
-            setattr(appt, sent_flag, True)
-            db.commit()
+            # Mark as sent only if at least one text actually went out (dry run
+            # counts). If every send failed (e.g. RingCentral out of credits),
+            # the flag stays down so the manual Send Confirmation Texts button
+            # can still reach this client.
+            if summary["sent"] > 0:
+                setattr(appt, sent_flag, True)
+                db.commit()
 
     except Exception as e:
         logger.error(f"SMS job ({job_type}) error: {e}")
@@ -262,8 +358,8 @@ async def _run_sms_job(job_type: str):
 async def _send_confirmation_texts_for_date(target_date: str) -> dict:
     """
     Send the appointment confirmation SMS to every eligible client whose
-    appointment falls on target_date (YYYY-MM-DD), regardless of which
-    scheduled job (evening/morning) would normally cover them.
+    appointment falls on target_date (YYYY-MM-DD) and who hasn't already
+    been reached about it.
 
     This powers the manual "Send Confirmation Texts" button on the
     confirmations page, scoped to the selected day only.
@@ -272,11 +368,18 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
       - has a phone number
       - not a callback
       - not rescheduled / cancelled / no_show
-    Confirmed clients still receive the message, but without the
-    'reply YES' line (handled by _build_sms via the confirmed flag).
 
-    Does NOT consult or set the evening/morning sent-flags, so it can be
-    used as a manual catch-up without interfering with the automated jobs.
+    On top of that, this is a catch-up mechanism only — it must NOT
+    re-text anyone who has already been reached about this appointment:
+      - already confirmed (sms_status or appt_status == "confirmed") → skip
+      - already sent the evening OR morning automated text → skip
+      - already sent by this button before (second click) → skip
+      - appointment time has already passed → skip
+    Everyone else (never texted yet for this appointment) gets sent.
+
+    After a successful send, the evening/morning flag for the job that would
+    cover this appointment next is set too, so the client doesn't get the
+    same text again a few hours later from the scheduler.
     Returns a small summary dict for UI feedback.
     """
     db = SessionLocal()
@@ -288,23 +391,40 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
             Appointment.scheduled_for.startswith(target_date),
             Appointment.phone_number != "",
             Appointment.phone_number != None,
-            Appointment.appt_type != "callback",
-            Appointment.sms_status != "rescheduled",
         ).all()
-        appts = [a for a in appts
-                 if getattr(a, "appt_status", "") not in ("cancelled", "no_show", "rescheduled")]
+        appts = [a for a in appts if _sms_status_allows_texting(a)]
 
+        mt       = ZoneInfo("America/Edmonton")
+        now_mt   = datetime.now(mt)
+        now_str  = now_mt.strftime("%Y-%m-%dT%H:%M")
+        today    = now_mt.strftime("%Y-%m-%d")
+        tomorrow = (now_mt + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        eligible = []
         for appt in appts:
+            if _is_confirmed(appt):
+                skipped += 1
+                continue
+            if (getattr(appt, "sms_sent_morning", False)
+                    or getattr(appt, "sms_sent_evening", False)
+                    or getattr(appt, "sms_sent_manual", False)):
+                skipped += 1
+                continue
+            if not _appt_is_upcoming(appt, now_str):
+                skipped += 1
+                continue
+            eligible.append(appt)
+
+        for appt in eligible:
             time_display, date_display = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
             )
-            confirmed  = (appt.sms_status == "confirmed" or
-                          getattr(appt, "appt_status", "") == "confirmed")
-
+            # Every appt reaching this point is unconfirmed (filtered above),
+            # so it always gets the 'reply YES' prompt.
             summary = await _send_to_all_recipients(
                 db, appt,
-                lambda fn: _build_sms(fn, time_display, date_display, confirmed),
+                lambda fn: _build_sms(fn, time_display, date_display, False),
                 f"SMS MANUAL-CONFIRM {target_date}"
             )
             sent   += summary["sent"]
@@ -314,6 +434,13 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
             # replies YES and nothing happens.
             if summary["sent"] > 0:
                 appt.sms_sent_manual = True
+                # Stop the scheduler repeating this same text: today's
+                # appointments are covered by the 9 AM job, tomorrow's by
+                # tonight's 8 PM job.
+                if target_date == today:
+                    appt.sms_sent_morning = True
+                elif target_date == tomorrow:
+                    appt.sms_sent_evening = True
 
         db.commit()
         return {"sent": sent, "failed": failed, "skipped": skipped, "total": len(appts)}
@@ -327,57 +454,64 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
 async def _run_reminder_job():
     """
     Fires every minute (called from scheduler).
-    Finds appointments starting in exactly 60 minutes that are NOT confirmed
-    and have a phone number, and sends them a quick reminder text.
-    Tracks sent reminders via a new sms_sent_reminder flag.
+    Sends a quick reminder to UNCONFIRMED appointments shortly before they start.
 
-    Special case: appointments at 10:00 AM (or any time where 60 min prior
-    would be at or before 9:00 AM) get their reminder at 30 minutes before
-    instead, so clients aren't hit with two texts back-to-back at 9am.
+    Timing, decided per appointment, relative to that day's morning text
+    (which is 1 hour before the first open hour, from blocked hours):
+      - normally 60 minutes before the start time
+      - if 60 minutes before would land at or before the morning text,
+        send 30 minutes before instead so the two don't collide
+      - if even 30 minutes before would collide, skip it: the morning text
+        just went out and serves as the reminder
+
+    Skipped when the client booked within the last hour: the booking
+    confirmation they just received already covers it.
+    Tracked via sms_sent_reminder.
     """
     db = SessionLocal()
     try:
         mt     = ZoneInfo("America/Edmonton")
         now_mt = datetime.now(mt)
 
-        # Standard window: appointments starting 59-61 minutes from now
-        target_start_60 = now_mt + timedelta(minutes=59)
-        target_end_60   = now_mt + timedelta(minutes=61)
-        start_str_60 = target_start_60.strftime("%Y-%m-%dT%H:%M")
-        end_str_60   = target_end_60.strftime("%Y-%m-%dT%H:%M")
-
-        # Early-morning window: appointments starting 29-31 minutes from now
-        # Only applies when now is between 9:00-9:01am (catches 10am appts)
-        target_start_30 = now_mt + timedelta(minutes=29)
-        target_end_30   = now_mt + timedelta(minutes=31)
-        start_str_30 = target_start_30.strftime("%Y-%m-%dT%H:%M")
-        end_str_30   = target_end_30.strftime("%Y-%m-%dT%H:%M")
-
-        # Determine which window to use:
-        # If the 60-min target falls at or before 9:00 AM, use the 30-min window instead
-        use_30min_window = target_end_60.hour < 9 or (target_end_60.hour == 9 and target_end_60.minute == 0)
-
-        if use_30min_window:
-            start_str = start_str_30
-            end_str   = end_str_30
-        else:
-            start_str = start_str_60
-            end_str   = end_str_60
+        # Pull everything starting in the next ~61 minutes, then decide per
+        # appointment which lead time applies.
+        start_str = (now_mt + timedelta(minutes=29)).strftime("%Y-%m-%dT%H:%M")
+        end_str   = (now_mt + timedelta(minutes=61)).strftime("%Y-%m-%dT%H:%M")
 
         appts = db.query(Appointment).filter(
             Appointment.scheduled_for >= start_str,
             Appointment.scheduled_for <= end_str,
             Appointment.phone_number != "",
             Appointment.phone_number != None,
-            Appointment.appt_type != "callback",
-            Appointment.sms_status != "confirmed",
-            Appointment.sms_status != "rescheduled",
             Appointment.sms_sent_reminder == False,
         ).all()
-        # Filter cancelled/no_show safely at Python level
-        appts = [a for a in appts if getattr(a, "appt_status", "") not in ("cancelled", "no_show")]
+        appts = [a for a in appts
+                 if _sms_status_allows_texting(a) and not _is_confirmed(a)]
 
         for appt in appts:
+            try:
+                start_dt = datetime.strptime(appt.scheduled_for, "%Y-%m-%dT%H:%M").replace(tzinfo=mt)
+            except Exception:
+                continue
+            # Anchor to this owner's morning text time for that day, which
+            # follows their working hours (see _morning_text_hour).
+            morning_dt = start_dt.replace(
+                hour=_morning_text_hour(db, appt.owner_id, appt.scheduled_for[:10]),
+                minute=0)
+            if (start_dt - timedelta(minutes=30)) <= morning_dt:
+                # Starts within 30 min of the morning text; that text is the reminder.
+                continue
+            lead    = 60 if (start_dt - timedelta(minutes=60)) > morning_dt else 30
+            mins_to_start = (start_dt - now_mt).total_seconds() / 60
+            # Fire inside a 2-minute window around the chosen lead time
+            if not (lead - 1 <= mins_to_start <= lead + 1):
+                continue
+
+            if _booked_within_minutes(appt, 60):
+                appt.sms_sent_reminder = True
+                db.commit()
+                continue
+
             time_display, _ = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
                 appt.booking_tz or "America/Edmonton"
@@ -418,8 +552,8 @@ async def _run_booking_job():
         ).all()
         appts = [a for a in appts
                  if not getattr(a, "sms_sent_booking", False)
-                 and getattr(a, "appt_status", "") not in ("cancelled", "no_show", "rescheduled")
-                 and a.sms_status not in ("rescheduled",)]
+                 and _sms_status_allows_texting(a)]
+        now_str = now_mt.strftime("%Y-%m-%dT%H:%M")
 
         for appt in appts:
             # Only fire if booked 4–6 minutes ago OR it's been more than 6 minutes
@@ -430,6 +564,22 @@ async def _run_booking_job():
                 if mins_since < 4:
                     continue  # Too soon — wait for the 5-minute window
             except Exception:
+                continue
+
+            # Appointments entered after the fact (time already passed) must
+            # never get a "confirmation for your meeting" text.
+            if not _appt_is_upcoming(appt, now_str):
+                appt.sms_sent_booking = True
+                db.commit()
+                continue
+
+            # The evening/morning/manual text already delivered this exact
+            # confirmation (e.g. booked at 7:58 PM, evening job ran at 8:00 PM).
+            if (getattr(appt, "sms_sent_evening", False)
+                    or getattr(appt, "sms_sent_morning", False)
+                    or getattr(appt, "sms_sent_manual", False)):
+                appt.sms_sent_booking = True
+                db.commit()
                 continue
 
             time_display, date_display = _fmt_appt_time_for_tz(
@@ -471,10 +621,11 @@ async def _run_booking_job_catchup():
             Appointment.phone_number != None,
             Appointment.appt_type != "callback",
         ).all()
+        now_str = _mt_now_str()
         appts = [a for a in appts
                  if not getattr(a, "sms_sent_booking", False)
-                 and getattr(a, "appt_status", "") not in ("cancelled", "no_show", "rescheduled")
-                 and a.sms_status not in ("rescheduled",)]
+                 and _sms_status_allows_texting(a)
+                 and _appt_is_upcoming(a, now_str)]
 
         sent_count = 0
         for appt in appts:
@@ -518,11 +669,12 @@ async def _run_midpoint_job():
             Appointment.phone_number != None,
             Appointment.appt_type != "callback",
         ).all()
+        now_str = _mt_now_str()
         appts = [a for a in appts
                  if getattr(a, "midpoint_send_date", "") == today
                  and not getattr(a, "sms_sent_midpoint", False)
-                 and getattr(a, "appt_status", "") not in ("cancelled", "no_show")
-                 and a.sms_status not in ("rescheduled",)]
+                 and _sms_status_allows_texting(a)
+                 and _appt_is_upcoming(a, now_str)]
 
         for appt in appts:
             time_display, date_display = _fmt_appt_time_for_tz(
@@ -557,6 +709,7 @@ async def _scheduler_loop():
         "midpoint":        None,   # 10am — midpoint reminders
     }
     summary_evening_sent = {}  # date → bool, tracks if 9pm actually succeeded
+    morning_fired        = {}  # owner_id → date the morning job last ran
 
     while True:
         try:
@@ -571,11 +724,26 @@ async def _scheduler_loop():
                 logger.info("Scheduler: firing 8am daily summary (today's appointments)")
                 await _send_daily_summary(today)
 
-            # 9:00 AM — morning client texts
-            if h == 9 and min_ == 0 and fired["morning"] != today:
-                fired["morning"] = today
-                logger.info("Scheduler: firing morning SMS job")
-                await _run_sms_job("morning")
+            # Morning client texts — 1 hour before each owner's first open
+            # hour today (from blocked hours). Checked across the whole hour,
+            # not just minute 0, so a slow loop or a restart can't skip it;
+            # the sms_sent_morning flag prevents any double send.
+            due_owners = []
+            sdb = SessionLocal()
+            try:
+                owner_keys = [a.id for a in sdb.query(User).filter(User.role == "admin").all()]
+                owner_keys.append(None)   # appointments with no owner: default hour
+                for oid in owner_keys:
+                    if morning_fired.get(oid) == today:
+                        continue
+                    if h == _morning_text_hour(sdb, oid, today):
+                        due_owners.append(oid)
+            finally:
+                sdb.close()
+            for oid in due_owners:
+                morning_fired[oid] = today
+                logger.info(f"Scheduler: firing morning SMS job for owner {oid} at {h}:00")
+                await _run_sms_job("morning", owner_id=oid)
 
             # 8:00 PM — evening client texts (tomorrow's appointments)
             if h == 20 and min_ == 0 and fired["evening"] != today:
@@ -1482,20 +1650,25 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     ).first()
     if not appt: raise HTTPException(404, "Appointment not found.")
     # ── Blocked-day enforcement ──────────────────────────────
+    # Only when the DATE actually moves. Fixing a typo in the phone number of
+    # an appointment on a day that was blocked afterwards must still work.
     sched = validate_datetime(data.scheduled_for)
-    sched_date = datetime.strptime(sched[:10], "%Y-%m-%d")
-    sched_dow  = (sched_date.weekday() + 1) % 7  # JS style: Sun=0 … Sat=6
-    blocked = db.query(BlockedDay).filter(
-        BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
-    ).first()
-    if blocked:
-        raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be rescheduled to this day.")
-    # ── One-time blocked date enforcement ─────────────────────
-    blocked_date = db.query(BlockedDate).filter(
-        BlockedDate.owner_id == owner, BlockedDate.date == sched[:10]
-    ).first()
-    if blocked_date:
-        raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
+    if sched[:10] != (appt.scheduled_for or "")[:10]:
+        sched_date = datetime.strptime(sched[:10], "%Y-%m-%d")
+        sched_dow  = (sched_date.weekday() + 1) % 7  # JS style: Sun=0 … Sat=6
+        blocked = db.query(BlockedDay).filter(
+            BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
+        ).first()
+        if blocked:
+            raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be rescheduled to this day.")
+        # ── One-time blocked date enforcement ─────────────────────
+        blocked_date = db.query(BlockedDate).filter(
+            BlockedDate.owner_id == owner, BlockedDate.date == sched[:10]
+        ).first()
+        if blocked_date:
+            raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
+    # Normalised so legacy rows stored without +1 don't count as a change
+    old_phone          = normalize_phone(appt.phone_number or "")
     appt.lead_name     = title_case(sanitize_str(data.lead_name, 200))
     appt.attendee_name = title_case(sanitize_str(data.attendee_name or "", 200))
     appt.phone_number  = normalize_phone(data.phone_number)
@@ -1534,10 +1707,11 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         appt.sms_sent_midpoint = False
         appt.sms_sent_manual   = False
         appt.sms_status        = ""
-        # A confirmation belongs to the OLD date/time. Drop it so the
-        # rescheduled appointment starts pending and must be re-confirmed.
-        if (getattr(appt, "appt_status", "") or "") == "confirmed":
-            appt.appt_status = ""
+        # A confirmation or outcome (rescheduled / no-show / cancelled)
+        # belongs to the OLD date/time. Moving the appointment is the
+        # reschedule, so it starts pending and must be re-confirmed. Leaving
+        # "rescheduled" in place would block every text for the new time.
+        appt.appt_status = ""
         appt.sms_sent_confirmed_notice = False
         # Recalculate midpoint for new date
         try:
@@ -1559,14 +1733,34 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         except Exception:
             pass
     elif old_time != new_time:
-        # Same date, time changed — reset evening + status only
+        # Same date, time changed. Any text already sent quoted the OLD time,
+        # so reset everything and re-send a booking confirmation with the new
+        # time (~5 minutes from now via the booking job).
         appt.sms_sent_evening  = False
+        appt.sms_sent_morning  = False
         appt.sms_sent_reminder = False
+        appt.sms_sent_booking  = False
         appt.sms_sent_manual   = False
         appt.sms_status        = ""
-        if (getattr(appt, "appt_status", "") or "") == "confirmed":
-            appt.appt_status = ""
+        appt.appt_status       = ""
         appt.sms_sent_confirmed_notice = False
+        try:
+            appt.booked_at = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+        except Exception:
+            pass
+    elif (appt.phone_number or "") != old_phone and (appt.phone_number or ""):
+        # Phone number corrected on an unchanged time. Earlier texts went to
+        # the old (possibly wrong) number, so the client may have received
+        # nothing. Re-send the confirmation to the new number via the booking
+        # job. Confirmation status is left as is.
+        appt.sms_sent_evening  = False
+        appt.sms_sent_morning  = False
+        appt.sms_sent_booking  = False
+        appt.sms_sent_manual   = False
+        try:
+            appt.booked_at = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+        except Exception:
+            pass
     # else: only non-time fields changed — leave SMS fields untouched
 
     appt.scheduled_for = new_sched
@@ -2536,7 +2730,7 @@ SMS_EVENING_TEMPLATE = (
     "See you soon!"
 )
 SMS_MORNING_TEMPLATE = SMS_EVENING_TEMPLATE
-SMS_REMINDER_TEMPLATE = "Hi {name}! Just a quick reminder about your {time}."
+SMS_REMINDER_TEMPLATE = "Hi {name}! Just a quick reminder about your appointment today at {time}."
 
 def _build_confirmed_notice_sms(name: str) -> str:
     """The one-off 'your appointment is confirmed' notice.
@@ -2853,8 +3047,17 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     text   = (body_data.get("subject", "") or body_data.get("text", "") or "").strip().upper()
     sender = body_data.get("from", {}).get("phoneNumber", "")
 
-    # Case-insensitive: "Yes", "YES!", "yes thank you", "yes see you soon" all match
-    if "YES" not in text.upper() or not sender:
+    if not sender:
+        return {"status": "ignored"}
+    # "Yes", "YES!", "yes thank you", "yes see you soon" all match. YES must be
+    # a whole word, so "yesterday" or "eyes" never confirm anyone.
+    if not re.search(r"\bYES\b", text):
+        return {"status": "ignored"}
+    # A reply that says yes but also no/can't/cancel/reschedule ("yes but I
+    # can't make it", "no, not yes") is not a confirmation. Leave it for
+    # staff to read instead of auto-confirming the wrong thing.
+    if re.search(r"\b(NO|NOT|CAN'?T|CAN’T|CANNOT|UNABLE|CANCEL\w*|RESCHEDUL\w*)\b", text):
+        logger.info(f"RC webhook: YES reply from {sender} also contains a negative; not auto-confirming: {text!r}")
         return {"status": "ignored"}
 
     # Normalize sender number for matching (last 10 digits)
@@ -2863,14 +3066,23 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     # Match any unconfirmed appointment that has received ANY outbound SMS
     # (booking, evening, morning, or the manual Send Confirmation Texts button —
     # all of them include the YES prompt for unconfirmed clients)
+    # Only appointments that are still live: not already confirmed on either
+    # status field, not cancelled/no-show/rescheduled, and not long past.
+    # A YES must never confirm a cancelled appointment or one from weeks ago.
+    mt_now      = datetime.now(ZoneInfo("America/Edmonton"))
+    earliest    = (mt_now - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
     appts = db.query(Appointment).filter(
-        Appointment.sms_status != "confirmed",
+        Appointment.scheduled_for >= earliest,
     ).filter(
-        (Appointment.sms_sent_morning == True) |
-        (Appointment.sms_sent_evening == True) |
-        (Appointment.sms_sent_booking == True) |
-        (Appointment.sms_sent_manual  == True)
+        (Appointment.sms_sent_morning  == True) |
+        (Appointment.sms_sent_evening  == True) |
+        (Appointment.sms_sent_booking  == True) |
+        (Appointment.sms_sent_manual   == True) |
+        (Appointment.sms_sent_midpoint == True) |
+        (Appointment.sms_sent_reminder == True)
     ).order_by(Appointment.scheduled_for).all()
+    appts = [a for a in appts
+             if not _is_confirmed(a) and _sms_status_allows_texting(a)]
 
     sender_tail = sender_digits[-10:]
 
@@ -2912,9 +3124,13 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via YES from {sender}")
         # One-off 'your appointment is confirmed' notice (idempotent — fires once)
         await _maybe_send_confirmed_notice(db, matched)
-        # Send Tameema the updated daily summary with today's date in Mountain Time
-        today_mt = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
-        await _send_daily_summary(today_mt)
+        # Send Tameema the updated summary for the day this appointment is on,
+        # but only for today/tomorrow (the days the summaries cover).
+        appt_day  = (matched.scheduled_for or "")[:10]
+        today_mt  = mt_now.strftime("%Y-%m-%d")
+        tomorrow  = (mt_now + timedelta(days=1)).strftime("%Y-%m-%d")
+        if appt_day in (today_mt, tomorrow):
+            await _send_daily_summary(appt_day)
     else:
         logger.warning(f"RC webhook: no appointment matched sender {sender}")
 
@@ -3322,6 +3538,10 @@ async def _maybe_send_confirmed_notice(db: Session, appt: Appointment) -> bool:
         return False
     if (appt.appt_type or "") == "callback":
         return False
+    # Marking an appointment confirmed after its start time (e.g. tidying
+    # records later) must not text the client "Your appointment is confirmed".
+    if not _appt_is_upcoming(appt):
+        return False
     # Must have at least one recipient with a phone number
     if not _appt_recipients(db, appt):
         return False
@@ -3377,7 +3597,7 @@ async def _send_daily_summary(target_date: Optional[str] = None):
 
         if not rows:
             logger.info(f"Daily summary: no appointments on {date_str}, skipping.")
-            return False  # nothing to send
+            return None  # nothing to send (distinct from a failed send)
 
         lines = [date_label, ""]
         for a in rows:
@@ -3415,7 +3635,8 @@ async def _send_daily_summary(target_date: Optional[str] = None):
 
         result = await send_sms(db, token_row.owner_user_id, TAMEEMA_PHONE, message)
         logger.info(f"Daily summary sent → {TAMEEMA_PHONE} | {result.get('detail')}")
-        return True  # sent successfully
+        # Report the real outcome so the 9:01 PM retry fires when a send fails
+        return bool(result.get("sent") or result.get("dry_run"))
 
     except Exception as e:
         logger.error(f"Daily summary job error: {e}")
@@ -3481,8 +3702,9 @@ async def set_confirmation_status(appt_id: int,
     if data.status != "confirmed":
         if (getattr(appt, "appt_status", "") or "") == "confirmed":
             appt.appt_status = ""
-        # Re-arm the one-off notice so a future re-confirm sends again.
-        appt.sms_sent_confirmed_notice = False
+        # The one-off "confirmed" notice is NOT re-armed here. Un-confirming
+        # and re-confirming the same slot (a misclick) must not text the client
+        # twice. It is re-armed only when the appointment time changes.
 
     db.commit()
 
@@ -3530,8 +3752,9 @@ async def set_appt_status(appt_id: int,
     if data.appt_status != "confirmed":
         if (appt.sms_status or "") == "confirmed":
             appt.sms_status = ""
-        # Re-arm the one-off notice so a future re-confirm sends again.
-        appt.sms_sent_confirmed_notice = False
+        # The one-off "confirmed" notice is NOT re-armed here. Un-confirming
+        # and re-confirming the same slot (a misclick) must not text the client
+        # twice. It is re-armed only when the appointment time changes.
 
     db.commit()
 
@@ -3673,11 +3896,14 @@ async def manual_send_summary(data: SendSummaryPayload = SendSummaryPayload(),
         target_date = (datetime.now(mt) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     sent = await _send_daily_summary(target_date)
-    return {
-        "status": "sent" if sent else "no_appointments",
-        "date": target_date,
-        "detail": f"Summary for {target_date} {'sent to ' + TAMEEMA_PHONE if sent else 'skipped (no appointments)'}",
-    }
+    if sent is None:
+        return {"status": "no_appointments", "date": target_date,
+                "detail": f"Summary for {target_date} skipped (no appointments)"}
+    if not sent:
+        return {"status": "failed", "date": target_date,
+                "detail": f"Summary for {target_date} could not be sent. Check RingCentral."}
+    return {"status": "sent", "date": target_date,
+            "detail": f"Summary for {target_date} sent to {TAMEEMA_PHONE}"}
 
 
 @app.post("/rc/send-booking-texts")

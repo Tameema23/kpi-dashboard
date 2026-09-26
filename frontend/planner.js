@@ -664,6 +664,8 @@
     renderMiniCal();
 
     document.getElementById("m_timezone").value = "America/Edmonton";
+    document.getElementById("m_timezone").dataset.origTz  = "";
+    document.getElementById("m_timezone").dataset.touched = "";
     document.getElementById("tz_preview").style.display = "none";
     document.getElementById("type_appt").checked = true;
     document.getElementById("type_cb").checked = false;
@@ -846,6 +848,8 @@
     renderMiniCal();
 
     document.getElementById("m_timezone").value = "America/Edmonton";
+    document.getElementById("m_timezone").dataset.origTz  = appt.booking_tz || "America/Edmonton";
+    document.getElementById("m_timezone").dataset.touched = "";
     document.getElementById("tz_preview").style.display = "none";
     var isCallback = appt.appt_type === "callback";
     document.getElementById("type_appt").checked = !isCallback;
@@ -1266,7 +1270,13 @@
       }
     }
 
-    var bookingTz = document.getElementById("m_timezone").value || "America/Edmonton";
+    var tzSel     = document.getElementById("m_timezone");
+    var bookingTz = tzSel.value || "America/Edmonton";
+    // Editing an existing appointment must not silently switch the client's
+    // timezone to Mountain. Keep the original unless the dropdown was changed.
+    if (editingId && !tzSel.dataset.touched && tzSel.dataset.origTz) {
+      bookingTz = tzSel.dataset.origTz;
+    }
     var payload = {
       lead_name:     lead_name,
       attendee_name: document.getElementById("m_attendee_name").value.trim(),
@@ -1395,6 +1405,9 @@
   }
   document.getElementById("m_time").addEventListener("change", updateTzPreview);
   document.getElementById("m_timezone").addEventListener("change", updateTzPreview);
+  document.getElementById("m_timezone").addEventListener("change", function() {
+    this.dataset.touched = "1";
+  });
 
   // ── Mini calendar ────────────────────────────────────────────
   var CAL_DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
