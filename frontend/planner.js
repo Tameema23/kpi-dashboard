@@ -59,6 +59,65 @@
   // day_of_week: null = repeats every day; 0=Sun…6=Sat = that weekday only.
   var blockedHoursRecurring = [];
 
+  // ── Same-day notice ──────────────────────────────────────────
+  // Loaded from /scheduling-rules. Assistants cannot book a slot that starts
+  // sooner than leadHours from now (Mountain Time). Admins are exempt.
+  // The server enforces the same rule; this only keeps the grid honest.
+  var leadHours   = 0;
+  var leadApplies = false;
+
+  // "YYYY-MM-DDTHH:MM" in Mountain Time for a given epoch ms.
+  function mtStamp(ms) {
+    var p = {};
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Edmonton",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    }).formatToParts(new Date(ms)).forEach(function(x) { p[x.type] = x.value; });
+    var hh = p.hour === "24" ? "00" : p.hour;
+    return p.year + "-" + p.month + "-" + p.day + "T" + hh + ":" + p.minute;
+  }
+
+  // Earliest start an assistant may book right now.
+  function earliestBookable() {
+    return mtStamp(Date.now() + leadHours * 3600000);
+  }
+
+  // True when this Mountain-Time start is inside the notice window.
+  function isTooSoon(stamp) {
+    if (!leadApplies) return false;
+    return stamp < earliestBookable();
+  }
+
+  // One appointment per hour. Callbacks never clash; cancelled ones free the
+  // hour. Mirrors appointment_conflict() on the server, which has the final say.
+  function findHourClash(stamp, excludeId) {
+    var hourKey = stamp.slice(0, 13);
+    return appointments.find(function(a) {
+      return a.id !== excludeId &&
+        (a.appt_type || "appointment") !== "callback" &&
+        (a.appt_status || "") !== "cancelled" &&
+        (a.scheduled_for || "").slice(0, 13) === hourKey;
+    }) || null;
+  }
+
+  function clashMessage(stamp) {
+    var h = parseInt(stamp.slice(11, 13), 10);
+    return "There is already an appointment booked at " + fmtTime(String(h).padStart(2, "0") + ":00") +
+      " on " + fmtDisplay(stamp.slice(0, 10)) + ". Only one appointment can be booked per hour. " +
+      "Pick another time, or book this as a callback.";
+  }
+
+  function tooSoonMessage() {
+    var cut = earliestBookable();
+    var when = fmtTime(cut.split("T")[1]);
+    if (cut.slice(0, 10) !== mtStamp(Date.now()).slice(0, 10)) {
+      when = fmtDisplay(cut.slice(0, 10)) + " at " + when;
+    }
+    return "Same-day appointments need at least " + leadHours +
+      " hours' notice. Please pick a time at or after " + when + ".";
+  }
+
   // Helper: is a specific hour on a specific date blocked?
   // Returns the block object (with a .recurring flag) or null.
   function isHourBlocked(dateStr, hour) {
@@ -121,6 +180,17 @@
       });
       if (res4.ok) blockedHoursRecurring = await res4.json();
     } catch(e) { console.error("Failed to load recurring hour blocks", e); }
+    // Same-day notice rule
+    try {
+      var res5 = await fetch(API + "/scheduling-rules", {
+        headers: { Authorization: "Bearer " + TOKEN }
+      });
+      if (res5.ok) {
+        var rules = await res5.json();
+        leadHours   = parseInt(rules.same_day_lead_hours, 10) || 0;
+        leadApplies = !!rules.lead_applies;
+      }
+    } catch(e) { console.error("Failed to load scheduling rules", e); }
   }
 
   async function toggleBlockedDay(dow) {
@@ -422,16 +492,36 @@
         var cellDateStr = fmtDate(day);
         var isBlocked = !!isDateBlocked(cellDateStr);
         var hourBlock = !isBlocked ? isHourBlocked(cellDateStr, hour) : null;
+        var tooSoon   = !isBlocked && !hourBlock &&
+          isTooSoon(cellDateStr + "T" + String(hour).padStart(2, "0") + ":00");
+        // Only today's cells are shaded. Earlier days keep their normal look
+        // but still refuse new bookings through the click handler below.
+        var shadeSoon = tooSoon && cellDateStr === mtStamp(Date.now()).slice(0, 10);
         var cell = document.createElement("div");
         cell.className = "pg-cell" +
           (cellDateStr === today ? " pg-cell-today" : "") +
           (isBlocked ? " pg-cell-blocked" : "") +
-          (hourBlock  ? " pg-cell-hour-blocked" : "");
+          ((hourBlock || shadeSoon) ? " pg-cell-hour-blocked" : "");
         cell.dataset.date = cellDateStr;
         cell.dataset.hour = hour;
 
-        // Hour block label
-        if (hourBlock) {
+        if (shadeSoon) {
+          var slbl = document.createElement("span");
+          slbl.className = "pg-hour-block-label";
+          slbl.innerText = "Too soon";
+          cell.appendChild(slbl);
+          cell.title = "Needs " + leadHours + " hours' notice.";
+        }
+
+        // Inside the same-day notice window (assistants only). Existing
+        // appointments in the cell still render and open normally below.
+        if (tooSoon) {
+          cell.addEventListener("click", function(e) {
+            e.stopPropagation();
+            showToast(tooSoonMessage(), "error");
+          });
+        } else if (hourBlock) {
+          // Hour block label
           var lbl = document.createElement("span");
           lbl.className = "pg-hour-block-label";
           var repeatSuffix = "";
@@ -1077,7 +1167,10 @@
         }
         renderPlanner();
         showToast(status ? "Status set to " + status.replace("_"," ") + "." : "Status cleared.", "info");
-      } else { showToast("Failed to set status.", "error"); }
+      } else {
+        var serr = await res.json().catch(function() { return {}; });
+        showToast(serr.detail || "Failed to set status.", "error");
+      }
     } catch(e) { showToast("Server error.", "error"); }
   };
 
@@ -1156,46 +1249,6 @@
       return;
     }
 
-    // ── Blocked-day check (client-side, backed by server enforcement) ──
-    var selectedDate = new Date(date + "T00:00:00");
-    var selectedDow  = selectedDate.getDay(); // 0=Sun … 6=Sat
-    var saveBlockCheck = isDateBlocked(date);
-    if (saveBlockCheck) {
-      var dateEl = document.getElementById("m_date");
-      dateEl.style.borderColor = "#dc2626";
-      setTimeout(function() { dateEl.style.borderColor = ""; }, 2000);
-      var msg = saveBlockCheck === "recurring"
-        ? DAY_FULL[selectedDow] + " is unavailable. Please choose a different day."
-        : fmtDisplay(date) + " is unavailable. Please choose a different date.";
-      showToast(msg, "error");
-      return;
-    }
-
-    // ── Work hours check (7:00 AM – 9:00 PM) ─────────────────
-    var timeParts = time.split(":");
-    var timeMinutes = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1] || 0);
-    var WORK_START = 7  * 60; // 07:00 = 420 min
-    var WORK_END   = 21 * 60; // 21:00 = 1260 min
-    if (timeMinutes < WORK_START || timeMinutes > WORK_END) {
-      var timeEl = document.getElementById("m_time");
-      timeEl.style.borderColor = "#dc2626";
-      setTimeout(function() { timeEl.style.borderColor = ""; }, 2000);
-      showToast("Appointments must be between 7:00 AM and 9:00 PM.", "error");
-      return;
-    }
-
-    // ── Blocked hour check ────────────────────────────────────
-    var saveHour = parseInt(timeParts[0]);
-    var hourBlockCheck = isHourBlocked(date, saveHour);
-    if (hourBlockCheck) {
-      var timeEl2 = document.getElementById("m_time");
-      timeEl2.style.borderColor = "#dc2626";
-      setTimeout(function() { timeEl2.style.borderColor = ""; }, 2000);
-      var blockLabel = hourBlockCheck.label ? " (" + hourBlockCheck.label + ")" : "";
-      showToast("This time slot is unavailable" + blockLabel + ". Please choose a different time.", "error");
-      return;
-    }
-
     // Convert entered time from selected timezone to Mountain (America/Edmonton)
     var scheduledFor;
     if (tz === "America/Edmonton") {
@@ -1235,7 +1288,85 @@
       scheduledFor = mp.year + "-" + mp.month + "-" + mp.day + "T" + mtHour + ":" + mp.minute;
     }
 
+    // All availability checks run on the Mountain Time value, because that is
+    // what the planner grid and the server use. Checking the entered time in
+    // another timezone rejected open slots and allowed blocked ones.
+    var mtDate     = scheduledFor.slice(0, 10);
+    var mtTime     = scheduledFor.slice(11, 16);
+    var mtSuffix   = tz === "America/Edmonton" ? "" : " Mountain Time";
+
+    // ── Blocked-day check (client-side, backed by server enforcement) ──
+    var selectedDate = new Date(mtDate + "T00:00:00");
+    var selectedDow  = selectedDate.getDay(); // 0=Sun … 6=Sat
+    var saveBlockCheck = isDateBlocked(mtDate);
+    if (saveBlockCheck) {
+      var dateEl = document.getElementById("m_date");
+      dateEl.style.borderColor = "#dc2626";
+      setTimeout(function() { dateEl.style.borderColor = ""; }, 2000);
+      var msg = saveBlockCheck === "recurring"
+        ? DAY_FULL[selectedDow] + " is unavailable. Please choose a different day."
+        : fmtDisplay(mtDate) + " is unavailable. Please choose a different date.";
+      showToast(msg, "error");
+      return;
+    }
+
+    // ── Work hours check (7:00 AM – 9:00 PM Mountain) ─────────
+    var timeParts = mtTime.split(":");
+    var timeMinutes = parseInt(timeParts[0]) * 60 + parseInt(timeParts[1] || 0);
+    var WORK_START = 7  * 60; // 07:00 = 420 min
+    var WORK_END   = 21 * 60; // 21:00 = 1260 min
+    if (timeMinutes < WORK_START || timeMinutes > WORK_END) {
+      var timeEl = document.getElementById("m_time");
+      timeEl.style.borderColor = "#dc2626";
+      setTimeout(function() { timeEl.style.borderColor = ""; }, 2000);
+      showToast("Appointments must be between 7:00 AM and 9:00 PM" + mtSuffix + ".", "error");
+      return;
+    }
+
+    // ── Blocked hour check ────────────────────────────────────
+    var saveHour = parseInt(timeParts[0]);
+    var hourBlockCheck = isHourBlocked(mtDate, saveHour);
+    if (hourBlockCheck) {
+      var timeEl2 = document.getElementById("m_time");
+      timeEl2.style.borderColor = "#dc2626";
+      setTimeout(function() { timeEl2.style.borderColor = ""; }, 2000);
+      var blockLabel = hourBlockCheck.label ? " (" + hourBlockCheck.label + ")" : "";
+      showToast("This time slot is unavailable" + blockLabel + ". Please choose a different time.", "error");
+      return;
+    }
+
+    // ── Same-day notice check (assistants only) ───────────────
+    // Editing an appointment without moving it is always allowed.
+    var origAppt  = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
+    var timeMoved = !origAppt || (origAppt.scheduled_for || "") !== scheduledFor;
+    if (timeMoved && isTooSoon(scheduledFor)) {
+      var timeEl3 = document.getElementById("m_time");
+      timeEl3.style.borderColor = "#dc2626";
+      setTimeout(function() { timeEl3.style.borderColor = ""; }, 2000);
+      showToast(scheduledFor < mtStamp(Date.now())
+        ? "That time has already passed. Please pick another time."
+        : tooSoonMessage(), "error");
+      return;
+    }
+
     var apptType = document.querySelector('input[name="m_appt_type"]:checked').value;
+
+    // ── One appointment per hour ──────────────────────────────
+    // Only when this save could create a clash: a new appointment, a move to
+    // another hour, or a callback turned into an appointment.
+    if (apptType !== "callback") {
+      var clashOrig   = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
+      var couldClash  = !clashOrig ||
+        (clashOrig.scheduled_for || "").slice(0, 13) !== scheduledFor.slice(0, 13) ||
+        (clashOrig.appt_type || "appointment") === "callback";
+      if (couldClash && findHourClash(scheduledFor, editingId)) {
+        var timeEl4 = document.getElementById("m_time");
+        timeEl4.style.borderColor = "#dc2626";
+        setTimeout(function() { timeEl4.style.borderColor = ""; }, 2000);
+        showToast(clashMessage(scheduledFor), "error");
+        return;
+      }
+    }
 
     // Normalize phone number — strip everything except digits and leading +
     var rawPhone = document.getElementById("m_phone_number").value.trim();
@@ -1714,6 +1845,12 @@
       dd.attachDragHandlers(); // initial attach
     }
 
+    // Keep blocked hours and the same-day notice window current. The
+    // appointment poll below only watches appointments, so a block Hazem adds
+    // on another device, or a slot sliding inside the notice window as the
+    // clock moves, would otherwise not show until a page reload.
+    initAvailabilityRefresh();
+
     // Auto-refresh every 30 seconds
     if (typeof initPlannerAutoRefresh === "function") {
       initPlannerAutoRefresh(
@@ -1723,6 +1860,41 @@
       );
     }
   });
+
+  function availabilitySignature() {
+    return JSON.stringify([
+      Array.from(blockedDays).sort(), Array.from(blockedDates).sort(),
+      blockedHours, blockedHoursRecurring, leadHours, leadApplies,
+      // Changes once per hour boundary crossed by the notice cutoff
+      leadApplies ? earliestBookable().slice(0, 13) : ""
+    ]);
+  }
+
+  function initAvailabilityRefresh() {
+    var INTERVAL = 60000;
+    var lastSig  = availabilitySignature();
+    var timerId  = null;
+
+    async function tick() {
+      // Never rebuild the grid under an active drag.
+      if (document.querySelector(".pg-appt-block.dragging")) return;
+      await loadBlockedDays();
+      var sig = availabilitySignature();
+      if (sig !== lastSig) {
+        lastSig = sig;
+        renderPlanner();
+      }
+    }
+
+    timerId = setInterval(tick, INTERVAL);
+    document.addEventListener("visibilitychange", function() {
+      clearInterval(timerId);
+      if (!document.hidden) {
+        tick();
+        timerId = setInterval(tick, INTERVAL);
+      }
+    });
+  }
 
   // Reschedule via API (used by drag-drop)
   async function rescheduleAppointment(id, changes) {
@@ -1748,6 +1920,18 @@
         showToast("That time slot is unavailable" + blockLabel + ". Cannot reschedule to this time.", "error");
         return null;
       }
+      // ── Same-day notice for drag-drop (assistants only) ──
+      if (isTooSoon(changes.scheduled_for)) {
+        showToast(tooSoonMessage(), "error");
+        return null;
+      }
+      // ── One appointment per hour for drag-drop ──
+      if ((appt.appt_type || "appointment") !== "callback" &&
+          (appt.appt_status || "") !== "cancelled" &&
+          findHourClash(changes.scheduled_for, appt.id)) {
+        showToast(clashMessage(changes.scheduled_for), "error");
+        return null;
+      }
     }
     try {
       var res = await fetch(API + "/appointments/" + id, {
@@ -1764,8 +1948,15 @@
         })
       });
       if (res.ok) return await res.json();
+      // Show the server's reason (clash, blocked hour, too soon). The drag
+      // handler puts the block back where it was.
+      var err = await res.json().catch(function() { return {}; });
+      showToast(err.detail || "Failed to reschedule. Please try again.", "error");
       return null;
-    } catch(e) { return null; }
+    } catch(e) {
+      showToast("Server error. The appointment was not moved.", "error");
+      return null;
+    }
   }
 
 })(); // end IIFE

@@ -310,6 +310,7 @@ body {
   <div class="bk-intro">
     <h1>Book an appointment</h1>
     <p>Pick an available time below, then add the client's details. All times are Mountain Time.</p>
+    <p id="leadNote" style="display:none;margin-top:-14px;font-weight:600;color:#475569;"></p>
   </div>
 
   <div class="bk-card" id="gridCard">
@@ -466,9 +467,21 @@ body {
 
       // The server clamps a start date in the past, so trust its answer over
       // ours and keep the view aligned with what was actually returned.
+      // "today" comes from the server too, so a page left open past midnight
+      // moves its back-stop forward instead of pointing at yesterday.
       weekStart = parseDate(data.start);
-      if (!today) today = parseDate(data.start);
+      today = parseDate(data.today || data.start);
 
+      var note = document.getElementById("leadNote");
+      if (data.lead_hours > 0) {
+        note.textContent = "Same-day appointments need at least " +
+          data.lead_hours + " hours' notice.";
+        note.style.display = "";
+      } else {
+        note.style.display = "none";
+      }
+
+      dropStaleSelection();
       render();
     } catch (e) {
       data = null;
@@ -480,6 +493,23 @@ body {
     } finally {
       loading = false;
       updateNav();
+    }
+  }
+
+  // After a refresh, the slot the agent picked may have been booked, blocked
+  // on the planner, or pushed inside the notice window. Drop it and say so
+  // rather than letting the agent fill in the form for a slot that is gone.
+  function dropStaleSelection() {
+    if (!selected || !data) return;
+    var day = data.days.filter(function (d) { return d.date === selected.date; })[0];
+    if (!day) return;                       // selected day is in another week
+    var hIdx = data.hours.indexOf(selected.hour);
+    if (!day.closed && hIdx !== -1 && day.slots[hIdx]) return;
+    selected = null;
+    // Keep the form and whatever the agent typed; just ask for a new time.
+    if (el.formCard.style.display !== "none") {
+      el.chosen.textContent = "Choose a new time above.";
+      showError("That time is no longer available. Please pick another time.");
     }
   }
 
@@ -649,10 +679,20 @@ body {
   });
 
   // Availability changes while the page sits open, so refresh whatever week is
-  // on screen when the agent comes back to the tab.
+  // on screen when the agent comes back to the tab, and every 30 seconds
+  // while it is visible. A block added on the planner, a slot another agent
+  // just took, or a slot sliding inside the notice window all show up without
+  // a manual reload.
+  var POLL_MS = 30000;
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden && data) load();
   });
+  setInterval(function () {
+    if (document.hidden || !data) return;
+    if (el.doneCard.style.display !== "none") return;   // on the success screen
+    if (el.submit.disabled) return;                     // a booking is in flight
+    load();
+  }, POLL_MS);
 
   // ── Submit ────────────────────────────────────────────────────
   el.submit.addEventListener("click", async function () {

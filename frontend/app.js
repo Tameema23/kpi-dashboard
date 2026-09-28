@@ -2130,7 +2130,16 @@ function initDragDrop(getAppointments, saveAppointmentFn, renderFn) {
         // Save to server
         try {
           var result = await saveAppointmentFn(apptId, { scheduled_for: newScheduled });
-          if (result) {
+          if (!result) {
+            // Rejected (clash, blocked hour, too soon, or server error). The
+            // block was moved on screen before the save, so put it back or
+            // the planner shows a move that never happened.
+            var appts4 = getAppointments();
+            var idx4 = appts4.findIndex(function(a) { return a.id === apptId; });
+            if (idx4 !== -1) appts4[idx4].scheduled_for = oldScheduled;
+            setAppointments(appts4);
+            renderFn();
+          } else {
             // Show undo toast
             showUndoToast(
               "Moved to " + formatDropTime(newScheduled),

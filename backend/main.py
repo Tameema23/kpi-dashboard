@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, field_validator
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 from jose import jwt, JWTError
@@ -958,6 +959,12 @@ def validate_date(value: str) -> str:
 def validate_datetime(value: str) -> str:
     if not re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$", value):
         raise HTTPException(400, "Invalid datetime format. Use YYYY-MM-DDTHH:MM.")
+    # The pattern alone accepts values like 2026-02-30T14:00 or T25:00, which
+    # later crash date parsing with a 500. Reject them here with a clean 400.
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        raise HTTPException(400, "Invalid date or time.")
     return value
 
 ALLOWED_TIMEZONES = {
@@ -1179,6 +1186,88 @@ def slot_unavailable_reason(db: Session, owner: int,
     """Combined check. None means the slot is free to book."""
     return (blocked_day_reason(db, owner, scheduled_for)
             or blocked_hour_reason(db, owner, scheduled_for))
+
+
+# ── Same-day notice ───────────────────────────────────────────────────────────
+# Assistants on the planner and agents on the public booking link cannot book
+# a slot that starts sooner than this many hours from now. Opening the calendar
+# at 10:00 makes 14:00 the earliest slot; at 10:15 it is 15:00. Admins are
+# exempt. Set SAME_DAY_LEAD_HOURS in the environment to change it (0 disables).
+def _lead_hours_from_env() -> int:
+    try:
+        return max(0, min(24, int(os.environ.get("SAME_DAY_LEAD_HOURS", "4"))))
+    except ValueError:
+        return 4
+
+SAME_DAY_LEAD_HOURS = _lead_hours_from_env()
+
+
+def earliest_bookable(now: Optional[datetime] = None) -> str:
+    """
+    First moment a restricted booker may book, as YYYY-MM-DDTHH:MM Mountain.
+    The offset is added in UTC so a DST change can never shorten the notice.
+    """
+    mt  = ZoneInfo("America/Edmonton")
+    now = now or datetime.now(mt)
+    out = now.astimezone(ZoneInfo("UTC")) + timedelta(hours=SAME_DAY_LEAD_HOURS)
+    return out.astimezone(mt).strftime("%Y-%m-%dT%H:%M")
+
+
+def _fmt_cutoff(stamp: str) -> str:
+    """'2026-09-28T14:15' -> '2:15 PM' (with the date if it is not today)."""
+    dt   = datetime.strptime(stamp, "%Y-%m-%dT%H:%M")
+    h12  = dt.hour % 12 or 12
+    text = f"{h12}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
+    today = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+    if stamp[:10] != today:
+        text = f"{dt.strftime('%b')} {dt.day}, {text}"
+    return text
+
+
+def lead_time_reason(scheduled_for: str) -> Optional[str]:
+    """Why this start time is too soon, or None if it gives enough notice."""
+    now = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    if scheduled_for[:16] < now:
+        return "That time has already passed. Please pick another time."
+    if SAME_DAY_LEAD_HOURS <= 0:
+        return None
+    cutoff = earliest_bookable()
+    if scheduled_for[:16] < cutoff:
+        return (f"Same-day appointments need at least {SAME_DAY_LEAD_HOURS} "
+                f"hours' notice. Please pick a time at or after "
+                f"{_fmt_cutoff(cutoff)} (Mountain Time).")
+    return None
+
+# ── One appointment per hour ─────────────────────────────────────────────────
+# No two appointments may share a clock hour (1:00 and 1:30 clash). Callbacks
+# never clash with anything, so a callback can sit beside an appointment.
+# Cancelled appointments release their hour. A missing appt_type is treated as
+# an appointment, matching _appt_dict. The planner, the agent link, and the
+# availability grid all ask this one helper, so they cannot disagree.
+def appointment_conflict(db: Session, owner: int, scheduled_for: str,
+                         exclude_id: Optional[int] = None):
+    """The active appointment already holding this hour, or None."""
+    q = db.query(Appointment).filter(
+        Appointment.owner_id == owner,
+        Appointment.scheduled_for.startswith(scheduled_for[:13]),
+        or_(Appointment.appt_status.is_(None),
+            Appointment.appt_status != "cancelled"),
+        or_(Appointment.appt_type.is_(None),
+            Appointment.appt_type != "callback"),
+    )
+    if exclude_id is not None:
+        q = q.filter(Appointment.id != exclude_id)
+    return q.first()
+
+
+def conflict_message(scheduled_for: str) -> str:
+    dt  = datetime.strptime(scheduled_for[:13], "%Y-%m-%dT%H")
+    h12 = dt.hour % 12 or 12
+    return (f"There is already an appointment booked at {h12}:00 "
+            f"{'AM' if dt.hour < 12 else 'PM'} on {dt.strftime('%b')} {dt.day}. "
+            f"Only one appointment can be booked per hour. "
+            f"Pick another time, or book this as a callback.")
+
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
@@ -1599,6 +1688,11 @@ def create_appointment(data: AppointmentPayload,
             raise HTTPException(409, hour_reason)
         else:
             raise HTTPException(400, hour_reason)
+    # Same-day notice applies to assistants. Admins are exempt.
+    if user.role != "admin":
+        lead_reason = lead_time_reason(sched)
+        if lead_reason:
+            raise HTTPException(400, lead_reason)
     # Normalize to E.164 so RingCentral can actually dial it.
     raw_phone = normalize_phone(data.phone_number)
     now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
@@ -1624,7 +1718,12 @@ def create_appointment(data: AppointmentPayload,
             appt.midpoint_send_date = midpoint_date.strftime("%Y-%m-%d")
     except Exception:
         pass
-    db.add(appt); db.commit(); db.refresh(appt)
+    # One appointment per hour. Check and insert under the same lock the agent
+    # link uses, so a planner save and an agent booking cannot both win.
+    with _booking_lock:
+        if appt.appt_type != "callback" and appointment_conflict(db, owner, appt.scheduled_for):
+            raise HTTPException(400, conflict_message(appt.scheduled_for))
+        db.add(appt); db.commit(); db.refresh(appt)
     # Persist any extra SMS recipients
     _sync_recipients(db, appt, data.recipients)
     db.commit()
@@ -1667,6 +1766,9 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         ).first()
         if blocked_date:
             raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
+    # Captured before any field changes, for the one-per-hour check below.
+    prev_sched = appt.scheduled_for or ""
+    prev_type  = appt.appt_type or "appointment"
     # Normalised so legacy rows stored without +1 don't count as a change
     old_phone          = normalize_phone(appt.phone_number or "")
     appt.lead_name     = title_case(sanitize_str(data.lead_name, 200))
@@ -1692,6 +1794,12 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
                 raise HTTPException(409, hour_reason)
             else:
                 raise HTTPException(400, hour_reason)
+        # Same-day notice, assistants only. Editing a name or phone on an
+        # appointment that is already inside the window still works.
+        if user.role != "admin":
+            lead_reason = lead_time_reason(new_sched)
+            if lead_reason:
+                raise HTTPException(400, lead_reason)
 
     old_date   = appt.scheduled_for[:10] if appt.scheduled_for else ""
     new_date   = new_sched[:10]
@@ -1766,7 +1874,18 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     appt.scheduled_for = new_sched
     # Update extra SMS recipients (None = leave as-is; [] = clear)
     _sync_recipients(db, appt, data.recipients)
-    db.commit()
+
+    # One appointment per hour. Only checked when this edit could create a
+    # clash (the hour moves, or a callback becomes an appointment), so fixing a
+    # name on an older pair that already overlaps still saves.
+    needs_check = (appt.appt_type != "callback"
+                   and (new_sched[:13] != prev_sched[:13] or prev_type == "callback")
+                   and (getattr(appt, "appt_status", "") or "") != "cancelled")
+    with _booking_lock:
+        if needs_check and appointment_conflict(db, owner, new_sched, exclude_id=appt.id):
+            db.rollback()
+            raise HTTPException(400, conflict_message(new_sched))
+        db.commit()
     return _appt_dict(appt, db)
 
 @app.delete("/appointments/{appt_id}")
@@ -1812,6 +1931,18 @@ def _appt_dict(appt, db):
             "booked_by_agent": bool(getattr(appt, "booked_by_agent", False)),
             "booked_by_name": getattr(appt, "booked_by_name", "") or "",
             "midpoint_send_date": getattr(appt, "midpoint_send_date", "") or ""}
+
+@app.get("/scheduling-rules")
+def get_scheduling_rules(user: User = Depends(get_current_user)):
+    """Booking rules the planner mirrors client-side. The server stays the
+    authority: every rule here is re-checked on create and update."""
+    _check_planner_access(user)
+    return {
+        "timezone":            "America/Edmonton",
+        "same_day_lead_hours": SAME_DAY_LEAD_HOURS,
+        "lead_applies":        user.role != "admin",
+    }
+
 
 # ── Blocked Days (Unavailable Days) ────────────────────────────────────────────
 
@@ -3197,17 +3328,21 @@ def _get_booking_config(db: Session, owner: int,
 def _occupied_slots(db: Session, owner: int, start: str, end: str) -> set:
     """
     Set of "YYYY-MM-DDTHH" strings already taken by an appointment.
-    Cancelled appointments release their slot; everything else holds it.
+    Cancelled appointments release their slot and callbacks never hold one,
+    the same rule appointment_conflict() applies.
     """
-    rows = db.query(Appointment.scheduled_for, Appointment.appt_status).filter(
+    rows = db.query(Appointment.scheduled_for, Appointment.appt_status,
+                    Appointment.appt_type).filter(
         Appointment.owner_id == owner,
         Appointment.scheduled_for >= start,
         Appointment.scheduled_for <= end,
     ).all()
-    return {r[0][:13] for r in rows if (r[1] or "") != "cancelled"}
+    return {r[0][:13] for r in rows
+            if (r[1] or "") != "cancelled" and (r[2] or "appointment") != "callback"}
 
 
-def _availability(db: Session, owner: int, start_date, days: int) -> dict:
+def _availability(db: Session, owner: int, start_date, days: int,
+                  last_bookable_date=None) -> dict:
     """
     Build the agent-facing grid for one window of days beginning at start_date.
 
@@ -3264,7 +3399,10 @@ def _availability(db: Session, owner: int, start_date, days: int) -> dict:
     visible_hours = [h for h in range(PLANNER_FIRST_HOUR, PLANNER_LAST_HOUR + 1)
                      if h not in hidden]
 
-    cur_stamp = _mt_now().strftime("%Y-%m-%dT%H")
+    # A slot is open only if it starts at or after the same-day notice cutoff.
+    # This also hides every slot that has already passed.
+    now_mt    = _mt_now()
+    cutoff    = earliest_bookable(now_mt)
     out_days  = []
 
     for offset in range(days):
@@ -3272,29 +3410,34 @@ def _availability(db: Session, owner: int, start_date, days: int) -> dict:
         date_str = d.isoformat()
         dow      = (d.weekday() + 1) % 7
 
-        if dow in blocked_dows or date_str in blocked_dates:
+        # Past the booking horizon the POST would refuse, so never offer it.
+        beyond_horizon = last_bookable_date is not None and d > last_bookable_date
+        if dow in blocked_dows or date_str in blocked_dates or beyond_horizon:
             out_days.append({"date": date_str, "closed": True,
                              "slots": [False] * len(visible_hours)})
             continue
 
-        day_ranges = one_off_hours.get(date_str, [])
+        # Copy, so the per-date list in one_off_hours is never mutated.
+        day_ranges = list(one_off_hours.get(date_str, []))
         day_ranges += [(s_h, e_h) for wd, s_h, e_h in recurring if wd == dow]
 
         slots = []
         for hour in visible_hours:
             stamp = f"{date_str}T{hour:02d}"
             slots.append(
-                stamp > cur_stamp
+                f"{stamp}:00" >= cutoff
                 and stamp not in occupied
                 and not any(s_h <= hour < e_h for s_h, e_h in day_ranges)
             )
         out_days.append({"date": date_str, "closed": False, "slots": slots})
 
     return {
-        "timezone": "America/Edmonton",
-        "start":    start_iso,
-        "hours":    visible_hours,
-        "days":     out_days,
+        "timezone":   "America/Edmonton",
+        "today":      now_mt.date().isoformat(),
+        "start":      start_iso,
+        "hours":      visible_hours,
+        "days":       out_days,
+        "lead_hours": SAME_DAY_LEAD_HOURS,
     }
 
 
@@ -3406,7 +3549,8 @@ def booking_availability(slug: str, request: Request,
     if (start_date - today).days > limit:
         raise HTTPException(400, "That date is too far ahead.")
 
-    return _availability(db, cfg.owner_id, start_date, days)
+    return _availability(db, cfg.owner_id, start_date, days,
+                         last_bookable_date=today + timedelta(days=limit))
 
 
 class PublicBookingPayload(BaseModel):
@@ -3449,6 +3593,11 @@ async def create_public_booking(slug: str, data: PublicBookingPayload,
     now = _mt_now()
     if sched[:13] <= now.strftime("%Y-%m-%dT%H"):
         raise HTTPException(409, "That time has already passed. Please pick another slot.")
+    # Same rule the availability grid uses, so a page left open too long
+    # cannot book a slot that has since fallen inside the notice window.
+    lead_reason = lead_time_reason(sched)
+    if lead_reason:
+        raise HTTPException(409, lead_reason)
     limit = cfg.horizon_days or BOOKING_SANITY_LIMIT_DAYS
     if datetime.strptime(sched[:10], "%Y-%m-%d").date() > (now.date() + timedelta(days=limit)):
         raise HTTPException(400, "That date is too far ahead.")
@@ -3459,12 +3608,10 @@ async def create_public_booking(slug: str, data: PublicBookingPayload,
 
     # Serialise the final check-then-insert so two agents submitting the same
     # slot at the same moment cannot both succeed.
+    # Same one-per-hour rule as the planner: a planner appointment at 14:30
+    # holds the 14:00 slot, a callback does not.
     with _booking_lock:
-        if db.query(Appointment).filter(
-            Appointment.owner_id      == owner,
-            Appointment.scheduled_for == sched,
-            Appointment.appt_status   != "cancelled",
-        ).first():
+        if appointment_conflict(db, owner, sched):
             raise HTTPException(409, "That slot was just taken. Please pick another.")
 
         appt = Appointment(
@@ -3743,6 +3890,15 @@ async def set_appt_status(appt_id: int,
     valid = ("", "confirmed", "rescheduled", "no_show", "cancelled")
     if data.appt_status not in valid:
         raise HTTPException(422, "Invalid appt_status.")
+    # A cancelled appointment frees its hour, and the agent link may have
+    # filled it since. Restoring it must not put two appointments in one hour.
+    if ((getattr(appt, "appt_status", "") or "") == "cancelled"
+            and data.appt_status != "cancelled"
+            and (appt.appt_type or "appointment") != "callback"
+            and appt.scheduled_for
+            and appointment_conflict(db, owner, appt.scheduled_for, exclude_id=appt.id)):
+        raise HTTPException(400, "This appointment cannot be restored. "
+                                 + conflict_message(appt.scheduled_for))
     appt.appt_status = data.appt_status
 
     # Clearing the status (or setting any non-confirmed outcome) must also
