@@ -3356,3 +3356,49 @@ select {
   color: #0f172a;
   font-variant-numeric: tabular-nums;
 }
+
+
+/* ── Notice window and blocked hours (Oct 2026) ────────────────────
+   Appended at the bottom so base .pg-cell rules cannot override these.
+
+   1. The blocked-hour overlay drew a full-cell layer over everything in the
+      cell and swallowed every hover and click. It is decoration only, so it
+      now lets the pointer through to the appointments underneath.
+   2. Cells inside the same-day notice window get a quiet tint with no
+      label. New bookings are refused there, but anything already booked
+      opens and hovers like any other appointment. */
+.pg-cell-hour-blocked::after {
+  pointer-events: none;
+}
+
+.pg-cell-hour-blocked .pg-appt-block,
+.pg-cell-too-soon .pg-appt-block {
+  position: relative;
+  z-index: 2;
+}
+
+/* Keep the block label clear of any appointment sitting in a blocked hour. */
+.pg-cell-hour-blocked:has(.pg-appt-block) {
+  padding-top: 18px;
+}
+
+.pg-cell.pg-cell-too-soon,
+.pg-cell.pg-cell-today.pg-cell-too-soon {
+  background: #f4f6f9 !important;
+  cursor: not-allowed;
+}
+.pg-cell.pg-cell-too-soon:hover,
+.pg-cell.pg-cell-today.pg-cell-too-soon:hover {
+  background: #eef1f5 !important;
+}
+/* Appointments in the window look and act like any other appointment. */
+.pg-cell-too-soon .pg-appt-block {
+  cursor: pointer;
+}
+
+/* Client's local time line in the planner tooltip. */
+.tip-row.tip-client-time {
+  font-weight: 700;
+  color: #93c5fd;
+  padding-left: 18px;   /* lines up under the time, past the clock icon */
+}

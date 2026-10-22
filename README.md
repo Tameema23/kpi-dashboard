@@ -24,7 +24,8 @@ A production-ready, multi-user KPI management system built for insurance sales t
 
 ### Appointment Planner
 - Weekly calendar UI with modal forms and hover tooltips
-- Timezone-aware scheduling (Canadian timezones)
+- Timezone-aware scheduling (Canadian timezones). All rules live in `backend/timezones.py` and use the bundled `tzdata` package, so clock changes (including the fall 2026 permanent-time changes in Alberta, B.C. and Manitoba) come from data, not code. When a province changes its rules, update `tzdata` and redeploy.
+- Agent booking link shows each open time in the client's own time zone
 - Admin can create appointments on behalf of assistants
 - Appointment type support: appointments and callbacks
 

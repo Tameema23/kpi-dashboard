@@ -172,11 +172,13 @@
         <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
           <label style="font-size:12px;font-weight:600;color:#64748b;margin:0;white-space:nowrap;">Time zone:</label>
           <select id="m_timezone" style="flex:1;padding:7px 10px;border-radius:8px;border:1.5px solid #e2e8f0;font-size:13px;font-weight:600;color:#0f172a;background:#fafafa;cursor:pointer;">
-            <option value="America/Edmonton" selected>Mountain (Calgary) &#x2014; default</option>
-            <option value="America/Vancouver">Pacific (PT)</option>
-            <option value="America/Winnipeg">Central (CT)</option>
-            <option value="America/Toronto">Eastern (ET)</option>
-            <option value="America/Halifax">Atlantic (AT)</option>
+            <!-- Replaced on load by the server's list (backend/timezones.py). -->
+            <option value="America/Vancouver">Pacific (British Columbia) (PT)</option>
+            <option value="America/Edmonton" selected>Mountain (Alberta) (MT) &#x2014; default</option>
+            <option value="America/Regina">Saskatchewan (CST)</option>
+            <option value="America/Winnipeg">Central (Manitoba) (CT)</option>
+            <option value="America/Toronto">Eastern (Ontario / Quebec) (ET)</option>
+            <option value="America/Halifax">Atlantic (NS / NB / PEI) (AT)</option>
             <option value="America/St_Johns">Newfoundland (NT)</option>
           </select>
         </div>

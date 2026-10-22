@@ -25,9 +25,13 @@ slowapi==0.1.9
 pydantic==2.9.2
 email-validator==2.2.0
 
-# Timezone support (Python 3.9+ has zoneinfo built-in, this is the backport)
-# Remove if using Python 3.9+
-# backports.zoneinfo==0.2.1
+# Time zone data. zoneinfo is built in, but the server's own copy of the IANA
+# database can be years old. backend/timezones.py reads this package instead,
+# so every time zone rule comes from here. 2026.5 (IANA 2026e) covers the
+# fall 2026 changes in Alberta, B.C., Manitoba and N.W.T. Kept as a floor, not
+# a pin, so each deploy picks up the newest rules. When a province announces a
+# change, a redeploy is all it takes.
+tzdata>=2026.5
 
 # ── Optional: Postgres support ─────────────────────────────────────────────────
 # Uncomment when you migrate from SQLite to Postgres (Railway, Render, etc.)

@@ -114,6 +114,52 @@ body {
 
 .bk-empty { padding: 40px 20px; text-align: center; color: #94a3b8; font-size: 14px; }
 
+/* ── Client time zone ── */
+.bk-tz {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 14px 18px;
+  background: #fff;
+  border: 1.5px solid #e8edf3;
+  border-radius: 16px;
+}
+.bk-tz label { font-size: 13px; font-weight: 700; color: #334155; }
+.bk-tz select {
+  flex: 0 1 280px;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  background: #fafafa;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+}
+.bk-tz select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+}
+.bk-tz-hint { flex-basis: 100%; margin: 0; font-size: 12.5px; color: #64748b; line-height: 1.5; }
+.bk-tz-hint strong { color: #0f172a; }
+
+/* Client's time inside a slot, and a marker when it falls on another day. */
+.bk-slot .bk-shift,
+.bk-time .bk-shift {
+  font-size: 10px;
+  font-weight: 800;
+  margin-left: 3px;
+  opacity: 0.75;
+}
+.bk-gutter-head { font-size: 10.5px; font-weight: 800; color: #64748b; letter-spacing: 0.3px; }
+.bk-time-sub { display: block; margin-top: 2px; font-size: 12px; font-weight: 600; opacity: 0.75; }
+.bk-form-head .bk-client-line { margin-top: 3px; color: #475569; font-weight: 600; font-size: 13px; }
+
 .bk-legend {
   display: flex; gap: 18px; align-items: center;
   padding: 12px 18px;
@@ -286,6 +332,8 @@ body {
   .bk-days      { display: block; }
   .bk-nav       { padding: 12px 16px; }
   .bk-nav-label { font-size: 13.5px; }
+  .bk-tz { padding: 12px 14px; }
+  .bk-tz select { flex: 1 1 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -309,8 +357,14 @@ body {
 
   <div class="bk-intro">
     <h1>Book an appointment</h1>
-    <p>Pick an available time below, then add the client's details. All times are Mountain Time.</p>
+    <p>Pick an available time below, then add the client's details.</p>
     <p id="leadNote" style="display:none;margin-top:-14px;font-weight:600;color:#475569;"></p>
+  </div>
+
+  <div class="bk-tz" id="tzBar" style="display:none;">
+    <label for="tzSelect">Client's time zone</label>
+    <select id="tzSelect"></select>
+    <p class="bk-tz-hint" id="tzHint"></p>
   </div>
 
   <div class="bk-card" id="gridCard">
@@ -335,6 +389,7 @@ body {
     <div class="bk-legend">
       <span><i style="background:#eff6ff;border:1.5px solid #bfdbfe;"></i>Available</span>
       <span><i style="background:#f8fafc;border:1.5px solid #f1f5f9;"></i>Unavailable</span>
+      <span id="legendTz" style="display:none;"></span>
     </div>
   </div>
 
@@ -342,6 +397,7 @@ body {
     <div class="bk-form-head">
       <h2>Appointment details</h2>
       <p id="chosenLabel"></p>
+      <p class="bk-client-line" id="chosenClient" style="display:none;"></p>
     </div>
     <div class="bk-form-body">
       <div class="bk-field">
@@ -393,6 +449,11 @@ body {
   var selected  = null;   // { date, hour }
   var openDay   = null;   // mobile only: which day's times are expanded
   var loading   = false;  // guards against overlapping fetches
+  var clientTz  = null;   // client's IANA zone; null until the server says the default
+
+  // Time zone rules live on the server (backend/timezones.py) with current
+  // IANA data. This page never converts times itself: each open slot arrives
+  // with the client's local time already worked out for that exact date.
 
   // A seven column grid is unusable at phone width, so below this the same
   // data is presented as day chips plus a vertical list of times.
@@ -409,7 +470,12 @@ body {
     gridCard:document.getElementById("gridCard"),
     chosen:  document.getElementById("chosenLabel"),
     msg:     document.getElementById("formMsg"),
-    submit:  document.getElementById("submitBtn")
+    submit:  document.getElementById("submitBtn"),
+    tzBar:   document.getElementById("tzBar"),
+    tzSel:   document.getElementById("tzSelect"),
+    tzHint:  document.getElementById("tzHint"),
+    legendTz:document.getElementById("legendTz"),
+    chosenClient: document.getElementById("chosenClient")
   };
 
   function esc(str) {
@@ -441,6 +507,61 @@ body {
     return hr + ":00 " + suffix;
   }
 
+  // Business zone short label ("MT") and whether the client is elsewhere.
+  function bizAbbrev() { return (data && data.tz_abbrev) || "MT"; }
+  function converting() {
+    return !!(data && data.client_tz && data.client_tz.id !== data.timezone);
+  }
+  function clientAbbrev() { return (data && data.client_tz && data.client_tz.abbrev) || ""; }
+
+  // The client's time for one slot, e.g. {time: "12:00 PM", shift: 0}, or null.
+  function localFor(day, hIdx) {
+    return converting() && day.local ? day.local[hIdx] : null;
+  }
+
+  function shiftMark(shift) {
+    if (!shift) return "";
+    var text = shift > 0 ? "+" + shift + "d" : "\u2212" + Math.abs(shift) + "d";
+    var title = shift > 0 ? "Next day for the client" : "Previous day for the client";
+    return '<span class="bk-shift" title="' + title + '">' + text + "</span>";
+  }
+
+  function shiftWords(shift) {
+    if (!shift) return "";
+    return shift > 0 ? " (next day)" : " (previous day)";
+  }
+
+  // Fill the dropdown once from the server's list, then keep it in sync.
+  function syncTimezones() {
+    if (!data || !Array.isArray(data.timezones) || !data.timezones.length) {
+      el.tzBar.style.display = "none";
+      return;
+    }
+    if (!el.tzSel.options.length) {
+      data.timezones.forEach(function (z) {
+        var opt = document.createElement("option");
+        opt.value = z.id;
+        opt.textContent = z.label + " (" + z.abbrev + ")";
+        el.tzSel.appendChild(opt);
+      });
+    }
+    if (clientTz === null && data.client_tz) clientTz = data.client_tz.id;
+    el.tzSel.value = clientTz;
+    el.tzBar.style.display = "";
+
+    if (converting()) {
+      el.tzHint.innerHTML = "The calendar runs on <strong>" + esc(bizAbbrev()) +
+        "</strong>. Each open time shows when it is for the client in <strong>" +
+        esc(clientAbbrev()) + "</strong>.";
+      el.legendTz.textContent = "Rows: " + bizAbbrev() + ". Buttons: client's time (" + clientAbbrev() + ").";
+      el.legendTz.style.display = "";
+    } else {
+      el.tzHint.innerHTML = "All times are <strong>" + esc(bizAbbrev()) +
+        "</strong>. If the client is somewhere else, pick their time zone to see their local time.";
+      el.legendTz.style.display = "none";
+    }
+  }
+
   function showError(text) {
     el.msg.textContent = text;
     el.msg.className = "bk-msg error show";
@@ -458,7 +579,8 @@ body {
     loading = true;
     el.prev.disabled = el.next.disabled = true;
 
-    var qs = "?days=" + WINDOW_DAYS + (weekStart ? "&start=" + isoOf(weekStart) : "");
+    var qs = "?days=" + WINDOW_DAYS + (weekStart ? "&start=" + isoOf(weekStart) : "") +
+             (clientTz ? "&tz=" + encodeURIComponent(clientTz) : "");
 
     try {
       var res = await fetch("/api/book/" + encodeURIComponent(SLUG) + "/availability" + qs);
@@ -481,8 +603,10 @@ body {
         note.style.display = "none";
       }
 
+      syncTimezones();
       dropStaleSelection();
       render();
+      if (selected && el.formCard.style.display !== "none") updateChosen();
     } catch (e) {
       data = null;
       el.grid.innerHTML =
@@ -509,6 +633,7 @@ body {
     // Keep the form and whatever the agent typed; just ask for a new time.
     if (el.formCard.style.display !== "none") {
       el.chosen.textContent = "Choose a new time above.";
+      el.chosenClient.style.display = "none";
       showError("That time is no longer available. Please pick another time.");
     }
   }
@@ -552,7 +677,8 @@ body {
 
   // ── Desktop: hour grid ────────────────────────────────────────
   function renderGrid(days) {
-    var html = '<div class="bk-row"><div class="bk-gutter"></div>';
+    var html = '<div class="bk-row"><div class="bk-gutter"><span class="bk-gutter-head">' +
+               esc(bizAbbrev()) + "</span></div>";
     days.forEach(function (day) {
       var d = parseDate(day.date);
       html += '<div class="bk-head' + (day.closed ? " is-closed" : "") + '">' +
@@ -568,9 +694,15 @@ body {
         var open = !day.closed && day.slots[hIdx];
         var isSel = selected && selected.date === day.date && selected.hour === hour;
         if (open) {
+          var loc  = localFor(day, hIdx);
+          var text = isSel ? "Selected"
+                   : loc ? esc(loc.time) + shiftMark(loc.shift)
+                   : "Open";
+          var tip  = loc ? ' title="' + fmtHour(hour) + " " + esc(bizAbbrev()) + " = " +
+                           esc(loc.time) + " " + esc(clientAbbrev()) + shiftWords(loc.shift) + '"' : "";
           html += '<button class="bk-slot is-open' + (isSel ? " is-selected" : "") + '"' +
-                  ' data-date="' + day.date + '" data-hour="' + hour + '">' +
-                  (isSel ? "Selected" : "Open") + "</button>";
+                  ' data-date="' + day.date + '" data-hour="' + hour + '"' + tip + '>' +
+                  text + "</button>";
         } else {
           html += '<div class="bk-slot is-taken" aria-hidden="true"></div>';
         }
@@ -614,9 +746,14 @@ body {
       data.hours.forEach(function (hour, hIdx) {
         if (!day.slots[hIdx]) return;
         var isSel = selected && selected.date === day.date && selected.hour === hour;
+        var loc = localFor(day, hIdx);
+        var label = loc
+          ? esc(loc.time) + " " + esc(clientAbbrev()) + shiftMark(loc.shift) +
+            '<span class="bk-time-sub">' + fmtHour(hour) + " " + esc(bizAbbrev()) + "</span>"
+          : fmtHour(hour);
         times += '<button class="bk-time' + (isSel ? " is-selected" : "") + '"' +
                  ' data-date="' + day.date + '" data-hour="' + hour + '">' +
-                 fmtHour(hour) + "</button>";
+                 label + "</button>";
       });
       body = times
         ? '<div class="bk-times">' + times + "</div>"
@@ -646,11 +783,31 @@ body {
     });
   }
 
-  function showForm() {
+  // "Thu, Oct 29 at 10:00 AM MT", plus the client's time when they are elsewhere.
+  function updateChosen() {
+    if (!selected) return;
     var d = parseDate(selected.date);
     el.chosen.textContent =
       DOW[d.getDay()] + ", " + MON[d.getMonth()] + " " + d.getDate() +
-      " at " + fmtHour(selected.hour);
+      " at " + fmtHour(selected.hour) + " " + bizAbbrev();
+
+    var loc = null;
+    if (data && converting()) {
+      var day  = data.days.filter(function (x) { return x.date === selected.date; })[0];
+      var hIdx = data.hours.indexOf(selected.hour);
+      if (day && hIdx !== -1) loc = localFor(day, hIdx);
+    }
+    if (loc) {
+      el.chosenClient.textContent = "For the client: " + loc.time + " " +
+        clientAbbrev() + shiftWords(loc.shift);
+      el.chosenClient.style.display = "";
+    } else {
+      el.chosenClient.style.display = "none";
+    }
+  }
+
+  function showForm() {
+    updateChosen();
     el.formCard.style.display = "";
     el.formCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
     document.getElementById("f_name").focus({ preventScroll: true });
@@ -662,6 +819,11 @@ body {
   var onBreakpoint = function () { if (data) render(); };   // re-render only, no refetch
   if (mq.addEventListener) { mq.addEventListener("change", onBreakpoint); }
   else if (mq.addListener) { mq.addListener(onBreakpoint); }
+
+  el.tzSel.addEventListener("change", function () {
+    clientTz = el.tzSel.value;
+    load();   // same week, relabelled for the new zone
+  });
 
   el.prev.addEventListener("click", function () {
     if (loading || !weekStart) return;
@@ -714,7 +876,8 @@ body {
       scheduled_for: selected.date + "T" +
                      String(selected.hour).padStart(2, "0") + ":00",
       comments:      document.getElementById("f_comments").value.trim(),
-      booked_by:     document.getElementById("f_agent").value.trim()
+      booked_by:     document.getElementById("f_agent").value.trim(),
+      booking_tz:    clientTz || ""
     };
 
     try {
@@ -726,9 +889,14 @@ body {
       var out = await res.json().catch(function () { return {}; });
 
       if (res.ok) {
-        document.getElementById("doneText").innerHTML =
+        var doneHtml =
           "<strong>" + esc(name) + "</strong> is booked for<br>" +
           "<strong>" + esc(out.date || "") + " at " + esc(out.time || "") + "</strong>.";
+        if (out.client_time) {
+          doneHtml += "<br>For the client that is <strong>" + esc(out.client_date || "") +
+            " at " + esc(out.client_time) + "</strong>.";
+        }
+        document.getElementById("doneText").innerHTML = doneHtml;
         el.gridCard.style.display = "none";
         el.formCard.style.display = "none";
         el.doneCard.style.display = "";

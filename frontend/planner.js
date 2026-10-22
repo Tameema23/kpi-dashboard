@@ -66,11 +66,29 @@
   var leadHours   = 0;
   var leadApplies = false;
 
-  // "YYYY-MM-DDTHH:MM" in Mountain Time for a given epoch ms.
+  // ── Time zones ───────────────────────────────────────────────
+  // The server owns every time zone rule (backend/timezones.py) and uses
+  // up-to-date IANA data. The planner asks it rather than trusting the
+  // browser's own copy, which can be older and an hour off after a province
+  // changes its rules. These are refreshed with the scheduling rules.
+  var BUSINESS_TZ     = "America/Edmonton";
+  var BUSINESS_ABBREV = "MT";
+  var bizOffsetMin    = null;   // business zone UTC offset right now, minutes
+  var tzLabels        = {};     // IANA id -> short label (MT, ET, ...)
+
+  function pad2(n) { return String(n).padStart(2, "0"); }
+
+  // "YYYY-MM-DDTHH:MM" in business time for a given epoch ms.
   function mtStamp(ms) {
+    if (bizOffsetMin !== null) {
+      var d = new Date(ms + bizOffsetMin * 60000);
+      return d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate()) +
+             "T" + pad2(d.getUTCHours()) + ":" + pad2(d.getUTCMinutes());
+    }
+    // Fallback until the first rules response arrives.
     var p = {};
     new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Edmonton",
+      timeZone: BUSINESS_TZ,
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", hour12: false
     }).formatToParts(new Date(ms)).forEach(function(x) { p[x.type] = x.value; });
@@ -108,14 +126,19 @@
       "Pick another time, or book this as a callback.";
   }
 
-  function tooSoonMessage() {
+  // "2:15 PM", or "Fri, Oct 23 at 1:00 AM" when the cutoff is another day.
+  function cutoffLabel() {
     var cut = earliestBookable();
     var when = fmtTime(cut.split("T")[1]);
     if (cut.slice(0, 10) !== mtStamp(Date.now()).slice(0, 10)) {
       when = fmtDisplay(cut.slice(0, 10)) + " at " + when;
     }
+    return when;
+  }
+
+  function tooSoonMessage() {
     return "Same-day appointments need at least " + leadHours +
-      " hours' notice. Please pick a time at or after " + when + ".";
+      " hours' notice. Please pick a time at or after " + cutoffLabel() + ".";
   }
 
   // Helper: is a specific hour on a specific date blocked?
@@ -189,8 +212,45 @@
         var rules = await res5.json();
         leadHours   = parseInt(rules.same_day_lead_hours, 10) || 0;
         leadApplies = !!rules.lead_applies;
+        applyTimezoneRules(rules);
       }
     } catch(e) { console.error("Failed to load scheduling rules", e); }
+  }
+
+  // Server time zone data: business zone, its current offset, and the zone
+  // list for the dropdown (one list, kept in backend/timezones.py).
+  function applyTimezoneRules(rules) {
+    if (rules.timezone) BUSINESS_TZ = rules.timezone;
+    if (rules.timezone_abbrev) BUSINESS_ABBREV = rules.timezone_abbrev;
+    if (typeof rules.utc_offset_minutes === "number") bizOffsetMin = rules.utc_offset_minutes;
+    if (!Array.isArray(rules.timezones) || !rules.timezones.length) return;
+    rules.timezones.forEach(function(z) { tzLabels[z.id] = z.abbrev; });
+    var sel = document.getElementById("m_timezone");
+    // Rebuild only when the list actually changed, and never while it is open.
+    var sig = rules.timezones.map(function(z) { return z.id; }).join("|");
+    if (sel.dataset.sig === sig || document.activeElement === sel) return;
+    var current = sel.value || BUSINESS_TZ;
+    sel.innerHTML = "";
+    rules.timezones.forEach(function(z) {
+      var opt = document.createElement("option");
+      opt.value = z.id;
+      opt.textContent = z.label + " (" + z.abbrev + ")" + (z.default ? " \u2014 default" : "");
+      sel.appendChild(opt);
+    });
+    sel.value = current;
+    sel.dataset.sig = sig;
+  }
+
+  // Client wall clock -> business wall clock, worked out on the server.
+  // Returns {business, business_display} or throws.
+  async function convertToBusiness(date, time, tz) {
+    var qs = "?stamp=" + encodeURIComponent(date + "T" + time) +
+             "&from_tz=" + encodeURIComponent(tz);
+    var res = await fetch(API + "/time/convert" + qs, {
+      headers: { Authorization: "Bearer " + TOKEN }
+    });
+    if (!res.ok) throw new Error("convert failed");
+    return res.json();
   }
 
   async function toggleBlockedDay(dow) {
@@ -363,7 +423,7 @@
     var grid = document.getElementById("plannerGrid");
     grid.innerHTML = "";
 
-    var today = fmtDate(new Date());
+    var today = mtStamp(Date.now()).slice(0, 10);   // business date, not the browser's
 
     // Header row
     var headerRow = document.createElement("div");
@@ -496,21 +556,21 @@
           isTooSoon(cellDateStr + "T" + String(hour).padStart(2, "0") + ":00");
         // Only today's cells are shaded. Earlier days keep their normal look
         // but still refuse new bookings through the click handler below.
-        var shadeSoon = tooSoon && cellDateStr === mtStamp(Date.now()).slice(0, 10);
+        var shadeSoon = tooSoon && cellDateStr === today;
         var cell = document.createElement("div");
         cell.className = "pg-cell" +
           (cellDateStr === today ? " pg-cell-today" : "") +
           (isBlocked ? " pg-cell-blocked" : "") +
-          ((hourBlock || shadeSoon) ? " pg-cell-hour-blocked" : "");
+          (hourBlock ? " pg-cell-hour-blocked" : "") +
+          (shadeSoon ? " pg-cell-too-soon" : "");
         cell.dataset.date = cellDateStr;
         cell.dataset.hour = hour;
 
+        // Inside the notice window: a quiet tint, no label. Only new bookings
+        // are refused. Anything already booked here opens and hovers normally.
         if (shadeSoon) {
-          var slbl = document.createElement("span");
-          slbl.className = "pg-hour-block-label";
-          slbl.innerText = "Too soon";
-          cell.appendChild(slbl);
-          cell.title = "Needs " + leadHours + " hours' notice.";
+          cell.title = "Needs " + leadHours + " hours' notice. Bookable from " +
+            cutoffLabel() + ".";
         }
 
         // Inside the same-day notice window (assistants only). Existing
@@ -623,6 +683,9 @@
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
             '<span class="pg-appt-name">' + appt.lead_name + agentBadge + smsBadge + statusBadge + "</span>";
 
+          // An empty title stops the cell's own hint (blocked / notice) from
+          // popping up over the appointment's tooltip.
+          block.setAttribute("title", "");
           block.addEventListener("mouseenter", function (e) { showTooltip(e, appt); });
           block.addEventListener("mouseleave", hideTooltip);
           block.addEventListener("click", function (e) {
@@ -658,28 +721,14 @@
       '<div class="tip-name">' + appt.lead_name + "</div>" +
       (appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + appt.phone_number + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
       (function() {
-        var tzLabels = {
-          "America/Edmonton": "MT", "America/Vancouver": "PT", "America/Winnipeg": "CT",
-          "America/Toronto": "ET", "America/Halifax": "AT", "America/St_Johns": "NT"
-        };
-        var btz = appt.booking_tz || "America/Edmonton";
-        var displayLine = "";
-        try {
-          var dtStr = appt.scheduled_for; // stored in Mountain time
-          var mtDate = new Date(dtStr + ":00");
-          // Format in booking timezone (or Mountain if not set)
-          var dispFmt = new Intl.DateTimeFormat("en-US", {
-            timeZone: btz,
-            weekday: "short", month: "short", day: "numeric",
-            hour: "numeric", minute: "2-digit", hour12: true
-          });
-          var dispStr = dispFmt.format(mtDate);
-          var label = tzLabels[btz] || "MT";
-          displayLine = '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' + dispStr + " " + label + "</div>";
-        } catch(e) {
-          displayLine = '<div class="tip-row">' + fmtDateTime(appt.scheduled_for) + " MT</div>";
+        // Business time always; the client's local time (worked out on the
+        // server) underneath when they are in another zone.
+        var clock = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+        var line = '<div class="tip-row">' + clock + fmtDateTime(appt.scheduled_for) + " " + BUSINESS_ABBREV + "</div>";
+        if (appt.client_time) {
+          line += '<div class="tip-row tip-client-time">Client: ' + escHtml(appt.client_time) + "</div>";
         }
-        return displayLine;
+        return line;
       })() +
       (appt.comments ? (function() {
         // Reuse parseHistory logic inline for tooltip
@@ -753,10 +802,10 @@
     calMonth = d.getMonth();
     renderMiniCal();
 
-    document.getElementById("m_timezone").value = "America/Edmonton";
+    document.getElementById("m_timezone").value = BUSINESS_TZ;
     document.getElementById("m_timezone").dataset.origTz  = "";
     document.getElementById("m_timezone").dataset.touched = "";
-    document.getElementById("tz_preview").style.display = "none";
+    showClientTimeNote(null);
     document.getElementById("type_appt").checked = true;
     document.getElementById("type_cb").checked = false;
     updateTypeToggle();
@@ -937,10 +986,11 @@
     calMonth = d.getMonth();
     renderMiniCal();
 
-    document.getElementById("m_timezone").value = "America/Edmonton";
-    document.getElementById("m_timezone").dataset.origTz  = appt.booking_tz || "America/Edmonton";
+    // The form edits business time; the client's zone is kept unless changed.
+    document.getElementById("m_timezone").value = BUSINESS_TZ;
+    document.getElementById("m_timezone").dataset.origTz  = appt.booking_tz || BUSINESS_TZ;
     document.getElementById("m_timezone").dataset.touched = "";
-    document.getElementById("tz_preview").style.display = "none";
+    showClientTimeNote(appt);
     var isCallback = appt.appt_type === "callback";
     document.getElementById("type_appt").checked = !isCallback;
     document.getElementById("type_cb").checked   = isCallback;
@@ -1249,43 +1299,18 @@
       return;
     }
 
-    // Convert entered time from selected timezone to Mountain (America/Edmonton)
+    // Convert the entered time from the client's zone to business time.
+    // The server does it, so the result never depends on the browser.
     var scheduledFor;
-    if (tz === "America/Edmonton") {
+    if (tz === BUSINESS_TZ) {
       scheduledFor = date + "T" + time;
     } else {
-      // Parse the input as a time in the selected timezone, then convert to Mountain
-      var localDT = date + "T" + time + ":00";
-      // Use Intl to find the UTC offset difference and shift the time
-      var inputDate = new Date(localDT);
-      // Get what the clock reads in the selected TZ for that naive datetime
-      var tzFormatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone: tz,
-        year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
-      });
-      var mtFormatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "America/Edmonton",
-        year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
-      });
-      // Find UTC time for the entered date+time in the selected timezone
-      // by iterating: guess UTC, check what timezone thinks it is, adjust
-      var guess = new Date(localDT + "Z"); // treat as UTC to start
-      for (var i = 0; i < 3; i++) {
-        var parts = tzFormatter.formatToParts(guess);
-        var p = {};
-        parts.forEach(function(x) { p[x.type] = x.value; });
-        var tzClock = p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":" + p.second;
-        var diff = new Date(localDT).getTime() - new Date(tzClock).getTime();
-        guess = new Date(guess.getTime() + diff);
+      try {
+        scheduledFor = (await convertToBusiness(date, time, tz)).business;
+      } catch (e) {
+        showToast("Could not convert the time zone. Please try again.", "error");
+        return;
       }
-      // Now convert UTC guess to Mountain time string for storage
-      var mtParts = mtFormatter.formatToParts(guess);
-      var mp = {};
-      mtParts.forEach(function(x) { mp[x.type] = x.value; });
-      var mtHour = mp.hour === "24" ? "00" : mp.hour;
-      scheduledFor = mp.year + "-" + mp.month + "-" + mp.day + "T" + mtHour + ":" + mp.minute;
     }
 
     // All availability checks run on the Mountain Time value, because that is
@@ -1293,7 +1318,7 @@
     // another timezone rejected open slots and allowed blocked ones.
     var mtDate     = scheduledFor.slice(0, 10);
     var mtTime     = scheduledFor.slice(11, 16);
-    var mtSuffix   = tz === "America/Edmonton" ? "" : " Mountain Time";
+    var mtSuffix   = tz === BUSINESS_TZ ? "" : " " + BUSINESS_ABBREV;
 
     // ── Blocked-day check (client-side, backed by server enforcement) ──
     var selectedDate = new Date(mtDate + "T00:00:00");
@@ -1386,12 +1411,11 @@
       var existingRaw = document.getElementById("modalBackdrop").dataset.existingComments || "";
       // Build a new structured entry for this update
       var now = new Date();
-      var dateStr = now.toLocaleDateString("en-CA", {
-        timeZone: "America/Edmonton", month: "short", day: "numeric", year: "numeric"
+      var nowStamp = mtStamp(now.getTime());
+      var dateStr = new Date(nowStamp.slice(0, 10) + "T00:00:00").toLocaleDateString("en-CA", {
+        month: "short", day: "numeric", year: "numeric"
       });
-      var timeStr = now.toLocaleTimeString("en-CA", {
-        timeZone: "America/Edmonton", hour: "2-digit", minute: "2-digit", hour12: true
-      });
+      var timeStr = fmtTime(nowStamp.slice(11, 16));
       var updatedBy = localStorage.getItem("username") || "unknown";
       var newEntry = "BY:" + updatedBy + "\nDATE:" + dateStr + " at " + timeStr + "\nNOTE:" + (comments || "");
       if (existingRaw.trim()) {
@@ -1402,7 +1426,7 @@
     }
 
     var tzSel     = document.getElementById("m_timezone");
-    var bookingTz = tzSel.value || "America/Edmonton";
+    var bookingTz = tzSel.value || BUSINESS_TZ;
     // Editing an existing appointment must not silently switch the client's
     // timezone to Mountain. Keep the original unless the dropdown was changed.
     if (editingId && !tzSel.dataset.touched && tzSel.dataset.origTz) {
@@ -1500,41 +1524,43 @@
   });
 
   // ── Timezone live preview ───────────────────────────────────────
-  function updateTzPreview() {
+  // Shows what the entered client time saves as in business time. When an
+  // existing appointment opens untouched, shows the client's own local time.
+  var tzPreviewSeq = 0;
+  function setTzPreview(html) {
+    var preview = document.getElementById("tz_preview");
+    if (!html) { preview.style.display = "none"; preview.innerHTML = ""; return; }
+    preview.innerHTML = html;
+    preview.style.display = "block";
+  }
+
+  async function updateTzPreview() {
     var date = document.getElementById("m_date").value;
     var time = document.getElementById("m_time").value;
     var tz   = document.getElementById("m_timezone").value;
-    var preview = document.getElementById("tz_preview");
-    if (!time || tz === "America/Edmonton") { preview.style.display = "none"; return; }
+    var seq  = ++tzPreviewSeq;
+    if (!date || !time || tz === BUSINESS_TZ) { setTzPreview(""); return; }
     try {
-      var localDT = (date || "2000-01-01") + "T" + time + ":00";
-      var guess = new Date(localDT + "Z");
-      var tzFormatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone: tz,
-        year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
-      });
-      for (var i = 0; i < 3; i++) {
-        var parts = tzFormatter.formatToParts(guess);
-        var p = {};
-        parts.forEach(function(x) { p[x.type] = x.value; });
-        var tzClock = p.year + "-" + p.month + "-" + p.day + "T" + p.hour + ":" + p.minute + ":" + p.second;
-        var diff = new Date(localDT).getTime() - new Date(tzClock).getTime();
-        guess = new Date(guess.getTime() + diff);
-      }
-      var mtStr = guess.toLocaleTimeString("en-CA", {
-        timeZone: "America/Edmonton",
-        hour: "numeric", minute: "2-digit", hour12: true
-      });
-      var tzLabels = {
-        "America/Vancouver": "PT", "America/Winnipeg": "CT",
-        "America/Toronto": "ET", "America/Halifax": "AT", "America/St_Johns": "NT"
-      };
-      preview.style.display = "block";
-      preview.innerHTML = "&#x2192; Saves as <strong>" + mtStr + " Mountain time</strong> (converted from " + (tzLabels[tz] || tz) + ")";
-    } catch(e) { preview.style.display = "none"; }
+      var out = await convertToBusiness(date, time, tz);
+      if (seq !== tzPreviewSeq) return;   // a newer edit already answered
+      var biz = out.business;
+      var dayNote = biz.slice(0, 10) !== date ? " on " + fmtDisplay(biz.slice(0, 10)) : "";
+      setTzPreview("&#x2192; Saves as <strong>" + escHtml(out.business_display) + dayNote +
+        "</strong> (entered as " + escHtml(tzLabels[tz] || tz) + ")");
+    } catch (e) {
+      if (seq === tzPreviewSeq) setTzPreview("");
+    }
   }
+
+  function showClientTimeNote(appt) {
+    tzPreviewSeq++;
+    setTzPreview(appt && appt.client_time
+      ? "Client's local time: <strong>" + escHtml(appt.client_time) + "</strong>"
+      : "");
+  }
+
   document.getElementById("m_time").addEventListener("change", updateTzPreview);
+  document.getElementById("m_date").addEventListener("change", updateTzPreview);
   document.getElementById("m_timezone").addEventListener("change", updateTzPreview);
   document.getElementById("m_timezone").addEventListener("change", function() {
     this.dataset.touched = "1";
@@ -1596,6 +1622,7 @@
           return function () {
             document.getElementById("m_date").value = ds;
             renderMiniCal();
+            updateTzPreview();
           };
         })(dateStr));
       }
@@ -1944,10 +1971,15 @@
           comments:      appt.comments || "",
           scheduled_for: changes.scheduled_for || appt.scheduled_for,
           appt_type:     appt.appt_type || "appointment",
-          booking_tz:    appt.booking_tz || "America/Edmonton"
+          booking_tz:    appt.booking_tz || BUSINESS_TZ
         })
       });
-      if (res.ok) return await res.json();
+      if (res.ok) {
+        // Take the server's copy so derived fields (client_time) match the move.
+        var saved = await res.json();
+        Object.assign(appt, saved);
+        return saved;
+      }
       // Show the server's reason (clash, blocked hour, too soon). The drag
       // handler puts the block back where it was.
       var err = await res.json().catch(function() { return {}; });

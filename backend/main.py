@@ -33,18 +33,28 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from zoneinfo import ZoneInfo
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+# ── Time zones — imported before anything builds a zone ──────────────────────
+# backend/timezones.py points zoneinfo at the pinned tzdata package and holds
+# every time zone rule. See the notes at the top of that file.
+from backend.timezones import (
+    BUSINESS_TZ, BUSINESS_TZ_NAME, UTC, TZDATA_VERSION, ALLOWED_TIMEZONES,
+    validate_tz, business_now, business_now_str, minutes_between, add_real_time,
+    to_business, from_business, fmt_for_tz, fmt_hhmm, client_time_summary,
+    timezone_options, tz_abbrev, tz_label, utc_offset_minutes,
+)
+
 # ── Import from same backend/ folder ─────────────────────────────────────────
 from backend.database import SessionLocal, create_db, User, DailyLog, Appointment, AppointmentRecipient, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken, BookingConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
+logger.info(f"Time zones: business={BUSINESS_TZ_NAME}, tzdata={TZDATA_VERSION}")
 
 # ── Build hash — computed once at startup from all JS/CSS file contents ────────
 # This hash changes automatically every deploy whenever any frontend file changes.
@@ -202,7 +212,7 @@ async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
 # the planner or confirmations page stops ALL texts, not just some of them.
 
 def _mt_now_str() -> str:
-    return datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    return business_now_str()
 
 
 def _sms_status_allows_texting(appt: Appointment) -> bool:
@@ -225,9 +235,9 @@ def _appt_is_upcoming(appt: Appointment, now_str: Optional[str] = None) -> bool:
 def _booked_within_minutes(appt: Appointment, minutes: int) -> bool:
     """True if booked_at is within the last `minutes` minutes."""
     try:
-        mt = ZoneInfo("America/Edmonton")
-        booked_dt = datetime.strptime(appt.booked_at, "%Y-%m-%dT%H:%M").replace(tzinfo=mt)
-        return (datetime.now(mt) - booked_dt) <= timedelta(minutes=minutes)
+        booked_dt = datetime.strptime(appt.booked_at, "%Y-%m-%dT%H:%M").replace(tzinfo=BUSINESS_TZ)
+        # Measured in UTC so a clock change can't stretch or shrink the window.
+        return minutes_between(booked_dt, business_now()) <= minutes
     except Exception:
         return False
 
@@ -278,7 +288,7 @@ async def _run_sms_job(job_type: str, owner_id=_ALL_OWNERS):
     """
     db = SessionLocal()
     try:
-        mt = ZoneInfo("America/Edmonton")
+        mt = BUSINESS_TZ
         now_mt    = datetime.now(mt)
         today_str = now_mt.strftime("%Y-%m-%d")
 
@@ -330,7 +340,7 @@ async def _run_sms_job(job_type: str, owner_id=_ALL_OWNERS):
             # Format time and date in the booking timezone
             time_display, date_display = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
-                appt.booking_tz or "America/Edmonton"
+                appt.booking_tz or BUSINESS_TZ_NAME
             )
 
             confirmed  = (appt.sms_status == "confirmed" or
@@ -395,7 +405,7 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
         ).all()
         appts = [a for a in appts if _sms_status_allows_texting(a)]
 
-        mt       = ZoneInfo("America/Edmonton")
+        mt       = BUSINESS_TZ
         now_mt   = datetime.now(mt)
         now_str  = now_mt.strftime("%Y-%m-%dT%H:%M")
         today    = now_mt.strftime("%Y-%m-%d")
@@ -419,7 +429,7 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
         for appt in eligible:
             time_display, date_display = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
-                appt.booking_tz or "America/Edmonton"
+                appt.booking_tz or BUSINESS_TZ_NAME
             )
             # Every appt reaching this point is unconfirmed (filtered above),
             # so it always gets the 'reply YES' prompt.
@@ -471,13 +481,13 @@ async def _run_reminder_job():
     """
     db = SessionLocal()
     try:
-        mt     = ZoneInfo("America/Edmonton")
+        mt     = BUSINESS_TZ
         now_mt = datetime.now(mt)
 
         # Pull everything starting in the next ~61 minutes, then decide per
         # appointment which lead time applies.
-        start_str = (now_mt + timedelta(minutes=29)).strftime("%Y-%m-%dT%H:%M")
-        end_str   = (now_mt + timedelta(minutes=61)).strftime("%Y-%m-%dT%H:%M")
+        start_str = add_real_time(now_mt, timedelta(minutes=29)).strftime("%Y-%m-%dT%H:%M")
+        end_str   = add_real_time(now_mt, timedelta(minutes=61)).strftime("%Y-%m-%dT%H:%M")
 
         appts = db.query(Appointment).filter(
             Appointment.scheduled_for >= start_str,
@@ -503,7 +513,7 @@ async def _run_reminder_job():
                 # Starts within 30 min of the morning text; that text is the reminder.
                 continue
             lead    = 60 if (start_dt - timedelta(minutes=60)) > morning_dt else 30
-            mins_to_start = (start_dt - now_mt).total_seconds() / 60
+            mins_to_start = minutes_between(now_mt, start_dt)
             # Fire inside a 2-minute window around the chosen lead time
             if not (lead - 1 <= mins_to_start <= lead + 1):
                 continue
@@ -515,7 +525,7 @@ async def _run_reminder_job():
 
             time_display, _ = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
-                appt.booking_tz or "America/Edmonton"
+                appt.booking_tz or BUSINESS_TZ_NAME
             )
             await _send_to_all_recipients(
                 db, appt,
@@ -540,7 +550,7 @@ async def _run_booking_job():
     """
     db = SessionLocal()
     try:
-        mt     = ZoneInfo("America/Edmonton")
+        mt     = BUSINESS_TZ
         now_mt = datetime.now(mt)
         today  = now_mt.strftime("%Y-%m-%d")
 
@@ -561,7 +571,7 @@ async def _run_booking_job():
             # (catch-up: anything booked today that hasn't been sent yet)
             try:
                 booked_dt = datetime.strptime(appt.booked_at, "%Y-%m-%dT%H:%M").replace(tzinfo=mt)
-                mins_since = (now_mt - booked_dt).total_seconds() / 60
+                mins_since = minutes_between(booked_dt, now_mt)
                 if mins_since < 4:
                     continue  # Too soon — wait for the 5-minute window
             except Exception:
@@ -585,7 +595,7 @@ async def _run_booking_job():
 
             time_display, date_display = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
-                appt.booking_tz or "America/Edmonton"
+                appt.booking_tz or BUSINESS_TZ_NAME
             )
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
@@ -612,7 +622,7 @@ async def _run_booking_job_catchup():
     """
     db = SessionLocal()
     try:
-        mt    = ZoneInfo("America/Edmonton")
+        mt    = BUSINESS_TZ
         today = datetime.now(mt).strftime("%Y-%m-%d")
 
         # All future appointments (scheduled_for >= today) without booking text
@@ -632,7 +642,7 @@ async def _run_booking_job_catchup():
         for appt in appts:
             time_display, date_display = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
-                appt.booking_tz or "America/Edmonton"
+                appt.booking_tz or BUSINESS_TZ_NAME
             )
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
@@ -662,7 +672,7 @@ async def _run_midpoint_job():
     """
     db = SessionLocal()
     try:
-        mt    = ZoneInfo("America/Edmonton")
+        mt    = BUSINESS_TZ
         today = datetime.now(mt).strftime("%Y-%m-%d")
 
         appts = db.query(Appointment).filter(
@@ -680,7 +690,7 @@ async def _run_midpoint_job():
         for appt in appts:
             time_display, date_display = _fmt_appt_time_for_tz(
                 appt.scheduled_for,
-                appt.booking_tz or "America/Edmonton"
+                appt.booking_tz or BUSINESS_TZ_NAME
             )
             confirmed  = (appt.sms_status == "confirmed" or
                           getattr(appt, "appt_status", "") == "confirmed")
@@ -700,7 +710,7 @@ async def _run_midpoint_job():
 
 
 async def _scheduler_loop():
-    mt = ZoneInfo("America/Edmonton")
+    mt = BUSINESS_TZ
     fired = {
         "evening":         None,
         "morning":         None,
@@ -967,13 +977,7 @@ def validate_datetime(value: str) -> str:
         raise HTTPException(400, "Invalid date or time.")
     return value
 
-ALLOWED_TIMEZONES = {
-    "America/Edmonton", "America/Vancouver", "America/Winnipeg",
-    "America/Toronto",  "America/Halifax",  "America/St_Johns"
-}
-
-def validate_tz(tz: str) -> str:
-    return tz if tz in ALLOWED_TIMEZONES else "America/Edmonton"
+# ALLOWED_TIMEZONES and validate_tz live in backend/timezones.py.
 
 def validate_username(username: str) -> str:
     username = username.strip()
@@ -998,7 +1002,7 @@ def validate_new_password(password: str) -> str:
 
 def audit(db: Session, user_id: int, action: str, detail: str = ""):
     try:
-        now = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M:%S")
+        now = business_now().strftime("%Y-%m-%dT%H:%M:%S")
         db.add(AuditLog(user_id=user_id, action=action,
                         detail=detail[:500], timestamp=now))
         db.commit()
@@ -1008,10 +1012,10 @@ def audit(db: Session, user_id: int, action: str, detail: str = ""):
 # ── JWT ────────────────────────────────────────────────────────────────────────
 
 def _midnight_utc() -> datetime:
-    """Returns UTC datetime for midnight tonight in Mountain Time (America/Edmonton)."""
-    now_mt = datetime.now(ZoneInfo("America/Edmonton"))
+    """Returns naive UTC datetime for midnight tonight in the business zone."""
+    now_mt = business_now()
     midnight_mt = now_mt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    return midnight_mt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    return midnight_mt.astimezone(UTC).replace(tzinfo=None)
 
 def create_token(user_id: int, role: str, token_version: int,
                  can_planner: bool = True, can_quality: bool = False,
@@ -1207,9 +1211,9 @@ def earliest_bookable(now: Optional[datetime] = None) -> str:
     First moment a restricted booker may book, as YYYY-MM-DDTHH:MM Mountain.
     The offset is added in UTC so a DST change can never shorten the notice.
     """
-    mt  = ZoneInfo("America/Edmonton")
+    mt  = BUSINESS_TZ
     now = now or datetime.now(mt)
-    out = now.astimezone(ZoneInfo("UTC")) + timedelta(hours=SAME_DAY_LEAD_HOURS)
+    out = now.astimezone(UTC) + timedelta(hours=SAME_DAY_LEAD_HOURS)
     return out.astimezone(mt).strftime("%Y-%m-%dT%H:%M")
 
 
@@ -1218,7 +1222,7 @@ def _fmt_cutoff(stamp: str) -> str:
     dt   = datetime.strptime(stamp, "%Y-%m-%dT%H:%M")
     h12  = dt.hour % 12 or 12
     text = f"{h12}:{dt.minute:02d} {'AM' if dt.hour < 12 else 'PM'}"
-    today = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+    today = business_now().strftime("%Y-%m-%d")
     if stamp[:10] != today:
         text = f"{dt.strftime('%b')} {dt.day}, {text}"
     return text
@@ -1226,7 +1230,7 @@ def _fmt_cutoff(stamp: str) -> str:
 
 def lead_time_reason(scheduled_for: str) -> Optional[str]:
     """Why this start time is too soon, or None if it gives enough notice."""
-    now = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    now = business_now().strftime("%Y-%m-%dT%H:%M")
     if scheduled_for[:16] < now:
         return "That time has already passed. Please pick another time."
     if SAME_DAY_LEAD_HOURS <= 0:
@@ -1322,7 +1326,7 @@ def login(request: Request, data: UserPayload, db: Session = Depends(get_db)):
         can_confirmations = bool(getattr(user, "can_confirmations", False))
 
     # ── Password expiry check (6 months) ─────────────────────────────────────
-    now_mt = datetime.now(ZoneInfo("America/Edmonton"))
+    now_mt = business_now()
     pw_changed_at = getattr(user, "password_changed_at", None)
     password_expired = False
     password_expires_at = ""
@@ -1393,7 +1397,7 @@ def change_password(data: ChangePasswordPayload,
     user.password                = hash_password(new_pw)
     user.token_version           = (user.token_version or 0) + 1
     user.needs_password_reset    = False   # clear short-password flag
-    user.password_changed_at     = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M:%S")
+    user.password_changed_at     = business_now().strftime("%Y-%m-%dT%H:%M:%S")
     db.commit()
 
     audit(db, user.id, "password_change", "Password updated")
@@ -1632,7 +1636,7 @@ class AppointmentPayload(BaseModel):
     comments:      Optional[str] = ""
     scheduled_for: str
     appt_type:     Optional[str] = "appointment"
-    booking_tz:    Optional[str] = "America/Edmonton"
+    booking_tz:    Optional[str] = BUSINESS_TZ_NAME
     recipients:    Optional[List[RecipientPayload]] = None  # extra SMS recipients
     # Admin-only escape hatch: book into an hour the admin has blocked.
     # Ignored for assistants and for the public booking page.
@@ -1695,7 +1699,7 @@ def create_appointment(data: AppointmentPayload,
             raise HTTPException(400, lead_reason)
     # Normalize to E.164 so RingCentral can actually dial it.
     raw_phone = normalize_phone(data.phone_number)
-    now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    now   = business_now().strftime("%Y-%m-%dT%H:%M")
     appt  = Appointment(
         created_by=user.id, owner_id=owner,
         lead_name=title_case(sanitize_str(data.lead_name, 200)),
@@ -1705,11 +1709,11 @@ def create_appointment(data: AppointmentPayload,
         scheduled_for=validate_datetime(data.scheduled_for),
         booked_at=now,
         appt_type=data.appt_type if data.appt_type in ("appointment","callback") else "appointment",
-        booking_tz=validate_tz(data.booking_tz or "America/Edmonton"),
+        booking_tz=validate_tz(data.booking_tz),
     )
     # Calculate midpoint reminder date if appointment is 5+ days out
     try:
-        mt          = ZoneInfo("America/Edmonton")
+        mt          = BUSINESS_TZ
         now_date    = datetime.now(mt).date()
         sched_date  = datetime.strptime(validate_datetime(data.scheduled_for)[:10], "%Y-%m-%d").date()
         days_out    = (sched_date - now_date).days
@@ -1823,7 +1827,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         appt.sms_sent_confirmed_notice = False
         # Recalculate midpoint for new date
         try:
-            mt         = ZoneInfo("America/Edmonton")
+            mt         = BUSINESS_TZ
             now_date   = datetime.now(mt).date()
             sched_date = datetime.strptime(new_sched[:10], "%Y-%m-%d").date()
             days_out   = (sched_date - now_date).days
@@ -1836,7 +1840,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
             pass
         # Update booked_at so booking job fires again for the rescheduled appt
         try:
-            mt  = ZoneInfo("America/Edmonton")
+            mt  = BUSINESS_TZ
             appt.booked_at = datetime.now(mt).strftime("%Y-%m-%dT%H:%M")
         except Exception:
             pass
@@ -1853,7 +1857,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         appt.appt_status       = ""
         appt.sms_sent_confirmed_notice = False
         try:
-            appt.booked_at = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+            appt.booked_at = business_now().strftime("%Y-%m-%dT%H:%M")
         except Exception:
             pass
     elif (appt.phone_number or "") != old_phone and (appt.phone_number or ""):
@@ -1866,7 +1870,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
         appt.sms_sent_booking  = False
         appt.sms_sent_manual   = False
         try:
-            appt.booked_at = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+            appt.booked_at = business_now().strftime("%Y-%m-%dT%H:%M")
         except Exception:
             pass
     # else: only non-time fields changed — leave SMS fields untouched
@@ -1919,7 +1923,10 @@ def _appt_dict(appt, db):
             "booked_at": appt.booked_at,
             "created_by": creator.username if creator else "unknown",
             "appt_type": appt.appt_type or "appointment",
-            "booking_tz": appt.booking_tz or "America/Edmonton",
+            "booking_tz": appt.booking_tz or BUSINESS_TZ_NAME,
+            # The client's own local time, worked out here with the pinned
+            # tzdata so the planner never depends on the browser's copy.
+            "client_time": client_time_summary(appt.scheduled_for or "", appt.booking_tz),
             "sms_status": appt.sms_status or "",
             "appt_status": getattr(appt, "appt_status", "") or "",
             "sms_sent_evening": bool(appt.sms_sent_evening),
@@ -1938,9 +1945,34 @@ def get_scheduling_rules(user: User = Depends(get_current_user)):
     authority: every rule here is re-checked on create and update."""
     _check_planner_access(user)
     return {
-        "timezone":            "America/Edmonton",
+        "timezone":            BUSINESS_TZ_NAME,
+        "timezone_abbrev":     tz_abbrev(BUSINESS_TZ_NAME),
+        # The planner works out "now" from this offset rather than from the
+        # browser's own time zone data, which may be older than the server's.
+        "utc_offset_minutes":  utc_offset_minutes(BUSINESS_TZ_NAME),
+        "timezones":           timezone_options(),
         "same_day_lead_hours": SAME_DAY_LEAD_HOURS,
         "lead_applies":        user.role != "admin",
+    }
+
+
+@app.get("/time/convert")
+def convert_client_time(stamp: str, from_tz: str,
+                        user: User = Depends(get_current_user)):
+    """
+    A client's local time → the business time the planner stores.
+    Done here, with the pinned tzdata, so the planner gives the same answer
+    on every computer no matter how old its browser's time zone data is.
+    """
+    _check_planner_access(user)
+    stamp = validate_datetime(stamp)
+    if from_tz not in ALLOWED_TIMEZONES:
+        raise HTTPException(400, "Unknown time zone.")
+    business = to_business(stamp, from_tz)
+    return {
+        "business":        business,
+        "business_display": f"{fmt_hhmm(business)} {tz_abbrev(BUSINESS_TZ_NAME)}",
+        "business_tz":     BUSINESS_TZ_NAME,
     }
 
 
@@ -2220,7 +2252,7 @@ def create_quality(data: QualityPayload,
     if not fields["insured_name"]:
         raise HTTPException(400, "Insured name is required.")
     owner = get_owner_id(user)
-    now     = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    now     = business_now().strftime("%Y-%m-%dT%H:%M")
     now_date = now[:10]  # YYYY-MM-DD
     # If user left date blank, auto-fill with the actual insertion date
     if not fields.get("date"):
@@ -2299,7 +2331,7 @@ def backup_database(user: User = Depends(get_current_user)):
     os.makedirs(backup_dir, exist_ok=True)
 
     # Timestamped filename
-    ts       = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y%m%d_%H%M%S")
+    ts       = business_now().strftime("%Y%m%d_%H%M%S")
     filename = f"kpi_backup_{ts}.db"
     dest     = os.path.join(backup_dir, filename)
 
@@ -2452,7 +2484,7 @@ def create_referral_program(data: ReferralProgramPayload,
                              user: User = Depends(get_current_user),
                              db: Session = Depends(get_db)):
     _require_admin(user)
-    now = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    now = business_now().strftime("%Y-%m-%dT%H:%M")
     prog = ReferralProgram(
         owner_id=user.id,
         created_by=user.id,
@@ -2645,7 +2677,7 @@ def create_timesheet_entry(data: TimesheetPayload,
     if existing:
         raise HTTPException(409, "An entry for this date already exists. Edit the existing one.")
     owner = get_owner_id(user)
-    now   = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+    now   = business_now().strftime("%Y-%m-%dT%H:%M")
     entry = TimesheetEntry(
         user_id        = user.id,
         owner_id       = owner,
@@ -2869,56 +2901,17 @@ def _build_confirmed_notice_sms(name: str) -> str:
     display = name.strip() if name and name.strip() else "there"
     return f"Hi {display}. Your appointment is confirmed."
 
-# Timezone abbreviation map for display in SMS
-TZ_ABBREV = {
-    "America/Edmonton":    "MT",
-    "America/Winnipeg":    "CT",
-    "America/Toronto":     "ET",
-    "America/Vancouver":   "PT",
-    "America/Halifax":     "AT",
-    "America/St_Johns":    "NT",
-}
-
 def _fmt_appt_time_for_tz(scheduled_for_mt: str, booking_tz: str) -> tuple[str, str]:
     """
-    Convert an appointment's stored MT datetime back to the booking timezone
-    for display in SMS messages.
-
-    scheduled_for_mt: "YYYY-MM-DDTHH:MM" in Mountain Time
-    booking_tz: IANA timezone string e.g. "America/Vancouver"
-
-    Returns: (time_display, date_display)
-    e.g. ("12:00 PM PT", "May 22, 2026")
+    Stored business time → (time_display, date_display) in the client's zone,
+    for SMS. e.g. ("12:00 PM PT", "May 22, 2026"). The conversion and labels
+    live in backend/timezones.py so every caller agrees.
     """
-    try:
-        mt      = ZoneInfo("America/Edmonton")
-        btz     = ZoneInfo(booking_tz or "America/Edmonton")
-        abbrev  = TZ_ABBREV.get(booking_tz or "America/Edmonton", "MT")
-
-        # Parse MT time and localize it
-        naive_mt  = datetime.strptime(scheduled_for_mt, "%Y-%m-%dT%H:%M")
-        aware_mt  = naive_mt.replace(tzinfo=mt)
-
-        # Convert to booking timezone
-        aware_btz = aware_mt.astimezone(btz)
-
-        h    = aware_btz.hour
-        m    = aware_btz.minute
-        ampm = "AM" if h < 12 else "PM"
-        h12  = h % 12 or 12
-        time_display = f"{h12}:{m:02d} {ampm} {abbrev}"
-        date_display = aware_btz.strftime("%B %-d, %Y")
-        return time_display, date_display
-    except Exception:
-        # Fallback: just use MT
-        try:
-            parts = scheduled_for_mt.split("T")[1].split(":")
-            h, m  = int(parts[0]), int(parts[1])
-            ampm  = "AM" if h < 12 else "PM"
-            h12   = h % 12 or 12
-            return f"{h12}:{m:02d} {ampm} MT", scheduled_for_mt[:10]
-        except Exception:
-            return "your scheduled time", ""
+    time_display, date_display = fmt_for_tz(scheduled_for_mt, booking_tz)
+    if not date_display:
+        logger.warning(f"Could not format {scheduled_for_mt!r} for {booking_tz!r}")
+        return "your scheduled time", ""
+    return time_display, date_display
 
 # ── RC token helpers ──────────────────────────────────────────────────────────
 
@@ -3003,7 +2996,7 @@ async def rc_callback(code: str, state: str, db: Session = Depends(get_db)):
 
     data    = resp.json()
     expiry  = (datetime.utcnow() + timedelta(seconds=data.get("expires_in", 3600))).isoformat()
-    now_str = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M:%S")
+    now_str = business_now().strftime("%Y-%m-%dT%H:%M:%S")
 
     # Fetch the account's phone number from RC
     rc_phone = ""
@@ -3200,8 +3193,8 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     # Only appointments that are still live: not already confirmed on either
     # status field, not cancelled/no-show/rescheduled, and not long past.
     # A YES must never confirm a cancelled appointment or one from weeks ago.
-    mt_now      = datetime.now(ZoneInfo("America/Edmonton"))
-    earliest    = (mt_now - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
+    mt_now      = business_now()
+    earliest    = add_real_time(mt_now, timedelta(hours=-3)).strftime("%Y-%m-%dT%H:%M")
     appts = db.query(Appointment).filter(
         Appointment.scheduled_for >= earliest,
     ).filter(
@@ -3239,7 +3232,7 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     candidates = [a for a in appts if _phone_matches(a)]
     matched = None
     if candidates:
-        now_mt = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%dT%H:%M")
+        now_mt = business_now().strftime("%Y-%m-%dT%H:%M")
         upcoming = [a for a in candidates if (a.scheduled_for or "") >= now_mt]
         matched = upcoming[0] if upcoming else candidates[-1]
         if len(candidates) > 1:
@@ -3305,7 +3298,7 @@ _booking_lock = threading.Lock()
 
 
 def _mt_now() -> datetime:
-    return datetime.now(ZoneInfo("America/Edmonton"))
+    return business_now()
 
 
 def _get_booking_config(db: Session, owner: int,
@@ -3341,8 +3334,24 @@ def _occupied_slots(db: Session, owner: int, start: str, end: str) -> set:
             if (r[1] or "") != "cancelled" and (r[2] or "appointment") != "callback"}
 
 
+def _client_slot_labels(date_str: str, hours: list, client_tz: str) -> list:
+    """
+    Each business hour on date_str as the client sees it, e.g.
+    {"time": "12:00 PM", "shift": 0}. shift is -1 / +1 when the client's date
+    differs from the business date. Looked up per date, so a week that spans
+    a clock change in either zone is labelled correctly day by day.
+    """
+    out = []
+    for hour in hours:
+        local = from_business(f"{date_str}T{hour:02d}:00", client_tz)
+        shift = (datetime.strptime(local[:10], "%Y-%m-%d").date()
+                 - datetime.strptime(date_str, "%Y-%m-%d").date()).days
+        out.append({"time": fmt_hhmm(local), "shift": shift})
+    return out
+
+
 def _availability(db: Session, owner: int, start_date, days: int,
-                  last_bookable_date=None) -> dict:
+                  last_bookable_date=None, client_tz: Optional[str] = None) -> dict:
     """
     Build the agent-facing grid for one window of days beginning at start_date.
 
@@ -3404,6 +3413,8 @@ def _availability(db: Session, owner: int, start_date, days: int,
     now_mt    = _mt_now()
     cutoff    = earliest_bookable(now_mt)
     out_days  = []
+    client_tz = validate_tz(client_tz)
+    convert   = client_tz != BUSINESS_TZ_NAME
 
     for offset in range(days):
         d        = start_date + timedelta(days=offset)
@@ -3414,7 +3425,8 @@ def _availability(db: Session, owner: int, start_date, days: int,
         beyond_horizon = last_bookable_date is not None and d > last_bookable_date
         if dow in blocked_dows or date_str in blocked_dates or beyond_horizon:
             out_days.append({"date": date_str, "closed": True,
-                             "slots": [False] * len(visible_hours)})
+                             "slots": [False] * len(visible_hours),
+                             "local": None})
             continue
 
         # Copy, so the per-date list in one_off_hours is never mutated.
@@ -3429,10 +3441,20 @@ def _availability(db: Session, owner: int, start_date, days: int,
                 and stamp not in occupied
                 and not any(s_h <= hour < e_h for s_h, e_h in day_ranges)
             )
-        out_days.append({"date": date_str, "closed": False, "slots": slots})
+        out_days.append({
+            "date":   date_str,
+            "closed": False,
+            "slots":  slots,
+            # The client's local time for each hour, when they are elsewhere.
+            "local":  _client_slot_labels(date_str, visible_hours, client_tz) if convert else None,
+        })
 
     return {
-        "timezone":   "America/Edmonton",
+        "timezone":   BUSINESS_TZ_NAME,
+        "tz_abbrev":  tz_abbrev(BUSINESS_TZ_NAME),
+        "client_tz":  {"id": client_tz, "label": tz_label(client_tz),
+                       "abbrev": tz_abbrev(client_tz)},
+        "timezones":  timezone_options(),
         "today":      now_mt.date().isoformat(),
         "start":      start_iso,
         "hours":      visible_hours,
@@ -3522,11 +3544,15 @@ def booking_page(slug: str, request: Request, db: Session = Depends(get_db)):
 def booking_availability(slug: str, request: Request,
                          start: Optional[str] = None,
                          days: int = 7,
+                         tz: Optional[str] = None,
                          db: Session = Depends(get_db)):
     """
     Availability for one window. The page requests the week it is displaying,
     so paging forward is unbounded and nothing is precomputed. Each call
     reflects the planner as it stands right now.
+
+    tz: the client's time zone. Slots stay business hours (that is the
+    calendar being booked); each one also carries the client's local time.
     """
     cfg   = _require_booking(db, slug)
     today = _mt_now().date()
@@ -3550,7 +3576,8 @@ def booking_availability(slug: str, request: Request,
         raise HTTPException(400, "That date is too far ahead.")
 
     return _availability(db, cfg.owner_id, start_date, days,
-                         last_bookable_date=today + timedelta(days=limit))
+                         last_bookable_date=today + timedelta(days=limit),
+                         client_tz=tz)
 
 
 class PublicBookingPayload(BaseModel):
@@ -3563,6 +3590,7 @@ class PublicBookingPayload(BaseModel):
     scheduled_for: str                      # YYYY-MM-DDTHH:MM
     comments:      Optional[str] = ""
     booked_by:     Optional[str] = ""       # the agent's own name, optional
+    booking_tz:    Optional[str] = None     # the client's time zone
 
 
 @app.post("/api/book/{slug}", status_code=201)
@@ -3624,7 +3652,7 @@ async def create_public_booking(slug: str, data: PublicBookingPayload,
             scheduled_for   = sched,
             booked_at       = now.strftime("%Y-%m-%dT%H:%M"),
             appt_type       = "appointment",
-            booking_tz      = "America/Edmonton",
+            booking_tz      = validate_tz(data.booking_tz),
             booked_by_agent = True,
             booked_by_name  = sanitize_str(data.booked_by or "", 120),
         )
@@ -3643,8 +3671,13 @@ async def create_public_booking(slug: str, data: PublicBookingPayload,
         f"Agent booking: appt {appt.id} ({appt.lead_name}) at {sched}"
         f"{' by ' + appt.booked_by_name if appt.booked_by_name else ''}"
     )
-    time_display, date_display = _fmt_appt_time_for_tz(sched, "America/Edmonton")
-    return {"status": "booked", "time": time_display, "date": date_display}
+    time_display, date_display = _fmt_appt_time_for_tz(sched, BUSINESS_TZ_NAME)
+    out = {"status": "booked", "time": time_display, "date": date_display}
+    if appt.booking_tz != BUSINESS_TZ_NAME:
+        c_time, c_date = _fmt_appt_time_for_tz(sched, appt.booking_tz)
+        out.update({"client_time": c_time, "client_date": c_date,
+                    "client_tz_label": tz_label(appt.booking_tz)})
+    return out
 
 
 # ── Confirmations page API ────────────────────────────────────────────────────
@@ -3723,7 +3756,7 @@ async def _send_daily_summary(target_date: Optional[str] = None):
     """
     db = SessionLocal()
     try:
-        mt        = ZoneInfo("America/Edmonton")
+        mt        = BUSINESS_TZ
         now_mt    = datetime.now(mt)
         date_str  = target_date or now_mt.strftime("%Y-%m-%d")
         date_obj  = datetime.strptime(date_str, "%Y-%m-%d")
@@ -3801,7 +3834,7 @@ def get_confirmations(date: Optional[str] = None,
     """
     _check_confirmations_access(user)
 
-    target_date = date or datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+    target_date = date or business_now().strftime("%Y-%m-%d")
 
     # Get all admin users
     admins = db.query(User).filter(User.role == "admin").all()
@@ -3860,7 +3893,7 @@ async def set_confirmation_status(appt_id: int,
         await _maybe_send_confirmed_notice(db, appt)
 
     # Keep Tameema's summary in sync if the appointment is today.
-    today_str = datetime.now(ZoneInfo("America/Edmonton")).strftime("%Y-%m-%d")
+    today_str = business_now().strftime("%Y-%m-%d")
     if appt.scheduled_for and appt.scheduled_for.startswith(today_str):
         await _send_daily_summary(today_str)
 
@@ -3920,7 +3953,7 @@ async def set_appt_status(appt_id: int,
         await _maybe_send_confirmed_notice(db, appt)
 
     # If the appointment is today, resend the summary so Tameema sees the new status
-    mt = ZoneInfo("America/Edmonton")
+    mt = BUSINESS_TZ
     today_str = datetime.now(mt).strftime("%Y-%m-%d")
     if appt.scheduled_for and appt.scheduled_for.startswith(today_str):
         await _send_daily_summary(today_str)
@@ -4000,7 +4033,7 @@ async def send_confirmation_texts(data: SendConfirmationsPayload = SendConfirmat
     Accessible by admins and users with can_confirmations.
     """
     _check_confirmations_access(user)
-    mt = ZoneInfo("America/Edmonton")
+    mt = BUSINESS_TZ
     if data.date:
         target_date = validate_date(data.date)
     else:
@@ -4044,7 +4077,7 @@ async def manual_send_summary(data: SendSummaryPayload = SendSummaryPayload(),
     """
     _check_confirmations_access(user)
 
-    mt = ZoneInfo("America/Edmonton")
+    mt = BUSINESS_TZ
     if data.date:
         target_date = validate_date(data.date)
     else:
