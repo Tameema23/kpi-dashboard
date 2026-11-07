@@ -242,6 +242,16 @@ class ReleaseTests(unittest.TestCase):
             db.commit()
         self.assertEqual(self.restart("--rerun", key), [SENDER, SECOND])
 
+    def test_webhook_challenge_uses_a_small_header_only_response(self):
+        self.verify_webhook()
+        challenge = "challenge" * 15
+        response = self.client.post("/rc/webhook", headers={"Validation-Token": challenge})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Validation-Token"], challenge)
+        self.assertEqual(response.content, b"")
+        self.assertNotIn("Content-Security-Policy", response.headers)
+        self.assertIn("Content-Security-Policy", self.client.get("/").headers)
+
     def test_failed_webhook_rotation_keeps_working_subscription(self):
         self.verify_webhook()
         calls = []
@@ -257,13 +267,13 @@ class ReleaseTests(unittest.TestCase):
             calls.append(request.method)
             if request.method == "GET":
                 return httpx.Response(200, json={"records": [old_subscription]})
-            return httpx.Response(503, json={"message": "Temporary failure"})
+            return httpx.Response(400, json={"errorCode": "SUB-525", "message": "next-token"})
 
         with app.SessionLocal() as db, patch.dict(os.environ, {"RC_WEBHOOK_TOKEN": "next-token"}):
             row = db.query(db_models.RcToken).first()
             with patch.object(app.httpx, "AsyncClient",
                               side_effect=lambda **kw: real_client(transport=httpx.MockTransport(ringcentral), **kw)):
-                with self.assertRaises(RuntimeError):
+                with self.assertRaisesRegex(RuntimeError, r"^RingCentral rejected the subscription \(400, SUB-525\)\.$"):
                     asyncio.run(app._sync_rc_webhook_locked(db, row, create_if_missing=True))
             self.assertEqual(app._get_setting(db, "rc_webhook_verified"), VERIFY)
         self.assertEqual(calls, ["GET", "POST"])

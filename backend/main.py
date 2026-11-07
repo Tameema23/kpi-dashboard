@@ -968,6 +968,10 @@ class SecurityHeadersMiddleware:
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
+                if path == "/rc/webhook" and "validation-token" in headers:
+                    # RingCentral counts headers and body toward a 1 KiB limit.
+                    await send(message)
+                    return
                 for k, v in _SECURITY_HEADERS.items():
                     headers[k] = v
                 ctype = headers.get("content-type", "")
@@ -3607,15 +3611,10 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     bookings share the number, nothing is auto-confirmed and staff get a text
     listing them. Also answers RingCentral's validation challenge.
     """
-    # RC sends a validation challenge header on first registration
-    # Must echo it back in both the response header AND body
+    # RingCentral needs the challenge in the response header.
     challenge = request.headers.get("Validation-Token")
     if challenge:
-        return Response(
-            content=challenge,
-            media_type="text/plain",
-            headers={"Validation-Token": challenge}
-        )
+        return Response(headers={"Validation-Token": challenge})
 
     if not _webhook_request_trusted(db, request):
         logger.warning("RC webhook: rejected an event without the verification token")
@@ -4514,8 +4513,17 @@ async def _sync_rc_webhook_locked(db: Session, token_row, create_if_missing: boo
                 "expiresIn": RC_SUBSCRIPTION_SECONDS,
             })
             if resp.status_code not in (200, 201):
-                logger.error("RC webhook registration failed (%s)", resp.status_code)
-                raise RuntimeError(f"RingCentral rejected the subscription ({resp.status_code}).")
+                try:
+                    payload = resp.json()
+                except ValueError:
+                    payload = {}
+                code = payload.get("errorCode") if isinstance(payload, dict) else None
+                detail = str(resp.status_code)
+                # Provider messages can echo request values. Report only the code.
+                if isinstance(code, str) and re.fullmatch(r"[A-Z]{2,8}-[0-9]{3,6}", code):
+                    detail += f", {code}"
+                logger.error("RC webhook registration failed (%s)", detail)
+                raise RuntimeError(f"RingCentral rejected the subscription ({detail}).")
             keep = resp.json()
             if not keep.get("id"):
                 raise RuntimeError("RingCentral did not return a subscription ID.")
