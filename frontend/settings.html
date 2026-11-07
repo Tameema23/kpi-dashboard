@@ -2,17 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" type="image/png" href="/static/images/ApexTrack.png">
+  <link rel="icon" type="image/png" href="/static/images/favicon-48.png?v=1">
   <link rel="manifest" href="/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ApexTrack">
-  <link rel="apple-touch-icon" href="/static/images/ApexTrack.png">
+  <link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png?v=1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="preload" href="/static/fonts/inter-latin.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#2563eb">
   <!-- Performance: preconnect to CDNs and API -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="/static/style.css?v=7">
   <title>Settings</title>
 </head>
@@ -21,7 +20,7 @@
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-brand">
-      <img src="/static/images/ApexTrack.png" alt="ApexTrack" style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
+      <img width="28" height="28" decoding="async" src="/static/images/logo-96.png?v=1" alt="ApexTrack" style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
       ApexTrack
     </span>
     <nav class="topbar-nav">
@@ -543,7 +542,7 @@
 
     document.getElementById("bkRotate").onclick = function () {
       showConfirm(
-        "Generate a new booking link?<br><br>Any agent using the current link will " +
+        "Generate a new booking link?\n\nAny agent using the current link will " +
         "no longer be able to book until you send them the new one.",
         async function () {
           try {
@@ -750,8 +749,8 @@
   async function toggleSuspend(id, name, currentlySuspended) {
     var action = currentlySuspended ? "unsuspend" : "suspend";
     var msg    = currentlySuspended
-      ? "Unsuspend <strong>" + name + "</strong>? They will be able to log in again."
-      : "Suspend <strong>" + name + "</strong>? They will be immediately logged out and unable to log in.";
+      ? "Unsuspend " + name + "? They will be able to log in again."
+      : "Suspend " + name + "? They will be immediately logged out and unable to log in.";
     showConfirm(msg, async function() {
       try {
         const res = await fetch("/assistants/" + id + "/suspend", {
@@ -771,7 +770,7 @@
 
   function removeAssistant(id, name) {
     showConfirm(
-      "Remove <strong>" + name + "</strong>? They will no longer be able to log in.",
+      "Remove " + name + "? They will no longer be able to log in.",
       async function() {
         try {
           const res = await fetch("/assistants/" + id, {
@@ -832,9 +831,15 @@
     if (urlParams.get("rc") === "error")     showToast("RingCentral connection failed. Please try again.", "error");
   }
 
-  function rcStartConnect() {
-    // Pass JWT token as query param — browser redirects can't set headers
-    window.location.href = "/rc/connect?token=" + encodeURIComponent(TOKEN);
+  async function rcStartConnect() {
+    // Ask the server (signed in) for a one-time RingCentral sign-in link.
+    // The login token stays out of the URL.
+    try {
+      var res = await fetch("/rc/connect-start", { method: "POST", headers: { Authorization: "Bearer " + TOKEN } });
+      var data = await res.json().catch(function() { return {}; });
+      if (!res.ok || !data.url) { showToast(data.detail || "Could not start the RingCentral connection.", "error"); return; }
+      window.location.href = data.url;
+    } catch (e) { showToast("Server error. Please try again.", "error"); }
   }
 
   async function loadRcStatus() {

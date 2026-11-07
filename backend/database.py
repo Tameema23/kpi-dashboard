@@ -8,9 +8,10 @@ Security additions:
 """
 
 import os
+import logging
 from sqlalchemy import (
     create_engine, Column, Integer, Float,
-    String, Boolean, ForeignKey, Text
+    String, Boolean, ForeignKey, Text, text
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 
@@ -399,6 +400,40 @@ class BookingConfig(Base):
     rotated_at    = Column(String(20), default="")
 
 
+class AppSetting(Base):
+    """Small key/value store for app state that must survive a restart
+    (e.g. whether RingCentral webhook verification is switched on)."""
+    __tablename__ = "app_settings"
+
+    key   = Column(String(64), primary_key=True)
+    value = Column(Text, default="")
+
+
+class SmsLog(Base):
+    """
+    One row per text actually attempted, per recipient, plus one row per
+    inbound reply. This is the durable record that stops repeats:
+
+      outbound  dedupe_key = "out:<appt>:<kind>:<appointment time>:<phone>"
+                A recipient is never sent the same kind of text twice for
+                the same appointment time, even across restarts. Moving the
+                appointment changes the key, so the new time is texted.
+      inbound   dedupe_key = "in:<RingCentral message id>"
+                A reply delivered more than once is handled once.
+    """
+    __tablename__ = "sms_log"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    dedupe_key     = Column(String(200), unique=True, nullable=False, index=True)
+    direction      = Column(String(3),  nullable=False)          # "out" | "in"
+    kind           = Column(String(40), default="")              # e.g. evening, confirmed_notice
+    appointment_id = Column(Integer, nullable=True, index=True)
+    phone          = Column(String(30), default="")
+    status         = Column(String(12), default="")              # sending | sent | failed | dry_run | received
+    detail         = Column(String(300), default="")
+    created_at     = Column(String(20), default="")              # business time YYYY-MM-DDTHH:MM:SS
+
+
 def create_db():
     """
     Creates all missing tables on startup.
@@ -408,3 +443,20 @@ def create_db():
     run migrate_passwords.py which handles ALTER TABLE for SQLite.
     """
     Base.metadata.create_all(engine)
+
+    # Indexes for the lookups every page and SMS job makes. CREATE INDEX IF
+    # NOT EXISTS only adds an index (no table change, no data touched), so it
+    # is safe on the live database and needs no manual migration. Each one is
+    # tried on its own so a missing column on an old table can't block the rest.
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS ix_appt_owner_sched ON appointments (owner_id, scheduled_for)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_sched ON appointments (scheduled_for)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_owner_booked ON appointments (owner_id, booked_at)",
+        "CREATE INDEX IF NOT EXISTS ix_daily_logs_user_date ON daily_logs (user_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_timesheet_owner_date ON timesheet_entries (owner_id, date)",
+    ):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(stmt))
+        except Exception as e:
+            logging.getLogger("kpi").warning(f"Index not created ({stmt.split(' ON ')[0][27:]}): {e}")

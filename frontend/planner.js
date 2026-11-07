@@ -30,7 +30,9 @@
     // Hide bottom nav items assistants don't have access to
     document.querySelectorAll("#adminBottomNav .bottom-nav-item").forEach(function(el) {
       var href = el.getAttribute("href");
-      var keep = ["/settings.html", "/planner.html"];
+      // Timesheet too: assistants clock in and out there, and every other
+      // page already shows it to them.
+      var keep = ["/settings.html", "/planner.html", "/timesheet.html"];
       if (localStorage.getItem("can_quality") === "1") keep.push("/quality.html");
       if (keep.indexOf(href) === -1) el.style.display = "none";
     });
@@ -114,7 +116,11 @@
     return appointments.find(function(a) {
       return a.id !== excludeId &&
         (a.appt_type || "appointment") !== "callback" &&
+        // Cancelled and rescheduled appointments give their hour back
+        // (same rule as the server's appointment_conflict).
         (a.appt_status || "") !== "cancelled" &&
+        (a.appt_status || "") !== "rescheduled" &&
+        (a.sms_status || "") !== "rescheduled" &&
         (a.scheduled_for || "").slice(0, 13) === hourKey;
     }) || null;
   }
@@ -391,7 +397,20 @@
   document.getElementById("todayBtn").addEventListener("click", function () {
     currentWeekStart = getWeekStart(new Date());
     renderPlanner();
+    scrollToToday();
   });
+
+  // On a phone only about three days fit, and the week starts on Sunday, so
+  // the grid opened on days already gone. Bring today into view instead.
+  function scrollToToday() {
+    var grid = document.getElementById("plannerGrid");
+    var wrap = grid && grid.closest(".planner-wrap");
+    var head = grid && grid.querySelector(".pg-day-today");
+    if (!wrap || !head || wrap.scrollWidth <= wrap.clientWidth) return;
+    var timeCol = grid.querySelector(".pg-gutter-head");
+    var offset = head.getBoundingClientRect().left - wrap.getBoundingClientRect().left;
+    wrap.scrollLeft = Math.max(0, wrap.scrollLeft + offset - (timeCol ? timeCol.offsetWidth : 0));
+  }
 
   document.getElementById("newApptBtn").addEventListener("click", function () {
     openAddModal(null, null);
@@ -423,7 +442,16 @@
     var grid = document.getElementById("plannerGrid");
     grid.innerHTML = "";
 
-    var today = mtStamp(Date.now()).slice(0, 10);   // business date, not the browser's
+    var today = mtStamp(Date.now()).slice(0, 10);
+    var byHour = new Map();
+    appointments.slice().sort(function(a, b) {
+      return (a.scheduled_for || "").localeCompare(b.scheduled_for || "");
+    }).forEach(function(appt) {
+      if (!appt.scheduled_for) return;
+      var key = appt.scheduled_for.slice(0, 13);
+      if (!byHour.has(key)) byHour.set(key, []);
+      byHour.get(key).push(appt);
+    });
 
     // Header row
     var headerRow = document.createElement("div");
@@ -639,17 +667,9 @@
         })(day, hour, isBlocked));
         }
 
-        // Appointments in this cell — sorted by time
-        var sortedAppts = appointments.slice().sort(function(a, b) {
-          return (a.scheduled_for || "").localeCompare(b.scheduled_for || "");
-        });
-        sortedAppts.forEach(function (appt) {
-          if (!appt.scheduled_for) return;
-          var parts    = appt.scheduled_for.split("T");
-          var apptDate = parts[0];
-          var apptHour = parseInt((parts[1] || "0").split(":")[0]);
-          if (apptDate !== fmtDate(day) || apptHour !== hour) return;
-
+        var hourKey = cellDateStr + "T" + pad2(hour);
+        (byHour.get(hourKey) || []).forEach(function(appt) {
+          var parts = appt.scheduled_for.split("T");
           var block = document.createElement("div");
           var isCallback = appt.appt_type === "callback";
           block.className = "pg-appt-block" + (isCallback ? " pg-appt-callback" : "");
@@ -657,16 +677,18 @@
           var smsStatus  = appt.sms_status  || "";
           var apptStatus = appt.appt_status || "";
           var smsBadge = "";
-          if (smsStatus === "confirmed" || apptStatus === "confirmed") {
+          if (!["cancelled", "rescheduled", "no_show"].includes(apptStatus)
+              && !["cancelled", "rescheduled"].includes(smsStatus)
+              && (smsStatus === "confirmed" || apptStatus === "confirmed")) {
             smsBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px;">Confirmed</span>';
           }
           // Booked through the public agent link rather than by a signed-in
           // user. Also flags a missing phone, since those get no SMS at all.
           var agentBadge = "";
           if (appt.booked_by_agent) {
-            agentBadge = '<span class="pg-appt-agent" title="'
+            agentBadge = '<span class="pg-appt-agent" aria-label="Agent booking, manual confirmation" title="Agent booking, manual confirmation. '
               + (appt.booked_by_name
-                  ? "Booked by " + appt.booked_by_name + ". No texts are sent."
+                  ? "Booked by " + escHtml(appt.booked_by_name) + ". No texts are sent."
                   : "Booked via the agent link. No texts are sent.")
               + '">AGENT</span>';
           }
@@ -681,7 +703,7 @@
           block.innerHTML =
             (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
-            '<span class="pg-appt-name">' + appt.lead_name + agentBadge + smsBadge + statusBadge + "</span>";
+            '<span class="pg-appt-name">' + escHtml(appt.lead_name) + agentBadge + smsBadge + statusBadge + "</span>";
 
           // An empty title stops the cell's own hint (blocked / notice) from
           // popping up over the appointment's tooltip.
@@ -718,8 +740,9 @@
       : '';
     tip.innerHTML =
       typeBadge +
-      '<div class="tip-name">' + appt.lead_name + "</div>" +
-      (appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + appt.phone_number + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
+      '<div class="tip-name">' + escHtml(appt.lead_name) + "</div>" +
+      (appt.booked_by_agent ? '<div class="tip-row">Agent booking, manual confirmation</div>' :
+        appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + escHtml(appt.phone_number) + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
       (function() {
         // Business time always; the client's local time (worked out on the
         // server) underneath when they are in another zone.
@@ -750,15 +773,15 @@
             note = b;
           }
           if (note) {
-            html += '<div class="tip-row tip-comments">' + note + '</div>';
+            html += '<div class="tip-row tip-comments">' + escHtml(note) + '</div>';
           }
           if (date || by) {
-            html += '<div class="tip-row tip-meta">' + (date || "") + (by ? " by " + by : "") + '</div>';
+            html += '<div class="tip-row tip-meta">' + escHtml(date || "") + (by ? " by " + escHtml(by) : "") + '</div>';
           }
         });
         return html;
       })() : "") +
-      '<div class="tip-row tip-meta">Booked ' + fmtDateTime(appt.booked_at) + " by " + appt.created_by + "</div>";
+      '<div class="tip-row tip-meta">Booked ' + fmtDateTime(appt.booked_at) + " by " + escHtml(appt.created_by) + "</div>";
     tip.classList.remove("hidden");
     positionTooltip(e);
   }
@@ -789,7 +812,9 @@
     document.getElementById("m_attendee_name").value = "";
     document.getElementById("m_phone_number").value  = "";
     document.getElementById("m_comments").value      = "";
-    document.getElementById("m_phone_no_number_warn").style.display = "none";
+    var warnEl = document.getElementById("m_phone_no_number_warn");
+    warnEl.textContent = "⚠ No phone number — SMS reminders won't be sent for this appointment.";
+    warnEl.style.display = "none";
     document.getElementById("m_date").value = dateStr || fmtDate(new Date());
     document.getElementById("m_time").value = timeStr || "09:00";
     document.getElementById("modalBookedAt").classList.add("hidden");
@@ -896,8 +921,10 @@
     }
   }
 
+  // Quotes too: names from the public agent link end up inside title="..."
   function escHtml(s) {
-    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
 
   // ── Modal: open edit ─────────────────────────────────────────
@@ -907,13 +934,13 @@
     var row = document.createElement("div");
     row.className = "recipient-row";
     row.innerHTML =
-      '<input class="rcpt-name" type="text" placeholder="Name" value="' +
-        (name ? name.replace(/"/g, "&quot;") : "") + '">' +
-      '<input class="rcpt-phone" type="tel" placeholder="Phone number" value="' +
-        (phone ? phone.replace(/"/g, "&quot;") : "") + '">' +
+      '<input class="rcpt-name" type="text" placeholder="Name">' +
+      '<input class="rcpt-phone" type="tel" placeholder="Phone number">' +
       '<button type="button" class="recipient-remove-btn" title="Remove">' +
         '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
       '</button>';
+    row.querySelector(".rcpt-name").value = name || "";
+    row.querySelector(".rcpt-phone").value = phone || "";
     row.querySelector(".recipient-remove-btn").addEventListener("click", function () {
       row.remove();
     });
@@ -945,13 +972,12 @@
     document.getElementById("m_attendee_name").value = appt.attendee_name || "";
     document.getElementById("m_phone_number").value  = appt.phone_number || "";
 
-    // Warn if existing appointment has no phone number
     var warnEl = document.getElementById("m_phone_no_number_warn");
-    if (!appt.phone_number) {
-      warnEl.style.display = "block";
-    } else {
-      warnEl.style.display = "none";
-    }
+    warnEl.textContent = appt.booked_by_agent
+      ? "Agent booking, manual confirmation"
+      : "⚠ No phone number — SMS reminders won't be sent for this appointment.";
+    warnEl.style.display = appt.booked_by_agent || (!appt.phone_number && !(appt.recipients || []).length)
+      ? "block" : "none";
 
     // Parse and render history
     var history = parseHistory(appt.comments || "");
@@ -1323,7 +1349,13 @@
     // ── Blocked-day check (client-side, backed by server enforcement) ──
     var selectedDate = new Date(mtDate + "T00:00:00");
     var selectedDow  = selectedDate.getDay(); // 0=Sun … 6=Sat
-    var saveBlockCheck = isDateBlocked(mtDate);
+    // Block and notice checks only apply when this save puts the appointment
+    // on a new day or time (same rule as the server). Fixing a name, phone or
+    // note on an appointment whose slot was blocked later must still save.
+    var origAppt  = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
+    var timeMoved = !origAppt || (origAppt.scheduled_for || "") !== scheduledFor;
+    var dateMoved = !origAppt || (origAppt.scheduled_for || "").slice(0, 10) !== mtDate;
+    var saveBlockCheck = dateMoved ? isDateBlocked(mtDate) : false;
     if (saveBlockCheck) {
       var dateEl = document.getElementById("m_date");
       dateEl.style.borderColor = "#dc2626";
@@ -1350,8 +1382,8 @@
 
     // ── Blocked hour check ────────────────────────────────────
     var saveHour = parseInt(timeParts[0]);
-    var hourBlockCheck = isHourBlocked(mtDate, saveHour);
-    if (hourBlockCheck) {
+    var hourBlockCheck = timeMoved ? isHourBlocked(mtDate, saveHour) : null;
+    if (hourBlockCheck && role !== "admin") {
       var timeEl2 = document.getElementById("m_time");
       timeEl2.style.borderColor = "#dc2626";
       setTimeout(function() { timeEl2.style.borderColor = ""; }, 2000);
@@ -1362,8 +1394,6 @@
 
     // ── Same-day notice check (assistants only) ───────────────
     // Editing an appointment without moving it is always allowed.
-    var origAppt  = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
-    var timeMoved = !origAppt || (origAppt.scheduled_for || "") !== scheduledFor;
     if (timeMoved && isTooSoon(scheduledFor)) {
       var timeEl3 = document.getElementById("m_time");
       timeEl3.style.borderColor = "#dc2626";
@@ -1381,7 +1411,12 @@
     // another hour, or a callback turned into an appointment.
     if (apptType !== "callback") {
       var clashOrig   = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
-      var couldClash  = !clashOrig ||
+      // Moving a cancelled/rescheduled appointment clears that status, so it
+      // takes an hour back even if the hour is unchanged.
+      var origReleased = clashOrig && timeMoved && (
+        (clashOrig.appt_status || "") === "cancelled" || (clashOrig.appt_status || "") === "rescheduled" ||
+        (clashOrig.sms_status || "") === "rescheduled");
+      var couldClash  = !clashOrig || origReleased ||
         (clashOrig.scheduled_for || "").slice(0, 13) !== scheduledFor.slice(0, 13) ||
         (clashOrig.appt_type || "appointment") === "callback";
       if (couldClash && findHourClash(scheduledFor, editingId)) {
@@ -1398,7 +1433,8 @@
     var phone_number = normalizePhone(rawPhone);
 
     // Warn (non-blocking) if saving new appointment without a phone number
-    if (!editingId && !phone_number) {
+    var recipients = collectRecipients();
+    if (!editingId && !phone_number && !recipients.length) {
       document.getElementById("m_phone_no_number_warn").style.display = "block";
       showToast("No phone number entered — SMS reminders won't be sent.", "info");
     } else {
@@ -1440,7 +1476,7 @@
       scheduled_for: scheduledFor,
       appt_type:     apptType,
       booking_tz:    bookingTz,
-      recipients:    collectRecipients()
+      recipients:    recipients
     };
 
     // Sends the appointment. The server answers 409 when the slot sits inside an
@@ -1479,7 +1515,7 @@
         var info = await res.json().catch(function() { return {}; });
         var reason = info.detail || "This time is blocked.";
         showConfirm(
-          reason + "<br><br>Book over it anyway?",
+          reason + "\n\nBook over it anyway?",
           async function() {
             payload.override_block = true;
             var res2 = await submitAppt(payload);
@@ -1853,6 +1889,7 @@
     renderDaysOffPanel();
     return loadAppointments();
   }).then(function() {
+    scrollToToday();   // on first open only, never after a save or refresh
     updatePlannerSummary(appointments, currentWeekStart);
     if (typeof initPullToRefresh === "function") initPullToRefresh(loadAppointments);
 
@@ -1953,8 +1990,9 @@
         return null;
       }
       // ── One appointment per hour for drag-drop ──
+      // Moving any appointment, including a cancelled or rescheduled one,
+      // makes it active at the new time (the server clears the old status).
       if ((appt.appt_type || "appointment") !== "callback" &&
-          (appt.appt_status || "") !== "cancelled" &&
           findHourClash(changes.scheduled_for, appt.id)) {
         showToast(clashMessage(changes.scheduled_for), "error");
         return null;

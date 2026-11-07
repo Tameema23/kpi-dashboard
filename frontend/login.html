@@ -2,17 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" type="image/png" href="/static/images/ApexTrack.png">
+  <link rel="icon" type="image/png" href="/static/images/favicon-48.png?v=1">
   <link rel="manifest" href="/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ApexTrack">
-  <link rel="apple-touch-icon" href="/static/images/ApexTrack.png">
+  <link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png?v=1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="preload" href="/static/fonts/inter-latin.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#2563eb">
   <!-- Performance: preconnect to CDNs and API -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
   <title>ApexTrack — Sign In</title>
   <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
@@ -21,7 +20,7 @@
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-brand">
-      <img src="/static/images/ApexTrack.png" alt="ApexTrack" style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
+      <img width="28" height="28" decoding="async" src="/static/images/logo-96.png?v=1" alt="ApexTrack" style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
       ApexTrack
     </span>
   </div>
@@ -31,7 +30,7 @@
   <div class="card auth-card">
 
     <div class="auth-logo">
-      <img src="/static/images/ApexTrack.png" alt="ApexTrack" style="width:48px;height:48px;object-fit:contain;border-radius:10px;">
+      <img width="48" height="48" decoding="async" src="/static/images/logo-96.png?v=1" alt="ApexTrack" style="width:48px;height:48px;object-fit:contain;border-radius:10px;">
       <span>ApexTrack</span>
     </div>
 
@@ -51,6 +50,11 @@
     </div>
     </div>
 
+    <div class="auth-input-group" id="signupCodeGroup" style="display:none;">
+      <label>Signup Code</label>
+      <input id="signupCode" placeholder="Code from your administrator" autocomplete="off">
+    </div>
+
     <label class="remember-row" id="rememberRow">
       <input type="checkbox" id="rememberMe" checked>
       <span>Keep me signed in</span>
@@ -58,7 +62,7 @@
 
     <button class="btn auth-btn" onclick="submitAuth()">Sign In</button>
 
-    <p class="switch" onclick="toggleForm()" id="switchBtn">Don't have an account? Create one</p>
+    <p class="switch" onclick="toggleForm()" id="switchBtn" style="display:none;">Don't have an account? Create one</p>
     <p id="msg"></p>
 
   </div>
@@ -67,6 +71,13 @@
 <script>
 let isSignup = false;
 
+// Account creation is only offered while the operator has set SIGNUP_CODE
+// on the server, and it needs that code. Otherwise accounts are made by an
+// admin from Settings.
+fetch("/signup-status").then(function(r) { return r.ok ? r.json() : null; })
+  .then(function(d) { if (d && d.open) document.getElementById("switchBtn").style.display = ""; })
+  .catch(function() {});
+
 function toggleForm() {
   isSignup = !isSignup;
   document.getElementById("formTitle").innerText = isSignup ? "Create Account" : "Welcome Back";
@@ -74,6 +85,7 @@ function toggleForm() {
   document.querySelector(".auth-btn").innerText = isSignup ? "Create Account" : "Sign In";
   document.getElementById("switchBtn").innerText = isSignup ? "Already have an account? Sign in" : "Don't have an account? Create one";
   document.getElementById("rememberRow").style.display = isSignup ? "none" : "flex";
+  document.getElementById("signupCodeGroup").style.display = isSignup ? "" : "none";
   document.getElementById("msg").innerText = "";
 }
 
@@ -115,7 +127,9 @@ async function submitAuth() {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify(isSignup
+        ? { username, password, signup_code: document.getElementById("signupCode").value.trim() }
+        : { username, password })
     });
 
     if (res.status === 429) {
@@ -181,21 +195,16 @@ async function submitAuth() {
 
 function navigateAfterLogin(data) {
   var role = data.role || localStorage.getItem("role") || "admin";
-  var canPlanner = data.can_planner !== undefined
-    ? data.can_planner
-    : localStorage.getItem("can_planner") === "1";
-  var canQuality = data.can_quality !== undefined
-    ? data.can_quality
-    : localStorage.getItem("can_quality") === "1";
   if (role === "admin") {
     window.location.replace("/index.html");
-  } else if (canPlanner && !canQuality) {
-    window.location.replace("/planner.html");
-  } else if (canQuality && !canPlanner) {
-    window.location.replace("/quality.html");
-  } else {
-    window.location.replace("/planner.html");
+    return;
   }
+  var pages = {planner: "/planner.html", quality: "/quality.html", confirmations: "/confirmations.html"};
+  var first = Object.keys(pages).find(function(page) {
+    var permission = "can_" + page;
+    return data[permission] ?? (localStorage.getItem(permission) === "1");
+  });
+  window.location.replace(pages[first] || "/timesheet.html");
 }
 
 async function submitPasswordReset() {
@@ -276,7 +285,7 @@ document.addEventListener("keydown", e => { if (e.key === "Enter") submitAuth();
 
 <!-- Password Reset Prompt — shown after login if account has a short password -->
 <div id="pwResetOverlay" style="display:none;position:fixed;inset:0;z-index:9999;
-  background:rgba(15,23,42,0.55);backdrop-filter:blur(4px);
+  background:rgba(15,23,42,0.55);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
   display:none;align-items:center;justify-content:center;padding:16px;">
   <div style="background:#fff;border-radius:18px;width:100%;max-width:420px;
     box-shadow:0 20px 60px rgba(15,23,42,0.25);overflow:hidden;animation:_cfIn 0.2s ease;">

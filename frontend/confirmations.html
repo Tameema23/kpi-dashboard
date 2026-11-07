@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" type="image/png" href="/static/images/ApexTrack.png">
+  <link rel="icon" type="image/png" href="/static/images/favicon-48.png?v=1">
   <link rel="manifest" href="/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ApexTrack">
-  <link rel="apple-touch-icon" href="/static/images/ApexTrack.png">
+  <link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png?v=1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" href="/static/fonts/inter-latin.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#2563eb">
   <link rel="stylesheet" href="/static/style.css?v=7">
   <title>Confirmations — ApexTrack</title>
   <style>
@@ -91,9 +91,11 @@
       opacity: 0;
       transform: translateY(-8px) scale(0.98);
       pointer-events: none;
-      transition: opacity 0.16s ease, transform 0.16s ease;
+      visibility: hidden;
+      transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
     }
     .cal-popover.open {
+      visibility: visible;
       opacity: 1;
       transform: translateY(0) scale(1);
       pointer-events: auto;
@@ -203,7 +205,10 @@
     }
 
     @media (max-width: 600px) {
-      .cal-popover { right: auto; left: 0; width: 290px; }
+      /* Anchor to the right edge, like the trigger. Anchoring left pushed the
+         hidden popover past the screen edge, which made the whole page wider
+         than the phone and shrank it on iPhone. */
+      .cal-popover { right: 0; left: auto; width: min(300px, calc(100vw - 24px)); }
     }
 
     /* Summary bar */
@@ -431,7 +436,7 @@
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-brand">
-      <img src="/static/images/ApexTrack.png" alt="ApexTrack"
+      <img width="28" height="28" decoding="async" src="/static/images/logo-96.png?v=1" alt="ApexTrack"
         style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
       ApexTrack
     </span>
@@ -775,33 +780,43 @@
     return h12 + ":" + m + " " + ampm;
   }
 
-  // ── Load confirmations ────────────────────────────────────────
+  var rosterRequest = 0;
+  var displayedDate = "";
+  var sending = false;
+  var dateInput = document.getElementById("confDateInput");
+  var sendButton = document.querySelector(".conf-action-primary");
+
+  function updateSendButton() {
+    sendButton.disabled = sending || !displayedDate || displayedDate !== (dateInput.value || today);
+  }
+
   window.loadConfirmations = async function() {
-    var dateVal = document.getElementById("confDateInput").value || today;
-    document.getElementById("confDateLabel").innerText = fmtDateLabel(dateVal);
+    var dateVal = dateInput.value || today;
+    var requestId = ++rosterRequest;
+    updateSendButton();
 
     try {
-      var res = await fetch("/confirmations?date=" + dateVal, {
+      var res = await fetch("/confirmations?date=" + encodeURIComponent(dateVal), {
         headers: { Authorization: "Bearer " + TOKEN }
       });
-      if (res.status === 403) {
-        showToast("Access denied.", "error");
-        return;
-      }
-      if (!res.ok) { showToast("Failed to load.", "error"); return; }
       var appts = await res.json();
+      if (requestId !== rosterRequest) return;
+      if (!res.ok) { showToast(appts.detail || "Failed to load.", "error"); return; }
       renderList(appts);
       updateStats(appts);
+      displayedDate = dateVal;
+      document.getElementById("confDateLabel").innerText = fmtDateLabel(dateVal);
+      updateSendButton();
     } catch(e) {
-      console.error(e);
-      showToast("Server error.", "error");
+      if (requestId === rosterRequest) showToast("Server error.", "error");
     }
   };
 
   function updateStats(appts) {
-    // Confirmed = sms_status OR appt_status is confirmed
-    var confirmed   = appts.filter(function(a) {
-      return a.sms_status === "confirmed" || a.appt_status === "confirmed";
+    var confirmed = appts.filter(function(a) {
+      return !["cancelled", "rescheduled", "no_show"].includes(a.appt_status)
+        && !["cancelled", "rescheduled"].includes(a.sms_status)
+        && (a.sms_status === "confirmed" || a.appt_status === "confirmed");
     }).length;
     var rescheduled = appts.filter(function(a) {
       return a.sms_status === "rescheduled" || a.appt_status === "rescheduled";
@@ -878,7 +893,7 @@
       // SMS status dropdown — what Tameema can set (sms_status field)
       var selVal = smsStatus;
       var dropdown =
-        '<select class="conf-status-select" onchange="setStatus(' + a.id + ', this.value)">' +
+        '<select class="conf-status-select" onchange="setStatus(' + a.id + ', this)">' +
           '<option value=""'             + (selVal === ""            ? " selected" : "") + '>— Pending</option>' +
           '<option value="confirmed"'    + (selVal === "confirmed"   ? " selected" : "") + '>✓ Confirmed (SMS)</option>' +
           '<option value="rescheduled"'  + (selVal === "rescheduled" ? " selected" : "") + '>↻ Rescheduled</option>' +
@@ -889,7 +904,7 @@
           '<div class="conf-time-badge">' + fmtTime(a.scheduled_for) + '</div>' +
           '<div>' +
             '<div class="conf-name">' + esc(a.lead_name) + apptBadge + '</div>' +
-            '<div class="conf-phone">' + (a.phone_number || "No phone") + '</div>' +
+            '<div class="conf-phone">' + esc(a.phone_number || "No phone") + '</div>' +
             smsBadges +
           '</div>' +
         '</div>' +
@@ -907,7 +922,10 @@
   }
 
   // ── Set status manually ───────────────────────────────────────
-  window.setStatus = async function(apptId, status) {
+  window.setStatus = async function(apptId, select) {
+    var status = select.value;
+    var previous = Array.from(select.options).find(function(option) { return option.defaultSelected; });
+    select.disabled = true;
     try {
       var res = await fetch("/confirmations/" + apptId + "/status", {
         method: "PATCH",
@@ -916,11 +934,17 @@
       });
       if (res.ok) {
         showToast(status ? "Status set to " + status + "." : "Status cleared.");
-        loadConfirmations(); // refresh list
-      } else {
-        showToast("Failed to update.", "error");
+        Array.from(select.options).forEach(function(option) {
+          option.defaultSelected = option.value === status;
+        });
+        loadConfirmations();
+        return;
       }
+      var data = await res.json().catch(function() { return {}; });
+      showToast(data.detail || "Failed to update.", "error");
     } catch(e) { showToast("Server error.", "error"); }
+    finally { select.disabled = false; }
+    select.value = previous ? previous.value : "";
   };
 
   // ── Register webhook ──────────────────────────────────────────
@@ -933,9 +957,10 @@
       var data = await res.json();
       if (res.ok) {
         var removed = data.removed_duplicates || 0;
-        showToast(data.status === "already_registered"
-          ? "Webhook already registered" + (removed ? "; removed " + removed + " duplicate(s)." : ".")
-          : "Webhook registered. YES replies will now auto-confirm.");
+        showToast((data.status === "already_registered"
+          ? "Webhook already registered" + (removed ? "; removed " + removed + " duplicate(s)" : "")
+          : "Webhook registered. YES replies will now auto-confirm") +
+          (data.verified ? " (verified)." : "."));
         console.log("Webhook details:", data);
       } else {
         showToast("Failed: " + (data.detail || "Unknown error"), "error");
@@ -945,9 +970,10 @@
 
   // ── Send Confirmation Texts — selected date only, independent ──
   window.sendConfirmationTexts = async function() {
-    var dateVal = document.getElementById("confDateInput").value || today;
-    var btn = document.querySelector(".conf-action-primary");
-    if (btn) { btn.disabled = true; }
+    if (sendButton.disabled || !displayedDate) return;
+    var dateVal = displayedDate;
+    sending = true;
+    updateSendButton();
     try {
       var res = await fetch("/rc/send-confirmation-texts", {
         method: "POST",
@@ -973,7 +999,8 @@
     } catch(e) {
       showToast("Server error.", "error");
     } finally {
-      if (btn) { btn.disabled = false; }
+      sending = false;
+      updateSendButton();
     }
   };
 
