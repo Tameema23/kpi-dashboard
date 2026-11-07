@@ -50,6 +50,11 @@
     </div>
     </div>
 
+    <div class="auth-input-group" id="signupCodeGroup" style="display:none;">
+      <label>Signup Code</label>
+      <input id="signupCode" placeholder="Code from your administrator" autocomplete="off">
+    </div>
+
     <label class="remember-row" id="rememberRow">
       <input type="checkbox" id="rememberMe" checked>
       <span>Keep me signed in</span>
@@ -66,9 +71,9 @@
 <script>
 let isSignup = false;
 
-// Account creation is only offered when the server allows it (first setup,
-// or an admin has temporarily switched it on). Otherwise accounts are made
-// by an admin from Settings.
+// Account creation is only offered while the operator has set SIGNUP_CODE
+// on the server, and it needs that code. Otherwise accounts are made by an
+// admin from Settings.
 fetch("/signup-status").then(function(r) { return r.ok ? r.json() : null; })
   .then(function(d) { if (d && d.open) document.getElementById("switchBtn").style.display = ""; })
   .catch(function() {});
@@ -80,6 +85,7 @@ function toggleForm() {
   document.querySelector(".auth-btn").innerText = isSignup ? "Create Account" : "Sign In";
   document.getElementById("switchBtn").innerText = isSignup ? "Already have an account? Sign in" : "Don't have an account? Create one";
   document.getElementById("rememberRow").style.display = isSignup ? "none" : "flex";
+  document.getElementById("signupCodeGroup").style.display = isSignup ? "" : "none";
   document.getElementById("msg").innerText = "";
 }
 
@@ -121,7 +127,9 @@ async function submitAuth() {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify(isSignup
+        ? { username, password, signup_code: document.getElementById("signupCode").value.trim() }
+        : { username, password })
     });
 
     if (res.status === 429) {

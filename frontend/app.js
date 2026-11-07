@@ -2019,6 +2019,12 @@ function initPlannerAutoRefresh(getAppointments, setAppointments, renderFn) {
       });
       if (!res.ok) return;
       var body = await res.text();
+      // The user may have opened an appointment or started dragging while
+      // this request was in flight. Don't swap the data out from under them;
+      // the next poll will pick the change up.
+      var openModal = document.getElementById("modalBackdrop");
+      if (document.querySelector(".pg-appt-block.dragging") ||
+          (openModal && !openModal.classList.contains("hidden"))) return;
       if (body !== lastBody) {
         var first = lastBody === "";
         lastBody = body;

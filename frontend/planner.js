@@ -397,7 +397,6 @@
   document.getElementById("todayBtn").addEventListener("click", function () {
     currentWeekStart = getWeekStart(new Date());
     renderPlanner();
-    scrollToToday();
   });
 
   // On a phone only about three days fit, and the week starts on Sunday, so
@@ -1345,7 +1344,13 @@
     // ── Blocked-day check (client-side, backed by server enforcement) ──
     var selectedDate = new Date(mtDate + "T00:00:00");
     var selectedDow  = selectedDate.getDay(); // 0=Sun … 6=Sat
-    var saveBlockCheck = isDateBlocked(mtDate);
+    // Block and notice checks only apply when this save puts the appointment
+    // on a new day or time (same rule as the server). Fixing a name, phone or
+    // note on an appointment whose slot was blocked later must still save.
+    var origAppt  = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
+    var timeMoved = !origAppt || (origAppt.scheduled_for || "") !== scheduledFor;
+    var dateMoved = !origAppt || (origAppt.scheduled_for || "").slice(0, 10) !== mtDate;
+    var saveBlockCheck = dateMoved ? isDateBlocked(mtDate) : false;
     if (saveBlockCheck) {
       var dateEl = document.getElementById("m_date");
       dateEl.style.borderColor = "#dc2626";
@@ -1372,7 +1377,7 @@
 
     // ── Blocked hour check ────────────────────────────────────
     var saveHour = parseInt(timeParts[0]);
-    var hourBlockCheck = isHourBlocked(mtDate, saveHour);
+    var hourBlockCheck = timeMoved ? isHourBlocked(mtDate, saveHour) : null;
     if (hourBlockCheck) {
       var timeEl2 = document.getElementById("m_time");
       timeEl2.style.borderColor = "#dc2626";
@@ -1384,8 +1389,6 @@
 
     // ── Same-day notice check (assistants only) ───────────────
     // Editing an appointment without moving it is always allowed.
-    var origAppt  = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
-    var timeMoved = !origAppt || (origAppt.scheduled_for || "") !== scheduledFor;
     if (timeMoved && isTooSoon(scheduledFor)) {
       var timeEl3 = document.getElementById("m_time");
       timeEl3.style.borderColor = "#dc2626";
@@ -1403,7 +1406,12 @@
     // another hour, or a callback turned into an appointment.
     if (apptType !== "callback") {
       var clashOrig   = editingId ? appointments.find(function(a) { return a.id === editingId; }) : null;
-      var couldClash  = !clashOrig ||
+      // Moving a cancelled/rescheduled appointment clears that status, so it
+      // takes an hour back even if the hour is unchanged.
+      var origReleased = clashOrig && timeMoved && (
+        (clashOrig.appt_status || "") === "cancelled" || (clashOrig.appt_status || "") === "rescheduled" ||
+        (clashOrig.sms_status || "") === "rescheduled");
+      var couldClash  = !clashOrig || origReleased ||
         (clashOrig.scheduled_for || "").slice(0, 13) !== scheduledFor.slice(0, 13) ||
         (clashOrig.appt_type || "appointment") === "callback";
       if (couldClash && findHourClash(scheduledFor, editingId)) {
@@ -1875,6 +1883,7 @@
     renderDaysOffPanel();
     return loadAppointments();
   }).then(function() {
+    scrollToToday();   // on first open only, never after a save or refresh
     updatePlannerSummary(appointments, currentWeekStart);
     if (typeof initPullToRefresh === "function") initPullToRefresh(loadAppointments);
 
@@ -1975,10 +1984,9 @@
         return null;
       }
       // ── One appointment per hour for drag-drop ──
+      // Moving any appointment, including a cancelled or rescheduled one,
+      // makes it active at the new time (the server clears the old status).
       if ((appt.appt_type || "appointment") !== "callback" &&
-          (appt.appt_status || "") !== "cancelled" &&
-          (appt.appt_status || "") !== "rescheduled" &&
-          (appt.sms_status || "") !== "rescheduled" &&
           findHourClash(changes.scheduled_for, appt.id)) {
         showToast(clashMessage(changes.scheduled_for), "error");
         return null;

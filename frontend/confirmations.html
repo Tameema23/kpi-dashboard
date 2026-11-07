@@ -938,9 +938,10 @@
       var data = await res.json();
       if (res.ok) {
         var removed = data.removed_duplicates || 0;
-        showToast(data.status === "already_registered"
-          ? "Webhook already registered" + (removed ? "; removed " + removed + " duplicate(s)." : ".")
-          : "Webhook registered. YES replies will now auto-confirm.");
+        showToast((data.status === "already_registered"
+          ? "Webhook already registered" + (removed ? "; removed " + removed + " duplicate(s)" : "")
+          : "Webhook registered. YES replies will now auto-confirm") +
+          (data.verified ? " (verified)." : "."));
         console.log("Webhook details:", data);
       } else {
         showToast("Failed: " + (data.detail || "Unknown error"), "error");

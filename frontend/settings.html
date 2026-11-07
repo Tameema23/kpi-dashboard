@@ -831,9 +831,15 @@
     if (urlParams.get("rc") === "error")     showToast("RingCentral connection failed. Please try again.", "error");
   }
 
-  function rcStartConnect() {
-    // Pass JWT token as query param — browser redirects can't set headers
-    window.location.href = "/rc/connect?token=" + encodeURIComponent(TOKEN);
+  async function rcStartConnect() {
+    // Ask the server (signed in) for a one-time RingCentral sign-in link.
+    // The login token stays out of the URL.
+    try {
+      var res = await fetch("/rc/connect-start", { method: "POST", headers: { Authorization: "Bearer " + TOKEN } });
+      var data = await res.json().catch(function() { return {}; });
+      if (!res.ok || !data.url) { showToast(data.detail || "Could not start the RingCentral connection.", "error"); return; }
+      window.location.href = data.url;
+    } catch (e) { showToast("Server error. Please try again.", "error"); }
   }
 
   async function loadRcStatus() {
