@@ -20,7 +20,7 @@ Security:
   ✓ Timing-safe login (prevents username enumeration)
 """
 
-import os, re, json, html, logging, shutil, hashlib, asyncio, urllib.parse, secrets, threading, time
+import os, re, json, html, logging, shutil, hashlib, asyncio, urllib.parse, secrets, tempfile, threading, time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy import or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, InvalidRequestError
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -187,8 +187,8 @@ def _appt_recipients(db: Session, appt: Appointment):
 
 
 def _phone_key(phone: str) -> str:
-    """Last 10 digits of a phone number. Used to compare numbers in any format."""
-    return re.sub(r"[^\d]", "", phone or "")[-10:]
+    """Use the full number so different country codes never collide."""
+    return normalize_phone(phone)
 
 
 def _sms_kind(log_tag: str) -> str:
@@ -200,85 +200,83 @@ def _sms_kind(log_tag: str) -> str:
 
 
 def _still_textable(appt: Appointment) -> bool:
-    """Default re-check before each send: the appointment may have been
-    cancelled, rescheduled or deleted while a batch was running."""
-    return _sms_status_allows_texting(appt)
+    return _sms_status_allows_texting(appt) and _appt_is_upcoming(appt)
 
 
 async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
-                                   log_tag: str, still_ok=_still_textable):
-    """
-    Sends an SMS to the primary recipient and every extra recipient on the
-    appointment. `build_message(greeting_name)` returns the personalized text
-    for a given recipient. Returns a dict summary: {sent, failed, total}.
-
-    This is the single fan-out point used by every automated SMS job, so the
-    rules below apply to all of them:
-      - Right before each text, the appointment is re-read. If it was
-        cancelled, rescheduled, moved to another time or deleted since the
-        batch started, nothing more is sent for it.
-      - Each recipient gets each kind of text once per appointment time, ever.
-        That is recorded per recipient in sms_log, so a restart, a re-run or
-        a reset flag cannot repeat it, and a recipient whose send failed is
-        retried without re-texting the ones who already got it.
-    """
+                                 log_tag: str, still_ok=_still_textable):
+    """Claim each send before contacting RingCentral. A retry skips accepted sends."""
     kind = _sms_kind(log_tag)
+    appt_id = appt.id
     scheduled = appt.scheduled_for
     recipients = _appt_recipients(db, appt)
-    sent = 0
-    failed = 0
-    for (name, phone) in recipients:
+    sent = failed = settled = 0
+    for _, phone in recipients:
         try:
             db.refresh(appt)
-        except Exception:
-            logger.info(f"[{log_tag}] Appt {appt.id} no longer exists; stopping")
+        except InvalidRequestError:
             break
         if appt.scheduled_for != scheduled or not still_ok(appt):
-            logger.info(f"[{log_tag}] Appt {appt.id} changed while sending "
-                        f"(now {appt.scheduled_for}, status {appt.appt_status or '-'}); stopping")
             break
-
-        key = f"out:{appt.id}:{kind}:{scheduled}:{_phone_key(phone)}"[:200]
-        row = db.query(SmsLog).filter(SmsLog.dedupe_key == key).first()
-        if row and row.status in ("sent", "sending"):
-            # Already delivered (or another worker is sending it right now).
-            sent += 1
+        current = {_phone_key(number): name for name, number in _appt_recipients(db, appt)}
+        phone = _phone_key(phone)
+        if phone not in current:
             continue
+
+        key = f"out:{appt_id}:{kind}:{scheduled}:{phone}"
+        row = db.query(SmsLog).filter(SmsLog.dedupe_key == key).first()
+        if row and row.status in ("sent", "suppressed"):
+            settled += 1
+            continue
+        if row and row.status in ("sending", "uncertain"):
+            continue
+        if row and row.status == "dry_run":
+            token = _get_rc_token(db, appt.owner_id)
+            if token and token.dry_run:
+                continue
         if row is None:
             row = SmsLog(dedupe_key=key, direction="out", kind=kind,
-                         appointment_id=appt.id, phone=phone)
+                         appointment_id=appt_id, phone=phone)
             db.add(row)
-        row.status, row.created_at = "sending", _mt_now_str_seconds()
+        message = build_message(current[phone])
+        row.status = "sending"
+        row.created_at = _mt_now_str_seconds()
         try:
             db.commit()
         except IntegrityError:
-            db.rollback()          # someone else claimed this exact send first
-            sent += 1
+            db.rollback()
             continue
 
-        # `name` is already the greeting name, used verbatim.
-        message = build_message(name)
         result = await send_sms(db, appt.owner_id, phone, message)
         if result.get("sent"):
             row.status = "sent"
+            sent += 1
+            settled += 1
         elif result.get("dry_run"):
             row.status = "dry_run"
         elif result.get("skipped"):
-            row.status = "sent"    # this exact text reached them minutes ago
+            row.status = "suppressed"
+            settled += 1
+        elif result.get("uncertain"):
+            row.status = "uncertain"
+            failed += 1
         else:
             row.status = "failed"
+            failed += 1
         row.detail = str(result.get("detail") or "")[:300]
         db.commit()
 
-        if row.status in ("sent", "dry_run"):
-            sent += 1
+    complete = bool(recipients) and settled == len(recipients)
+    if complete:
+        try:
+            db.refresh(appt)
+        except InvalidRequestError:
+            complete = False
         else:
-            failed += 1
-        logger.info(
-            f"[{log_tag}] Appt {appt.id} ({appt.lead_name}) "
-            f"→ {phone} | dry_run={result.get('dry_run')} | {result.get('detail')}"
-        )
-    return {"sent": sent, "failed": failed, "total": len(recipients)}
+            complete = appt.scheduled_for == scheduled and still_ok(appt)
+            complete = complete and {_phone_key(phone) for _, phone in recipients} == {
+                _phone_key(phone) for _, phone in _appt_recipients(db, appt)}
+    return {"sent": sent, "failed": failed, "total": len(recipients), "complete": complete}
 
 
 def _mt_now_str_seconds() -> str:
@@ -298,7 +296,7 @@ def _sms_status_allows_texting(appt: Appointment) -> bool:
     cancelled or no-show on either status field."""
     if (appt.appt_type or "") == "callback":
         return False
-    if (appt.sms_status or "") == "rescheduled":
+    if appt.sms_status in RELEASED_STATUSES:
         return False
     if (getattr(appt, "appt_status", "") or "") in ("cancelled", "no_show", "rescheduled"):
         return False
@@ -429,11 +427,8 @@ async def _run_sms_job(job_type: str, owner_id=_ALL_OWNERS):
                 f"SMS {label.upper()}"
             )
 
-            # Mark as sent only if at least one text actually went out (dry run
-            # counts). If every send failed (e.g. RingCentral out of credits),
-            # the flag stays down so the manual Send Confirmation Texts button
-            # can still reach this client.
-            if summary["sent"] > 0:
+            # Leave this job retryable until all recipients are covered.
+            if summary["complete"]:
                 setattr(appt, sent_flag, True)
                 db.commit()
 
@@ -517,14 +512,15 @@ async def _send_confirmation_texts_for_date(target_date: str) -> dict:
             summary = await _send_to_all_recipients(
                 db, appt,
                 lambda fn: _build_sms(fn, time_display, date_display, False),
-                f"SMS MANUAL-CONFIRM {target_date}"
+                f"SMS MANUAL-CONFIRM {target_date}",
+                still_ok=lambda a: _still_textable(a) and not _is_confirmed(a),
             )
             sent   += summary["sent"]
             failed += summary["failed"]
             # Mark that a YES-prompt text went out via the manual button, so the
             # inbound webhook can match this appointment. Without this the client
             # replies YES and nothing happens.
-            if summary["sent"] > 0:
+            if summary["complete"]:
                 appt.sms_sent_manual = True
                 # Stop the scheduler repeating this same text: today's
                 # appointments are covered by the 9 AM job, tomorrow's by
@@ -610,11 +606,12 @@ async def _run_reminder_job():
             summary = await _send_to_all_recipients(
                 db, appt,
                 lambda fn: SMS_REMINDER_TEMPLATE.format(name=fn, time=time_display),
-                "SMS REMINDER"
+                "SMS REMINDER",
+                still_ok=lambda a: _still_textable(a) and not _is_confirmed(a),
             )
             # Only mark it done if a text actually went out, so a failed send
             # is retried on the next pass inside the window.
-            if summary["sent"] > 0:
+            if summary["complete"]:
                 appt.sms_sent_reminder = True
                 db.commit()
 
@@ -688,7 +685,7 @@ async def _run_booking_job():
             # this job runs every minute. A later retry that does get through
             # can't double up, because the duplicate guard in send_sms skips
             # anyone who already has this exact text.
-            if summary["sent"] > 0:
+            if summary["complete"]:
                 appt.sms_sent_booking = True
                 db.commit()
 
@@ -732,7 +729,7 @@ async def _run_booking_job_catchup():
                 lambda fn: _build_sms(fn, time_display, date_display, confirmed),
                 "SMS BOOKING CATCHUP"
             )
-            if summary["sent"] > 0:
+            if summary["complete"]:
                 appt.sms_sent_booking = True
                 db.commit()
                 sent_count += 1
@@ -756,12 +753,10 @@ async def _run_midpoint_job():
         mt    = BUSINESS_TZ
         today = datetime.now(mt).strftime("%Y-%m-%d")
 
-        appts = db.query(Appointment).filter(
-        ).all()
+        appts = db.query(Appointment).filter(Appointment.midpoint_send_date == today).all()
         now_str = _mt_now_str()
         appts = [a for a in appts
-                 if getattr(a, "midpoint_send_date", "") == today
-                 and not getattr(a, "sms_sent_midpoint", False)
+                 if not getattr(a, "sms_sent_midpoint", False)
                  and _sms_status_allows_texting(a)
                  and _appt_is_upcoming(a, now_str)]
 
@@ -777,7 +772,7 @@ async def _run_midpoint_job():
                 lambda fn: _build_sms(fn, time_display, date_display, confirmed),
                 "SMS MIDPOINT"
             )
-            if summary["sent"] > 0:
+            if summary["complete"]:
                 appt.sms_sent_midpoint = True
                 db.commit()
 
@@ -968,7 +963,7 @@ class SecurityHeadersMiddleware:
         # Only the current build's hash proves the bytes match this deploy.
         # Anything else (an old hash, a hand-set ?v=1) gets a short cache.
         query = urllib.parse.parse_qs(scope.get("query_string", b"").decode("latin-1"))
-        versioned = query.get("v", [""])[0] == BUILD_HASH
+        versioned = query.get("v") == [BUILD_HASH]
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
@@ -976,7 +971,7 @@ class SecurityHeadersMiddleware:
                 for k, v in _SECURITY_HEADERS.items():
                     headers[k] = v
                 ctype = headers.get("content-type", "")
-                if "text/html" in ctype:
+                if "text/html" in ctype or path.startswith("/static/") and path.endswith(".html"):
                     # Pages must always be fresh so a deploy shows up at once.
                     headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
                     headers["Pragma"] = "no-cache"
@@ -986,15 +981,21 @@ class SecurityHeadersMiddleware:
                     # therefore never changes content: cache it for a year.
                     headers["Cache-Control"] = ("public, max-age=31536000, immutable"
                                                 if versioned else "public, max-age=3600")
+                    if "accept-encoding" not in headers.get("vary", "").lower():
+                        headers.add_vary_header("Accept-Encoding")
+                    etag = headers.get("etag")
+                    if etag and not etag.startswith("W/"):
+                        headers["ETag"] = "W/" + etag
+                elif path == "/appointments" and headers.get("etag"):
+                    if "accept-encoding" not in headers.get("vary", "").lower():
+                        headers.add_vary_header("Accept-Encoding")
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
 
 
-app.add_middleware(SecurityHeadersMiddleware)
-# Added last so it wraps everything: compresses HTML, JS, CSS and JSON
-# (app.js and style.css shrink to about a fifth of their size).
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Frontend pages ─────────────────────────────────────────────────────────────
 # Each page is read once at startup with every ?v= asset reference stamped with
@@ -1374,8 +1375,7 @@ RELEASED_STATUSES = ("cancelled", "rescheduled")
 
 
 def releases_slot(appt_status: Optional[str], sms_status: Optional[str] = "") -> bool:
-    return ((appt_status or "") in RELEASED_STATUSES
-            or (sms_status or "") == "rescheduled")
+    return appt_status in RELEASED_STATUSES or sms_status in RELEASED_STATUSES
 
 
 def appointment_conflict(db: Session, owner: int, scheduled_for: str,
@@ -1383,11 +1383,12 @@ def appointment_conflict(db: Session, owner: int, scheduled_for: str,
     """The active appointment already holding this hour, or None."""
     q = db.query(Appointment).filter(
         Appointment.owner_id == owner,
-        Appointment.scheduled_for.startswith(scheduled_for[:13]),
+        Appointment.scheduled_for >= scheduled_for[:13] + ":00",
+        Appointment.scheduled_for <= scheduled_for[:13] + ":59",
         or_(Appointment.appt_status.is_(None),
             Appointment.appt_status.notin_(RELEASED_STATUSES)),
         or_(Appointment.sms_status.is_(None),
-            Appointment.sms_status != "rescheduled"),
+            Appointment.sms_status.notin_(RELEASED_STATUSES)),
         or_(Appointment.appt_type.is_(None),
             Appointment.appt_type != "callback"),
     )
@@ -1442,7 +1443,7 @@ def signup_status():
 @limiter.limit("5/minute")
 def create_user(request: Request, data: SignupPayload, db: Session = Depends(get_db)):
     code = _signup_code()
-    if not code or not secrets.compare_digest((data.signup_code or "").strip(), code):
+    if not code or not secrets.compare_digest((data.signup_code or "").strip().encode(), code.encode()):
         raise HTTPException(403, "New accounts are created by your administrator.")
     username = validate_username(data.username)
     password = validate_new_password(data.password)  # enforce 8+ on new accounts
@@ -1908,9 +1909,10 @@ def _json_with_etag(request: Request, payload) -> Response:
     body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     # Weak validator: the same data compressed or not is still "the same".
     etag = 'W/"' + hashlib.md5(body).hexdigest() + '"'
-    headers = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding"}
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
     sent = [t.strip() for t in request.headers.get("if-none-match", "").split(",")]
-    if etag in sent or etag[2:] in sent:
+    if "*" in sent or etag in sent or etag[2:] in sent:
+        headers["Vary"] = "Accept-Encoding"
         return Response(status_code=304, headers=headers)
     return Response(content=body, media_type="application/json", headers=headers)
 
@@ -1920,6 +1922,7 @@ def get_appointments(request: Request,
                      start: Optional[str] = None,
                      end: Optional[str] = None,
                      limit: Optional[int] = None,
+                     active: bool = False,
                      user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     """
@@ -1936,7 +1939,13 @@ def get_appointments(request: Request,
         q = q.filter(Appointment.scheduled_for >= validate_date(start))
     if end:
         q = q.filter(Appointment.scheduled_for < validate_date(end) + "T99")
-    q = q.order_by(Appointment.scheduled_for)
+    if active:
+        q = q.filter(
+            Appointment.scheduled_for >= business_now_str(),
+            or_(Appointment.appt_status.is_(None), Appointment.appt_status.notin_(RELEASED_STATUSES)),
+            or_(Appointment.sms_status.is_(None), Appointment.sms_status.notin_(RELEASED_STATUSES)),
+        )
+    q = q.order_by(Appointment.scheduled_for, Appointment.id)
     if limit:
         q = q.limit(max(1, min(int(limit), 500)))
     return _json_with_etag(request, _appt_dicts(q.all(), db))
@@ -1955,7 +1964,8 @@ def appointments_new_count(since_ms: int = 0,
     if not _has_planner_access(user):
         return {"count": 0}
     owner = get_owner_id(user)
-    since = datetime.fromtimestamp(max(since_ms, 0) / 1000, tz=UTC) \
+    upper = int((time.time() + 86400) * 1000)
+    since = datetime.fromtimestamp(min(max(since_ms, 0), upper) / 1000, tz=UTC) \
         .astimezone(BUSINESS_TZ).strftime("%Y-%m-%dT%H:%M")
     count = db.query(Appointment).filter(
         Appointment.owner_id == owner,
@@ -1969,152 +1979,152 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
                        db: Session = Depends(get_db)):
     _check_planner_access(user)
     owner = get_owner_id(user)
-    appt  = db.query(Appointment).filter(
-        Appointment.id == appt_id, Appointment.owner_id == owner
-    ).first()
-    if not appt: raise HTTPException(404, "Appointment not found.")
-    # ── Blocked-day enforcement ──────────────────────────────
-    # Only when the DATE actually moves. Fixing a typo in the phone number of
-    # an appointment on a day that was blocked afterwards must still work.
-    sched = validate_datetime(data.scheduled_for)
-    if sched[:10] != (appt.scheduled_for or "")[:10]:
-        sched_date = datetime.strptime(sched[:10], "%Y-%m-%d")
-        sched_dow  = (sched_date.weekday() + 1) % 7  # JS style: Sun=0 … Sat=6
-        blocked = db.query(BlockedDay).filter(
-            BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
-        ).first()
-        if blocked:
-            raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be rescheduled to this day.")
-        # ── One-time blocked date enforcement ─────────────────────
-        blocked_date = db.query(BlockedDate).filter(
-            BlockedDate.owner_id == owner, BlockedDate.date == sched[:10]
-        ).first()
-        if blocked_date:
-            raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
-    # Captured before any field changes, for the one-per-hour check below.
-    prev_sched = appt.scheduled_for or ""
-    prev_type  = appt.appt_type or "appointment"
-    prev_released = releases_slot(getattr(appt, "appt_status", ""), appt.sms_status)
-    pending_audit = None
-    # Normalised so legacy rows stored without +1 don't count as a change
-    old_phone          = normalize_phone(appt.phone_number or "")
-    appt.lead_name     = title_case(sanitize_str(data.lead_name, 200))
-    appt.attendee_name = title_case(sanitize_str(data.attendee_name or "", 200))
-    appt.phone_number  = normalize_phone(data.phone_number)
-    appt.comments      = sanitize_str(data.comments or "", 2000)
-    appt.appt_type     = data.appt_type if data.appt_type in ("appointment","callback") else "appointment"
-    if data.booking_tz: appt.booking_tz = validate_tz(data.booking_tz)
-
-    # ── Smart SMS reset on reschedule ───────────────────────────
-    new_sched  = validate_datetime(data.scheduled_for)
-
-    # Rescheduling into a blocked hour follows the same rules as booking one.
-    # Only checked when the time actually moves, so editing a name or comment
-    # on an appointment that already sits inside a block still works.
-    if new_sched != (appt.scheduled_for or ""):
-        hour_reason = blocked_hour_reason(db, owner, new_sched)
-        if hour_reason:
-            if user.role == "admin" and bool(getattr(data, "override_block", False)):
-                # Logged only after the edit is saved; audit() commits, which
-                # would otherwise save this half-applied edit early.
-                pending_audit = ("override_blocked_hour", f"{new_sched} — {hour_reason}")
-            elif user.role == "admin":
-                raise HTTPException(409, hour_reason)
-            else:
-                raise HTTPException(400, hour_reason)
-        # Same-day notice, assistants only. Editing a name or phone on an
-        # appointment that is already inside the window still works.
-        if user.role != "admin":
-            lead_reason = lead_time_reason(new_sched)
-            if lead_reason:
-                raise HTTPException(400, lead_reason)
-
-    old_date   = appt.scheduled_for[:10] if appt.scheduled_for else ""
-    new_date   = new_sched[:10]
-    old_time   = appt.scheduled_for[11:16] if appt.scheduled_for and len(appt.scheduled_for) > 10 else ""
-    new_time   = new_sched[11:16] if len(new_sched) > 10 else ""
-
-    if old_date != new_date:
-        # Date changed — full reset so they get a fresh evening + morning text
-        appt.sms_sent_evening  = False
-        appt.sms_sent_morning  = False
-        appt.sms_sent_reminder = False
-        appt.sms_sent_booking  = False
-        appt.sms_sent_midpoint = False
-        appt.sms_sent_manual   = False
-        appt.sms_status        = ""
-        # A confirmation or outcome (rescheduled / no-show / cancelled)
-        # belongs to the OLD date/time. Moving the appointment is the
-        # reschedule, so it starts pending and must be re-confirmed. Leaving
-        # "rescheduled" in place would block every text for the new time.
-        appt.appt_status = ""
-        appt.sms_sent_confirmed_notice = False
-        # Recalculate midpoint for new date
-        try:
-            mt         = BUSINESS_TZ
-            now_date   = datetime.now(mt).date()
-            sched_date = datetime.strptime(new_sched[:10], "%Y-%m-%d").date()
-            days_out   = (sched_date - now_date).days
-            if days_out >= 5:
-                midpoint_date = now_date + timedelta(days=days_out // 2)
-                appt.midpoint_send_date = midpoint_date.strftime("%Y-%m-%d")
-            else:
-                appt.midpoint_send_date = ""
-        except Exception:
-            pass
-        # Update booked_at so booking job fires again for the rescheduled appt
-        try:
-            mt  = BUSINESS_TZ
-            appt.booked_at = datetime.now(mt).strftime("%Y-%m-%dT%H:%M")
-        except Exception:
-            pass
-    elif old_time != new_time:
-        # Same date, time changed. Any text already sent quoted the OLD time,
-        # so reset everything and re-send a booking confirmation with the new
-        # time (~5 minutes from now via the booking job).
-        appt.sms_sent_evening  = False
-        appt.sms_sent_morning  = False
-        appt.sms_sent_reminder = False
-        appt.sms_sent_booking  = False
-        appt.sms_sent_manual   = False
-        appt.sms_status        = ""
-        appt.appt_status       = ""
-        appt.sms_sent_confirmed_notice = False
-        try:
-            appt.booked_at = business_now().strftime("%Y-%m-%dT%H:%M")
-        except Exception:
-            pass
-    elif (appt.phone_number or "") != old_phone and (appt.phone_number or ""):
-        # Phone number corrected on an unchanged time. Earlier texts went to
-        # the old (possibly wrong) number, so the client may have received
-        # nothing. Re-send the confirmation to the new number via the booking
-        # job. Confirmation status is left as is.
-        appt.sms_sent_evening  = False
-        appt.sms_sent_morning  = False
-        appt.sms_sent_booking  = False
-        appt.sms_sent_manual   = False
-        try:
-            appt.booked_at = business_now().strftime("%Y-%m-%dT%H:%M")
-        except Exception:
-            pass
-    # else: only non-time fields changed — leave SMS fields untouched
-
-    appt.scheduled_for = new_sched
-    # Update extra SMS recipients (None = leave as-is; [] = clear)
-    _sync_recipients(db, appt, data.recipients)
-
-    # One appointment per hour. Only checked when this edit could create a
-    # clash (the hour moves, or a callback becomes an appointment), so fixing a
-    # name on an older pair that already overlaps still saves.
-    # Also checked when a cancelled or rescheduled appointment becomes active
-    # again by being moved, even within the same hour (moving it clears the
-    # old status), since it is taking an hour back.
-    now_released = releases_slot(getattr(appt, "appt_status", ""), appt.sms_status)
-    needs_check = (appt.appt_type != "callback"
-                   and not now_released
-                   and (new_sched[:13] != prev_sched[:13] or prev_type == "callback"
-                        or prev_released))
     with _booking_lock:
+        appt  = db.query(Appointment).filter(
+            Appointment.id == appt_id, Appointment.owner_id == owner
+        ).first()
+        if not appt: raise HTTPException(404, "Appointment not found.")
+        # ── Blocked-day enforcement ──────────────────────────────
+        # Only when the DATE actually moves. Fixing a typo in the phone number of
+        # an appointment on a day that was blocked afterwards must still work.
+        sched = validate_datetime(data.scheduled_for)
+        if sched[:10] != (appt.scheduled_for or "")[:10]:
+            sched_date = datetime.strptime(sched[:10], "%Y-%m-%d")
+            sched_dow  = (sched_date.weekday() + 1) % 7  # JS style: Sun=0 … Sat=6
+            blocked = db.query(BlockedDay).filter(
+                BlockedDay.owner_id == owner, BlockedDay.day_of_week == sched_dow
+            ).first()
+            if blocked:
+                raise HTTPException(400, f"{DAY_NAMES[sched_dow]} is marked as unavailable. Appointments cannot be rescheduled to this day.")
+            # ── One-time blocked date enforcement ─────────────────────
+            blocked_date = db.query(BlockedDate).filter(
+                BlockedDate.owner_id == owner, BlockedDate.date == sched[:10]
+            ).first()
+            if blocked_date:
+                raise HTTPException(400, f"{sched[:10]} is marked as unavailable. Appointments cannot be rescheduled to this date.")
+        # Captured before any field changes, for the one-per-hour check below.
+        prev_sched = appt.scheduled_for or ""
+        prev_type  = appt.appt_type or "appointment"
+        prev_released = releases_slot(getattr(appt, "appt_status", ""), appt.sms_status)
+        pending_audit = None
+        # Normalised so legacy rows stored without +1 don't count as a change
+        old_phone          = normalize_phone(appt.phone_number or "")
+        appt.lead_name     = title_case(sanitize_str(data.lead_name, 200))
+        appt.attendee_name = title_case(sanitize_str(data.attendee_name or "", 200))
+        appt.phone_number  = normalize_phone(data.phone_number)
+        appt.comments      = sanitize_str(data.comments or "", 2000)
+        appt.appt_type     = data.appt_type if data.appt_type in ("appointment","callback") else "appointment"
+        if data.booking_tz: appt.booking_tz = validate_tz(data.booking_tz)
+
+        # ── Smart SMS reset on reschedule ───────────────────────────
+        new_sched  = validate_datetime(data.scheduled_for)
+
+        # Rescheduling into a blocked hour follows the same rules as booking one.
+        # Only checked when the time actually moves, so editing a name or comment
+        # on an appointment that already sits inside a block still works.
+        if new_sched != (appt.scheduled_for or ""):
+            hour_reason = blocked_hour_reason(db, owner, new_sched)
+            if hour_reason:
+                if user.role == "admin" and bool(getattr(data, "override_block", False)):
+                    # Logged only after the edit is saved; audit() commits, which
+                    # would otherwise save this half-applied edit early.
+                    pending_audit = ("override_blocked_hour", f"{new_sched} — {hour_reason}")
+                elif user.role == "admin":
+                    raise HTTPException(409, hour_reason)
+                else:
+                    raise HTTPException(400, hour_reason)
+            # Same-day notice, assistants only. Editing a name or phone on an
+            # appointment that is already inside the window still works.
+            if user.role != "admin":
+                lead_reason = lead_time_reason(new_sched)
+                if lead_reason:
+                    raise HTTPException(400, lead_reason)
+
+        old_date   = appt.scheduled_for[:10] if appt.scheduled_for else ""
+        new_date   = new_sched[:10]
+        old_time   = appt.scheduled_for[11:16] if appt.scheduled_for and len(appt.scheduled_for) > 10 else ""
+        new_time   = new_sched[11:16] if len(new_sched) > 10 else ""
+
+        if old_date != new_date:
+            # Date changed — full reset so they get a fresh evening + morning text
+            appt.sms_sent_evening  = False
+            appt.sms_sent_morning  = False
+            appt.sms_sent_reminder = False
+            appt.sms_sent_booking  = False
+            appt.sms_sent_midpoint = False
+            appt.sms_sent_manual   = False
+            appt.sms_status        = ""
+            # A confirmation or outcome (rescheduled / no-show / cancelled)
+            # belongs to the OLD date/time. Moving the appointment is the
+            # reschedule, so it starts pending and must be re-confirmed. Leaving
+            # "rescheduled" in place would block every text for the new time.
+            appt.appt_status = ""
+            appt.sms_sent_confirmed_notice = False
+            # Recalculate midpoint for new date
+            try:
+                mt         = BUSINESS_TZ
+                now_date   = datetime.now(mt).date()
+                sched_date = datetime.strptime(new_sched[:10], "%Y-%m-%d").date()
+                days_out   = (sched_date - now_date).days
+                if days_out >= 5:
+                    midpoint_date = now_date + timedelta(days=days_out // 2)
+                    appt.midpoint_send_date = midpoint_date.strftime("%Y-%m-%d")
+                else:
+                    appt.midpoint_send_date = ""
+            except Exception:
+                pass
+            # Update booked_at so booking job fires again for the rescheduled appt
+            try:
+                mt  = BUSINESS_TZ
+                appt.booked_at = datetime.now(mt).strftime("%Y-%m-%dT%H:%M")
+            except Exception:
+                pass
+        elif old_time != new_time:
+            # Same date, time changed. Any text already sent quoted the OLD time,
+            # so reset everything and re-send a booking confirmation with the new
+            # time (~5 minutes from now via the booking job).
+            appt.sms_sent_evening  = False
+            appt.sms_sent_morning  = False
+            appt.sms_sent_reminder = False
+            appt.sms_sent_booking  = False
+            appt.sms_sent_manual   = False
+            appt.sms_status        = ""
+            appt.appt_status       = ""
+            appt.sms_sent_confirmed_notice = False
+            try:
+                appt.booked_at = business_now().strftime("%Y-%m-%dT%H:%M")
+            except Exception:
+                pass
+        elif (appt.phone_number or "") != old_phone and (appt.phone_number or ""):
+            # Phone number corrected on an unchanged time. Earlier texts went to
+            # the old (possibly wrong) number, so the client may have received
+            # nothing. Re-send the confirmation to the new number via the booking
+            # job. Confirmation status is left as is.
+            appt.sms_sent_evening  = False
+            appt.sms_sent_morning  = False
+            appt.sms_sent_booking  = False
+            appt.sms_sent_manual   = False
+            try:
+                appt.booked_at = business_now().strftime("%Y-%m-%dT%H:%M")
+            except Exception:
+                pass
+        # else: only non-time fields changed — leave SMS fields untouched
+
+        appt.scheduled_for = new_sched
+        # Update extra SMS recipients (None = leave as-is; [] = clear)
+        _sync_recipients(db, appt, data.recipients)
+
+        # One appointment per hour. Only checked when this edit could create a
+        # clash (the hour moves, or a callback becomes an appointment), so fixing a
+        # name on an older pair that already overlaps still saves.
+        # Also checked when a cancelled or rescheduled appointment becomes active
+        # again by being moved, even within the same hour (moving it clears the
+        # old status), since it is taking an hour back.
+        now_released = releases_slot(getattr(appt, "appt_status", ""), appt.sms_status)
+        needs_check = (appt.appt_type != "callback"
+                       and not now_released
+                       and (new_sched[:13] != prev_sched[:13] or prev_type == "callback"
+                            or prev_released))
         if needs_check and appointment_conflict(db, owner, new_sched, exclude_id=appt.id):
             db.rollback()
             raise HTTPException(400, conflict_message(new_sched))
@@ -2586,7 +2596,7 @@ def backup_database(user: User = Depends(get_current_user)):
     os.makedirs(backup_dir, exist_ok=True)
 
     # Timestamped filename
-    ts       = business_now().strftime("%Y%m%d_%H%M%S")
+    ts       = business_now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"kpi_backup_{ts}.db"
     dest     = os.path.join(backup_dir, filename)
 
@@ -2594,15 +2604,22 @@ def backup_database(user: User = Depends(get_current_user)):
     # an SMS job writes mid-copy. A plain file copy at that moment can produce
     # a backup that won't open.
     import sqlite3
-    src_conn = sqlite3.connect(src)
+    fd, temporary = tempfile.mkstemp(dir=backup_dir, prefix=".backup-", suffix=".tmp")
+    os.close(fd)
     try:
-        dest_conn = sqlite3.connect(dest)
+        src_conn = sqlite3.connect(src)
         try:
-            src_conn.backup(dest_conn)
+            dest_conn = sqlite3.connect(temporary)
+            try:
+                src_conn.backup(dest_conn)
+            finally:
+                dest_conn.close()
         finally:
-            dest_conn.close()
+            src_conn.close()
+        os.replace(temporary, dest)
     finally:
-        src_conn.close()
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     logger.info(f"Backup created: {dest} by user {user.username}")
 
     # Keep only the 10 most recent backups to save disk space
@@ -3225,7 +3242,8 @@ async def _refresh_rc_token_if_needed(db: Session, token_row: RcToken) -> bool:
 # which anyone could guess, so a crafted callback link could attach someone
 # else's RingCentral account to this app. Now each connect attempt gets a
 # random state that is tied to the admin who started it and expires.
-_RC_OAUTH_STATES: dict = {}     # state -> (user_id, time.monotonic() deadline)
+_RC_OAUTH_STATES: dict = {}
+_rc_oauth_lock = threading.Lock()
 RC_OAUTH_STATE_SECONDS = 15 * 60
 
 
@@ -3235,11 +3253,12 @@ def rc_connect_start(user: User = Depends(get_current_user)):
     The admin's login token never appears in a URL or a server log."""
     _require_admin(user)
     now = time.monotonic()
-    for k, (_, deadline) in list(_RC_OAUTH_STATES.items()):
-        if deadline < now:
-            del _RC_OAUTH_STATES[k]
     state = secrets.token_urlsafe(24)
-    _RC_OAUTH_STATES[state] = (user.id, now + RC_OAUTH_STATE_SECONDS)
+    with _rc_oauth_lock:
+        for key, (_, _, deadline) in list(_RC_OAUTH_STATES.items()):
+            if deadline < now:
+                del _RC_OAUTH_STATES[key]
+        _RC_OAUTH_STATES[state] = (user.id, user.token_version or 0, now + RC_OAUTH_STATE_SECONDS)
     url = (f"{RC_AUTH_BASE}/restapi/oauth/authorize?" + urllib.parse.urlencode({
         "response_type": "code", "client_id": RC_CLIENT_ID,
         "redirect_uri": RC_REDIRECT_URI, "state": state}))
@@ -3254,13 +3273,14 @@ async def rc_callback(code: str, state: str, db: Session = Depends(get_db)):
     Exchanges the code for tokens and stores them in rc_tokens table.
     Then redirects back to settings page.
     """
-    entry = _RC_OAUTH_STATES.pop(state, None)   # single use
-    if not entry or entry[1] < time.monotonic():
+    with _rc_oauth_lock:
+        entry = _RC_OAUTH_STATES.pop(state, None)
+    if not entry or entry[2] < time.monotonic():
         logger.warning("RC OAuth callback with an unknown or expired state; ignored")
         return RedirectResponse("/settings.html?rc=error")
-    user_id = entry[0]
+    user_id, token_version, _ = entry
     user = db.query(User).filter(User.id == user_id).first()
-    if not user or user.role != "admin":
+    if not user or user.role != "admin" or (user.token_version or 0) != token_version:
         return RedirectResponse("/settings.html?rc=error")
 
     async with httpx.AsyncClient() as client:
@@ -3380,24 +3400,8 @@ def rc_set_dry_run(data: DryRunPayload,
 # is skipped. Different wording (another appointment time, a new summary)
 # always goes through. Kept in memory: the app runs as a single process.
 SMS_DUPLICATE_WINDOW_SECONDS = 10 * 60
-_recent_sms: dict = {}   # (phone_key, message) -> time.monotonic() of send
-
-
-def _claim_sms_slot(to_number: str, message: str) -> Optional[tuple]:
-    """
-    Reserve (number, text) for sending. Returns the key if the send may go
-    ahead, or None if the same text went to this number inside the window.
-    Runs with no await, so two concurrent requests can never both claim it.
-    """
-    now = time.monotonic()
-    for k, t in list(_recent_sms.items()):
-        if now - t >= SMS_DUPLICATE_WINDOW_SECONDS:
-            del _recent_sms[k]
-    key = (_phone_key(to_number), message)
-    if key in _recent_sms:
-        return None
-    _recent_sms[key] = now
-    return key
+_recent_sms: dict = {}
+_sms_in_flight: set = set()
 
 
 async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> dict:
@@ -3415,17 +3419,24 @@ async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> 
         logger.info(f"[DRY RUN] SMS to {to_number}: {message}")
         return {"sent": False, "dry_run": True, "detail": f"[DRY RUN] Would send to {to_number}: {message}"}
 
-    slot = _claim_sms_slot(to_number, message)
-    if slot is None:
-        logger.warning(f"SMS to {to_number} skipped: identical text already sent "
-                       f"in the last {SMS_DUPLICATE_WINDOW_SECONDS // 60} min")
-        return {"sent": False, "dry_run": False, "skipped": True,
-                "detail": "Skipped duplicate"}
+    key = (owner_id, _phone_key(to_number), message)
+    now = time.monotonic()
+    for old, at in list(_recent_sms.items()):
+        if now - at >= SMS_DUPLICATE_WINDOW_SECONDS:
+            del _recent_sms[old]
+    if key in _recent_sms:
+        return {"sent": False, "skipped": True, "detail": "Recently accepted by RingCentral"}
+    if key in _sms_in_flight:
+        return {"sent": False, "detail": "Matching send still in progress"}
 
-    result = await _post_sms(db, token_row, to_number, message)
-    if not result["sent"]:
-        _recent_sms.pop(slot, None)   # failed sends must stay retryable
-    return result
+    _sms_in_flight.add(key)
+    try:
+        result = await _post_sms(db, token_row, to_number, message)
+        if result["sent"]:
+            _recent_sms[key] = time.monotonic()
+        return result
+    finally:
+        _sms_in_flight.discard(key)
 
 
 async def _post_sms(db: Session, token_row, to_number: str, message: str) -> dict:
@@ -3453,8 +3464,8 @@ async def _post_sms(db: Session, token_row, to_number: str, message: str) -> dic
         logger.error(f"RC SMS error {resp.status_code}: {resp.text}")
         return {"sent": False, "dry_run": False, "detail": resp.text}
     except Exception as e:
-        logger.error(f"RC SMS exception: {e}")
-        return {"sent": False, "dry_run": False, "detail": str(e)}
+        logger.error("RC SMS transport error: %s", type(e).__name__)
+        return {"sent": False, "uncertain": True, "detail": type(e).__name__}
 
 # ── Inbound webhook — RingCentral posts here when a client replies ────────────
 
@@ -3484,51 +3495,57 @@ def _rc_webhook_token() -> str:
 
 
 def _webhook_request_trusted(db: Session, request: Request) -> bool:
-    token = _rc_webhook_token()
-    if not token or _get_setting(db, "rc_webhook_verified") != token:
-        return True     # verification not switched on yet (see above)
+    token = _get_setting(db, "rc_webhook_verified")
+    if not token:
+        return True
     got = request.headers.get("verification-token", "")
-    return secrets.compare_digest(got, token)
+    return secrets.compare_digest(got.encode(), token.encode())
 
 
 # ── Matching a "YES" to the right appointment ────────────────────────────────
 # Kinds of outbound text that ask the client to reply YES.
-_YES_PROMPT_KINDS = ("booking", "midpoint", "evening", "morning", "manual_confirm", "reminder")
+_YES_PROMPT_KINDS = ("booking", "midpoint", "evening", "morning", "manual_confirm")
 
 
-def _yes_candidates(db: Session, sender: str) -> list:
+def _yes_candidates(db: Session, sender: str, destinations: list[str]) -> list:
     """
     Upcoming, unconfirmed, still-active appointments that this phone number
     was actually asked to confirm, for the appointment's CURRENT time.
     Uses the per-recipient send record; appointments texted before that
     record existed fall back to the appointment's sent flags.
     """
-    sender_tail = _phone_key(sender)
-    if not sender_tail:
+    sender_phone = _phone_key(sender)
+    if not sender_phone:
         return []
-    earliest = add_real_time(business_now(), timedelta(hours=-3)).strftime("%Y-%m-%dT%H:%M")
-    appts = db.query(Appointment).filter(
-        Appointment.scheduled_for >= earliest,
-    ).order_by(Appointment.scheduled_for).all()
+    q = db.query(Appointment).filter(Appointment.scheduled_for > business_now_str())
+    if destinations:
+        owners = [t.owner_user_id for t in db.query(RcToken).all()
+                  if _phone_key(t.rc_phone_number) in destinations]
+        q = q.filter(Appointment.owner_id.in_(owners))
+    appts = q.order_by(Appointment.scheduled_for).all()
+    eligible = [a for a in appts if not a.booked_by_agent and not _is_confirmed(a)
+                and _sms_status_allows_texting(a)]
+    if not eligible:
+        return []
+    extra_ids = {
+        r.appointment_id for r in db.query(AppointmentRecipient).join(Appointment)
+        .filter(Appointment.scheduled_for > business_now_str()).all()
+        if _phone_key(r.phone_number) == sender_phone
+    }
+    matches = [a for a in eligible if _phone_key(a.phone_number) == sender_phone or a.id in extra_ids]
     out = []
-    for a in appts:
-        if _is_confirmed(a) or not _sms_status_allows_texting(a):
-            continue
-        phones = [a.phone_number or ""] + [r.phone_number or "" for r in db.query(
-            AppointmentRecipient).filter(AppointmentRecipient.appointment_id == a.id).all()]
-        if sender_tail not in {_phone_key(p) for p in phones if p}:
-            continue
+    for a in matches:
         logged = db.query(SmsLog).filter(SmsLog.direction == "out",
                                          SmsLog.appointment_id == a.id).all()
         if logged:
             prompted = any(r.status == "sent" and r.kind in _YES_PROMPT_KINDS
-                           and _phone_key(r.phone) == sender_tail
+                           and _phone_key(r.phone) == sender_phone
                            and f":{a.scheduled_for}:" in r.dedupe_key
                            for r in logged)
-        else:   # texted before the send record existed
+        else:
             prompted = any(getattr(a, f, False) for f in (
                 "sms_sent_morning", "sms_sent_evening", "sms_sent_booking",
-                "sms_sent_manual", "sms_sent_midpoint", "sms_sent_reminder"))
+                "sms_sent_manual", "sms_sent_midpoint"))
         if prompted:
             out.append(a)
     return out
@@ -3561,9 +3578,9 @@ async def _alert_ambiguous_yes(sender: str, appts: list) -> None:
         if not token_row:
             return
         lines = [f"YES from {sender} matches {len(appts)} bookings. Please confirm the right one:"]
-        for a in appts[:5]:
-            t, d = _fmt_appt_time_for_tz(a.scheduled_for, BUSINESS_TZ_NAME)
-            lines.append(f"- {a.lead_name}, {d} {t}")
+        for name, scheduled_for in appts[:5]:
+            t, d = _fmt_appt_time_for_tz(scheduled_for, BUSINESS_TZ_NAME)
+            lines.append(f"- {name}, {d} {t}")
         await send_sms(db, token_row.owner_user_id, TAMEEMA_PHONE, "\n".join(lines))
     except Exception as e:
         logger.error(f"RC webhook: ambiguous-YES alert failed: {e}")
@@ -3610,7 +3627,11 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "ignored"}
 
     # Navigate RC's event payload structure (body nested under "body" key)
-    body_data = body.get("body", {}) or {}
+    if not isinstance(body, dict):
+        return {"status": "ignored"}
+    body_data = body.get("body", {})
+    if not isinstance(body_data, dict):
+        return {"status": "ignored"}
     msg_type  = body_data.get("type", "")
     direction = body_data.get("direction", "")
 
@@ -3622,27 +3643,21 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
             return {"status": "ignored"}
         body_data = body
 
-    text   = (body_data.get("subject", "") or body_data.get("text", "") or "").strip().upper()
-    sender = (body_data.get("from", {}) or {}).get("phoneNumber", "")
-
-    if not sender or not _phone_key(sender):
+    raw_text = body_data.get("subject") or body_data.get("text") or ""
+    sender_info = body_data.get("from")
+    sender = sender_info.get("phoneNumber") if isinstance(sender_info, dict) else None
+    if not isinstance(raw_text, str) or not isinstance(sender, str) or not _phone_key(sender):
         return {"status": "ignored"}
-
-    # RingCentral can deliver the same inbound text more than once (one POST
-    # per subscription, plus retries). The message ID is stored with a unique
-    # key, so each reply is handled once, even across restarts.
-    message_key = str(body_data.get("id") or
-                      f"{_phone_key(sender)}|{text}|{body_data.get('creationTime', '')}")
-    db.add(SmsLog(dedupe_key=f"in:{message_key}"[:200], direction="in", kind="reply",
-                  phone=sender, status="received", detail=text[:300],
-                  created_at=_mt_now_str_seconds()))
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        logger.info(f"RC webhook: duplicate delivery of message {message_key} "
-                    f"(subscription {body.get('subscriptionId', '?')}); ignored")
-        return {"status": "duplicate"}
+    text = raw_text.strip().upper()
+    recipients = body_data.get("to") or []
+    if not isinstance(recipients, list):
+        return {"status": "ignored"}
+    destinations = [_phone_key(item["phoneNumber"]) for item in recipients
+                    if isinstance(item, dict) and isinstance(item.get("phoneNumber"), str)]
+    message_key = body_data.get("id") or f"{sender}|{text}|{body_data.get('creationTime', '')}"
+    # RingCentral message IDs are scoped to the receiving line. Hash the full key.
+    inbound_key = f"{','.join(sorted(destinations))}|{message_key}"
+    key = "in:" + hashlib.sha256(inbound_key.encode()).hexdigest()
 
     # "Yes", "YES!", "yes thank you", "yes see you soon" all match. YES must be
     # a whole word, so "yesterday" or "eyes" never confirm anyone.
@@ -3656,14 +3671,19 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         return {"status": "ignored"}
 
     with _booking_lock:
-        candidates = _yes_candidates(db, sender)
-        if len(candidates) == 1:
-            matched = candidates[0]
-            matched.sms_status  = "confirmed"
+        db.add(SmsLog(dedupe_key=key, direction="in", kind="reply", phone=sender,
+                      status="received", created_at=_mt_now_str_seconds()))
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            return {"status": "duplicate"}
+        candidates = _yes_candidates(db, sender, destinations)
+        matched = candidates[0] if len(candidates) == 1 else None
+        if matched:
+            matched.sms_status = "confirmed"
             matched.appt_status = "confirmed"
-            db.commit()
-        else:
-            matched = None
+        db.commit()
 
     if matched:
         logger.info(f"Appointment {matched.id} ({matched.lead_name}) confirmed via YES from {sender}")
@@ -3675,7 +3695,7 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     if candidates:
         logger.info(f"RC webhook: YES from {sender} matches {len(candidates)} bookings "
                     f"({', '.join(str(a.id) for a in candidates)}); left for staff")
-        _spawn(_alert_ambiguous_yes(sender, candidates))
+        _spawn(_alert_ambiguous_yes(sender, [(a.lead_name, a.scheduled_for) for a in candidates]))
         return {"status": "needs_review"}
 
     logger.warning(f"RC webhook: no appointment matched sender {sender}")
@@ -3878,6 +3898,7 @@ def _availability(db: Session, owner: int, start_date, days: int,
         "timezones":  timezone_options(),
         "today":      now_mt.date().isoformat(),
         "start":      start_iso,
+        "last_bookable_date": last_bookable_date.isoformat() if last_bookable_date else None,
         "hours":      visible_hours,
         "days":       out_days,
         "lead_hours": SAME_DAY_LEAD_HOURS,
@@ -4013,7 +4034,7 @@ class PublicBookingPayload(BaseModel):
 
 @app.post("/api/book/{slug}", status_code=201)
 @limiter.limit("10/minute")
-async def create_public_booking(slug: str, data: PublicBookingPayload,
+def create_public_booking(slug: str, data: PublicBookingPayload,
                                 request: Request, db: Session = Depends(get_db)):
     """
     The only public write in the application. Creates one appointment and
@@ -4162,16 +4183,15 @@ async def _maybe_send_confirmed_notice(db: Session, appt: Appointment) -> bool:
         still_ok=lambda a: _is_confirmed(a) and _appt_is_upcoming(a),
     )
 
-    # Mark as sent if at least one message went out (or dry-run). If every
-    # send genuinely failed, leave the flag down so a later confirm can retry.
-    if summary["sent"] > 0:
+    # Keep failed recipients retryable without resending to the others.
+    if summary["complete"]:
         appt.sms_sent_confirmed_notice = True
         db.commit()
         logger.info(f"Confirmed notice sent for appt {appt.id} ({appt.lead_name}) "
                     f"→ {summary['sent']}/{summary['total']} recipient(s)")
         return True
 
-    logger.warning(f"Confirmed notice NOT sent for appt {appt.id}: all recipients failed")
+    logger.warning("Confirmed notice incomplete for appointment %s", appt.id)
     return False
 
 
@@ -4219,8 +4239,7 @@ async def _send_daily_summary(target_date: Optional[str] = None):
 
             sms_st  = a.sms_status  or ""
             appt_st = getattr(a, "appt_status", "") or ""
-            # Confirmed if EITHER sms_status or appt_status is confirmed
-            if sms_st == "confirmed" or appt_st == "confirmed":
+            if _is_confirmed(a):
                 suffix = " - ✅"
             elif appt_st == "no_show":
                 suffix = " - NS"
@@ -4294,27 +4313,35 @@ def get_confirmations(date: Optional[str] = None,
     result.sort(key=lambda x: x["scheduled_for"])
     return result
 
-def _apply_status(db: Session, appt: Appointment, new_appt_status: str, new_sms_status: str):
-    """
-    Set both status fields under the booking lock. Restoring a cancelled or
-    rescheduled appointment re-takes its hour, so the hour is re-checked in
-    the same locked step as the write: an agent booking can't slip in between.
-    """
+def _apply_status(db: Session, appt: Appointment, status: str, *, from_confirmations=False):
     with _booking_lock:
-        db.refresh(appt)
-        was_released = releases_slot(appt.appt_status, appt.sms_status)
-        now_released = releases_slot(new_appt_status, new_sms_status)
-        if (was_released and not now_released
+        try:
+            db.refresh(appt)
+        except InvalidRequestError:
+            raise HTTPException(404, "Appointment not found.") from None
+        old_appt = appt.appt_status or ""
+        old_sms = appt.sms_status or ""
+        if from_confirmations:
+            if status == "confirmed" and old_appt in (*RELEASED_STATUSES, "no_show"):
+                label = old_appt.replace("_", "-")
+                raise HTTPException(400, f"This appointment is marked {label} on the planner. "
+                                         "Clear that status first if the client is attending.")
+            new_appt = "" if status != "confirmed" and old_appt == "confirmed" else old_appt
+            new_sms = status
+        else:
+            new_appt = status
+            new_sms = old_sms
+            if (status == "confirmed" and old_sms in RELEASED_STATUSES
+                    or status != "confirmed" and old_sms == "confirmed"):
+                new_sms = ""
+        if (releases_slot(old_appt, old_sms) and not releases_slot(new_appt, new_sms)
                 and (appt.appt_type or "appointment") != "callback"
                 and appt.scheduled_for
                 and appointment_conflict(db, appt.owner_id, appt.scheduled_for, exclude_id=appt.id)):
             raise HTTPException(400, "This appointment cannot be restored. "
                                      + conflict_message(appt.scheduled_for))
-        appt.appt_status = new_appt_status
-        appt.sms_status = new_sms_status
-        # The one-off "confirmed" notice is NOT re-armed by status changes.
-        # Un-confirming and re-confirming the same slot (a misclick) must not
-        # text the client twice. It is re-armed only when the time changes.
+        appt.appt_status = new_appt
+        appt.sms_status = new_sms
         db.commit()
 
 
@@ -4332,16 +4359,7 @@ async def set_confirmation_status(appt_id: int,
         raise HTTPException(404, "Appointment not found.")
     if data.status not in ("confirmed", "rescheduled", ""):
         raise HTTPException(422, "Invalid status.")
-    planner_status = getattr(appt, "appt_status", "") or ""
-    if data.status == "confirmed" and planner_status in ("cancelled", "no_show", "rescheduled"):
-        label = {"cancelled": "cancelled", "no_show": "a no-show", "rescheduled": "rescheduled"}[planner_status]
-        raise HTTPException(400, f"This appointment is marked {label} on the planner. "
-                                 "Clear that status first if the client is attending.")
-    # An appointment reads as confirmed if EITHER status field says so, so
-    # clearing / re-flagging here must also drop the planner-side confirmation
-    # (which the inbound YES webhook sets).
-    new_appt = "" if (data.status != "confirmed" and planner_status == "confirmed") else planner_status
-    _apply_status(db, appt, new_appt, data.status)
+    _apply_status(db, appt, data.status, from_confirmations=True)
 
     # If this transition makes the appointment confirmed, fire the one-off notice.
     if data.status == "confirmed":
@@ -4379,16 +4397,7 @@ async def set_appt_status(appt_id: int,
     valid = ("", "confirmed", "rescheduled", "no_show", "cancelled")
     if data.appt_status not in valid:
         raise HTTPException(422, "Invalid appt_status.")
-    sms = appt.sms_status or ""
-    # Clearing the status (or setting any non-confirmed outcome) drops the
-    # SMS-side confirmation set by an inbound YES reply, and confirming on the
-    # planner overrides an SMS-side "rescheduled". The planner is the owner's
-    # final word, so the two fields never contradict each other.
-    if data.appt_status != "confirmed" and sms == "confirmed":
-        sms = ""
-    if data.appt_status == "confirmed" and sms == "rescheduled":
-        sms = ""
-    _apply_status(db, appt, data.appt_status, sms)
+    _apply_status(db, appt, data.appt_status)
 
     # If admin just confirmed on the planner, fire the one-off confirmed notice
     # (idempotent — won't double-send if the client also replied YES).
@@ -4465,8 +4474,10 @@ async def _sync_rc_webhook_locked(db: Session, token_row, create_if_missing: boo
     webhook_url = _rc_webhook_url()
     sms_filter  = "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
     verify_token = _rc_webhook_token()
-    rotate = bool(create_if_missing and verify_token
-                  and _get_setting(db, "rc_webhook_verified") != verify_token)
+    active_token = _get_setting(db, "rc_webhook_verified")
+    verify_token = verify_token or active_token
+    subscription_key = f"rc_verified_subscription:{token_row.owner_user_id}"
+    verified_id = _get_setting(db, subscription_key)
     headers = {
         "Authorization": f"Bearer {token_row.access_token}",
         "Content-Type": "application/json",
@@ -4487,57 +4498,46 @@ async def _sync_rc_webhook_locked(db: Session, token_row, create_if_missing: boo
                           and any("message-store/instant" in f and "SMS" in f
                                   for f in s.get("eventFilters", []))),
                          key=lambda s: s.get("creationTime") or "", reverse=True)
-        keep = None if rotate else (healthy[0] if healthy else None)
-
-        # At startup (create_if_missing=False) only remove true duplicates:
-        # never delete the last subscription when there is nothing healthy to
-        # keep, or replies would stop until someone presses Register Webhook.
-        if not create_if_missing and keep is None:
-            return {"status": "none_healthy", "webhook_url": webhook_url, "removed_duplicates": 0}
+        if verify_token:
+            healthy = [s for s in healthy if s.get("id") == verified_id and active_token == verify_token]
+        keep = healthy[0] if healthy else None
+        registered = False
+        if keep is None:
+            if not create_if_missing:
+                return {"status": "none_healthy", "webhook_url": webhook_url, "removed_duplicates": 0}
+            delivery = {"transportType": "WebHook", "address": webhook_url}
+            if verify_token:
+                delivery["verificationToken"] = verify_token
+            resp = await client.post(base, headers=headers, json={
+                "eventFilters": [sms_filter],
+                "deliveryMode": delivery,
+                "expiresIn": RC_SUBSCRIPTION_SECONDS,
+            })
+            if resp.status_code not in (200, 201):
+                logger.error("RC webhook registration failed (%s)", resp.status_code)
+                raise RuntimeError(f"RingCentral rejected the subscription ({resp.status_code}).")
+            keep = resp.json()
+            if not keep.get("id"):
+                raise RuntimeError("RingCentral did not return a subscription ID.")
+            if verify_token:
+                _set_setting(db, "rc_webhook_verified", verify_token)
+                _set_setting(db, subscription_key, keep["id"])
+            registered = True
 
         removed = 0
-        for s in ours:
-            if keep and s.get("id") == keep.get("id"):
+        for subscription in ours:
+            if subscription.get("id") == keep.get("id"):
                 continue
-            d = await client.delete(f"{base}/{s.get('id')}", headers=headers)
-            if d.status_code in (200, 204):
+            result = await client.delete(f"{base}/{subscription['id']}", headers=headers)
+            if result.status_code in (200, 204):
                 removed += 1
-                logger.info(f"RC webhook: removed subscription {s.get('id')}")
             else:
-                logger.error(f"RC webhook: could not remove {s.get('id')}: {d.text}")
+                logger.warning("RC webhook cleanup failed (%s)", result.status_code)
 
-        if keep:
-            logger.info(f"RC webhook: using subscription {keep.get('id')}; "
-                        f"removed {removed} extra")
-            return {"status": "already_registered", "webhook_url": webhook_url,
-                    "subscription_id": keep.get("id"),
-                    "expires_at": keep.get("expirationTime"),
-                    "verified": bool(verify_token and _get_setting(db, "rc_webhook_verified") == verify_token),
-                    "removed_duplicates": removed}
-
-        delivery = {"transportType": "WebHook", "address": webhook_url}
-        if verify_token:
-            delivery["verificationToken"] = verify_token
-        payload = {
-            "eventFilters": [sms_filter],
-            "deliveryMode": delivery,
-            "expiresIn": RC_SUBSCRIPTION_SECONDS,
-        }
-        resp = await client.post(base, headers=headers, json=payload)
-
-    if resp.status_code in (200, 201):
-        data = resp.json()
-        _set_setting(db, "rc_webhook_verified", verify_token)   # "" switches checking off
-        logger.info(f"RC webhook registered: {data.get('id')} → {webhook_url}"
-                    f"{' (verified)' if verify_token else ''}")
-        return {"status": "registered", "webhook_url": webhook_url,
-                "subscription_id": data.get("id"),
-                "expires_at": data.get("expirationTime"),
-                "verified": bool(verify_token),
-                "removed_duplicates": removed}
-
-    logger.error(f"RC webhook registration failed {resp.status_code}: {resp.text}")
-    raise RuntimeError(f"RC error: {resp.text}")
+    return {"status": "registered" if registered else "already_registered",
+            "webhook_url": webhook_url, "subscription_id": keep.get("id"),
+            "expires_at": keep.get("expirationTime"), "verified": bool(verify_token),
+            "removed_duplicates": removed}
 
 
 async def _cleanup_rc_webhooks_on_startup():

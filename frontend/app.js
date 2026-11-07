@@ -13,6 +13,9 @@ function escHtml(s) {
 /* Loads a script once and resolves when it is ready. Used for heavy
    libraries that only some actions need (the Excel exporter is 880 KB). */
 var _scriptPromises = {};
+var _scriptVersion = document.currentScript
+  ? new URL(document.currentScript.src, location.href).searchParams.get("v")
+  : null;
 function loadScriptOnce(src) {
   if (!_scriptPromises[src]) {
     _scriptPromises[src] = new Promise(function(resolve, reject) {
@@ -28,7 +31,7 @@ function loadScriptOnce(src) {
 
 function withXLSX(fn) {
   if (typeof showToast === "function") showToast("Preparing Excel file...");
-  return loadScriptOnce("/static/vendor/xlsx.full.min.js?v=1").then(fn).catch(function() {
+  return loadScriptOnce("/static/vendor/xlsx.full.min.js" + (_scriptVersion ? "?v=" + encodeURIComponent(_scriptVersion) : "")).then(fn).catch(function() {
     if (typeof showToast === "function") showToast("Could not load the Excel exporter. Check your connection and try again.", "error");
   });
 }
@@ -61,7 +64,7 @@ function showConfirm(message, onConfirm, options) {
         "<div style='width:44px;height:44px;border-radius:12px;flex-shrink:0;background:" + iconBg + ";display:flex;align-items:center;justify-content:center;'>" + iconHtml + "</div>" +
         "<div style='flex:1;'>" +
           "<div style='font-size:17px;font-weight:800;color:#0f172a;margin-bottom:6px;'>" + title + "</div>" +
-          "<div id='_cfMsg' style='font-size:14px;color:#475569;line-height:1.55;'></div>" +
+          "<div id='_cfMsg' style='font-size:14px;color:#475569;line-height:1.55;white-space:pre-line;'></div>" +
         "</div>" +
       "</div>" +
       "<div style='padding:18px 26px 24px 26px;display:flex;gap:10px;justify-content:flex-end;'>" +
@@ -71,7 +74,7 @@ function showConfirm(message, onConfirm, options) {
     "</div>" +
     "<style>@keyframes _cfIn{from{transform:scale(0.92);opacity:0}to{transform:scale(1);opacity:1}}#_cfCancel:hover{background:#e2e8f0!important}#_cfOk:hover{filter:brightness(0.88)}</style>";
 
-  backdrop.querySelector("#_cfMsg").innerHTML = message;
+  backdrop.querySelector("#_cfMsg").textContent = message;
   document.body.appendChild(backdrop);
 
   function close() { backdrop.remove(); }
@@ -100,13 +103,14 @@ function showAlert(message, type) {
     "<div style='background:#fff;border-radius:18px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(15,23,42,0.22);animation:_cfIn 0.18s ease;overflow:hidden;'>" +
       "<div style='padding:26px 26px 10px 26px;display:flex;gap:16px;align-items:flex-start;'>" +
         "<div style='width:44px;height:44px;border-radius:12px;flex-shrink:0;background:" + c.bg + ";display:flex;align-items:center;justify-content:center;'><svg width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='" + c.stroke + "' stroke-width='2.5'>" + c.icon + "</svg></div>" +
-        "<div style='flex:1;padding-top:8px;font-size:14px;color:#334155;line-height:1.55;'>" + message + "</div>" +
+        "<div id='_cfMsg' style='flex:1;padding-top:8px;font-size:14px;color:#334155;line-height:1.55;white-space:pre-line;'></div>" +
       "</div>" +
       "<div style='padding:12px 26px 22px 26px;display:flex;justify-content:flex-end;'>" +
         "<button id='_cfOk' style='background:" + c.btn + ";color:#fff;border:none;padding:10px 24px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;'>OK</button>" +
       "</div>" +
     "</div>" +
     "<style>@keyframes _cfIn{from{transform:scale(0.92);opacity:0}to{transform:scale(1);opacity:1}}#_cfOk:hover{filter:brightness(0.88)}</style>";
+  backdrop.querySelector("#_cfMsg").textContent = message;
   document.body.appendChild(backdrop);
   function close() { backdrop.remove(); }
   backdrop.querySelector("#_cfOk").onclick = close;
@@ -121,21 +125,9 @@ async function loadUpcomingAppointments() {
   if (!container) return;
   try {
     // Only upcoming appointments are needed here, not the whole history.
-    var from = new Date(Date.now() - 86400000).toLocaleDateString("en-CA");
-    var res = await fetch(API_BASE + "/appointments?start=" + from + "&limit=60", { headers: { Authorization: "Bearer " + TOKEN } });
+    var res = await fetch(API_BASE + "/appointments?active=1&limit=5", { headers: { Authorization: "Bearer " + TOKEN } });
     if (!res.ok) return;
-    var appts = await res.json();
-    var now = new Date();
-    var upcoming = appts
-      .filter(function(a) {
-        // Cancelled and rescheduled appointments are not happening, so they
-        // don't belong in "Upcoming".
-        var st = a.appt_status || "";
-        if (st === "cancelled" || st === "rescheduled" || a.sms_status === "rescheduled") return false;
-        return new Date(a.scheduled_for) >= now;
-      })
-      .sort(function(a, b) { return new Date(a.scheduled_for) - new Date(b.scheduled_for); })
-      .slice(0, 5);
+    var upcoming = await res.json();
     var skeletonEl = document.getElementById("upcomingSkeleton");
     if (skeletonEl) skeletonEl.remove();
     if (upcoming.length === 0) {
@@ -172,6 +164,19 @@ const API = "";
 const API_BASE = API;
 const TOKEN = localStorage.getItem("token");
 
+var assistantNav = {
+  "/planner.html": "can_planner",
+  "/quality.html": "can_quality",
+  "/confirmations.html": "can_confirmations",
+  "/timesheet.html": "",
+  "/settings.html": ""
+};
+
+function canOpenAssistantPage(href) {
+  return Object.prototype.hasOwnProperty.call(assistantNav, href)
+    && (!assistantNav[href] || localStorage.getItem(assistantNav[href]) === "1");
+}
+
 // ── Auth guard — validates JWT expiry on EVERY page load ──────────────────────
 // A token sitting in localStorage may be expired (e.g. from yesterday).
 // We decode the JWT payload (no signature needed — just expiry check) and
@@ -203,7 +208,11 @@ const TOKEN = localStorage.getItem("token");
     localStorage.removeItem("can_quality");
     localStorage.removeItem("can_confirmations");
     localStorage.removeItem("pw_expires_at");
-    window.location.replace("/login.html");
+    window.location.replace("/");
+    return;
+  }
+  if (localStorage.getItem("role") === "assistant" && !canOpenAssistantPage(location.pathname)) {
+    window.location.replace(Object.keys(assistantNav).find(canOpenAssistantPage));
   }
 })();
 
@@ -564,7 +573,6 @@ async function loadWeekly() {
   countUp("home_leads",        ytdAssignedLeads);
   countUp("home_bad_ratio",    ytdBadLeadRatio, "", "%");
   countUp("home_ref_sales",    ytdRefSales);
-  loadUpcomingAppointments();
 
   /* ================= WEEKLY TREND CHARTS ================= */
 
@@ -1027,7 +1035,7 @@ function deleteSelected(){
   }
 
   showConfirm(
-    "Delete <strong>" + ids.length + "</strong> selected day" + (ids.length > 1 ? "s" : "") + "? This cannot be undone.",
+    "Delete " + ids.length + " selected day" + (ids.length > 1 ? "s" : "") + "? This cannot be undone.",
     async function() {
       const res = await fetch(`${API_BASE}/delete-days`,{
         method:"DELETE",
@@ -1341,7 +1349,11 @@ function showToast(message, type = "success") {
   };
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.innerHTML = (icons[type] || icons.info) + " " + message;
+  toast.innerHTML = icons[type] || icons.info;
+  var label = document.createElement("span");
+  label.textContent = message;
+  label.style.whiteSpace = "pre-line";
+  toast.appendChild(label);
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 3200);
 }
@@ -1378,10 +1390,11 @@ function showOnboardingState() {
    for appointments booked since the user last visited the planner.
    Clears when user visits planner. */
 function initPlannerBadge() {
+  var key = "planner_last_seen:" + (localStorage.getItem("username") || "").toLowerCase();
   var isPlanner = location.pathname.includes("planner");
   if (isPlanner) {
     // Clear on planner page
-    localStorage.setItem("planner_last_seen", Date.now().toString());
+    localStorage.setItem(key, Date.now().toString());
     localStorage.removeItem("planner_new_count");
     return;
   }
@@ -1389,7 +1402,7 @@ function initPlannerBadge() {
 
   // The server counts; the page no longer downloads every appointment just
   // to work out a number for the badge.
-  var lastSeen = parseInt(localStorage.getItem("planner_last_seen") || "0", 10) || 0;
+  var lastSeen = parseInt(localStorage.getItem(key) || "0", 10) || 0;
   fetch(API_BASE + "/appointments/new-count?since_ms=" + lastSeen, {
     headers: { Authorization: "Bearer " + TOKEN }
   }).then(function(r) {
@@ -1856,54 +1869,92 @@ function initMobileNav() {
   var nav = document.querySelector(".bottom-nav .bottom-nav-items");
   if (!nav || nav.dataset.enhanced) return;
   nav.dataset.enhanced = "1";
-  if (typeof applyConfirmationsNav === "function") applyConfirmationsNav();
 
-  var links = Array.prototype.slice.call(nav.querySelectorAll("a.bottom-nav-item"));
-  var visible = links.filter(function(a) { return a.style.display !== "none"; });
+  var admin = localStorage.getItem("role") === "admin";
+  var links = Array.from(nav.querySelectorAll("a.bottom-nav-item"));
+  var priority = admin
+    ? ["/index.html", "/planner.html", "/confirmations.html", "/log.html"]
+    : ["/planner.html", "/confirmations.html", "/timesheet.html", "/quality.html", "/settings.html"];
+  var visible = [];
+  links.forEach(function(link) {
+    if (admin || canOpenAssistantPage(link.getAttribute("href"))) {
+      link.style.display = "";
+      visible.push(link);
+    } else {
+      link.remove();
+    }
+  });
+  if (!admin) {
+    document.querySelectorAll(".topbar-nav a").forEach(function(link) {
+      link.style.display = canOpenAssistantPage(link.getAttribute("href")) ? "" : "none";
+    });
+  }
+
   var signout = nav.querySelector(".bottom-nav-signout");
-  if (visible.length + (signout ? 1 : 0) <= 5) return;   // already fits
-
-  var priority = ["/index.html", "/planner.html", "/confirmations.html", "/log.html",
-                  "/timesheet.html", "/settings.html"];
-  var primary = priority.map(function(href) {
-    return visible.filter(function(a) { return a.getAttribute("href") === href; })[0];
-  }).filter(Boolean).slice(0, 4);
-  var rest = visible.filter(function(a) { return primary.indexOf(a) === -1; });
-
-  var backdrop = document.createElement("div");
-  backdrop.className = "nav-sheet-backdrop";
-  backdrop.innerHTML = '<div class="nav-sheet" role="dialog" aria-label="More pages">' +
-    '<div class="nav-sheet-handle"></div><div class="nav-sheet-grid"></div></div>';
-  var grid = backdrop.querySelector(".nav-sheet-grid");
-  rest.forEach(function(a) { grid.appendChild(a); });
-  // Every page gets Sign Out in the sheet, whether or not its markup has one.
-  if (!signout && typeof logout === "function") {
+  if (!signout) {
     signout = document.createElement("button");
     signout.type = "button";
     signout.className = "bottom-nav-signout";
     signout.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign Out';
-    signout.addEventListener("click", function() { logout(); });
+    signout.addEventListener("click", logout);
   }
-  if (signout) backdrop.querySelector(".nav-sheet").appendChild(signout);
+
+  var ordered = priority.map(function(href) {
+    return visible.find(function(link) { return link.getAttribute("href") === href; });
+  }).filter(Boolean);
+  visible.forEach(function(link) { if (!ordered.includes(link)) ordered.push(link); });
+  if (ordered.length < 5) {
+    ordered.forEach(function(link) { nav.appendChild(link); });
+    nav.appendChild(signout);
+    return;
+  }
+
+  var primary = ordered.slice(0, 4);
+  var rest = ordered.slice(4);
+  var backdrop = document.createElement("div");
+  backdrop.id = "morePages";
+  backdrop.className = "nav-sheet-backdrop";
+  backdrop.innerHTML = '<div class="nav-sheet" role="dialog" aria-modal="true" aria-label="More pages">' +
+    '<button type="button" class="nav-sheet-close">Close</button><div class="nav-sheet-grid"></div></div>';
+  var grid = backdrop.querySelector(".nav-sheet-grid");
+  rest.forEach(function(link) { grid.appendChild(link); });
+  backdrop.querySelector(".nav-sheet").appendChild(signout);
   document.body.appendChild(backdrop);
 
   var more = document.createElement("button");
   more.type = "button";
   more.className = "bottom-nav-item bottom-nav-more";
   more.setAttribute("aria-label", "More pages");
+  more.setAttribute("aria-controls", backdrop.id);
+  more.setAttribute("aria-expanded", "false");
   more.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>More';
-  if (rest.some(function(a) { return a.classList.contains("active"); })) more.classList.add("active");
+  if (rest.some(function(link) { return link.classList.contains("active"); })) more.classList.add("active");
+  primary.forEach(function(link) { nav.appendChild(link); });
   nav.appendChild(more);
-  // Keep the four tabs in a fixed, predictable order
-  primary.forEach(function(a) { nav.insertBefore(a, more); });
 
-  function open()  { backdrop.classList.add("open"); document.body.style.overflow = "hidden"; }
-  function close() { backdrop.classList.remove("open"); document.body.style.overflow = ""; }
+  var closeButton = backdrop.querySelector(".nav-sheet-close");
+  var previousOverflow = "";
+  function close() {
+    if (!backdrop.classList.contains("open")) return;
+    backdrop.classList.remove("open");
+    document.body.style.overflow = previousOverflow;
+    more.setAttribute("aria-expanded", "false");
+    more.focus();
+  }
   more.addEventListener("click", function() {
-    if (backdrop.classList.contains("open")) close(); else open();
+    previousOverflow = document.body.style.overflow;
+    backdrop.classList.add("open");
+    document.body.style.overflow = "hidden";
+    more.setAttribute("aria-expanded", "true");
+    closeButton.focus();
   });
+  closeButton.addEventListener("click", close);
   backdrop.addEventListener("click", function(e) { if (e.target === backdrop) close(); });
   document.addEventListener("keydown", function(e) { if (e.key === "Escape") close(); });
+  var mobile = window.matchMedia("(max-width: 768px)");
+  function onResize(e) { if (!e.matches) close(); }
+  if (mobile.addEventListener) mobile.addEventListener("change", onResize);
+  else if (mobile.addListener) mobile.addListener(onResize);
 }
 
 /* ── Page-level init — runs once on DOMContentLoaded ─────────── */

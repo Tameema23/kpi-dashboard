@@ -226,18 +226,19 @@
 <script src="/static/app.js?v=7"></script>
 <script>
   if (localStorage.getItem("role") === "assistant") {
-    document.querySelectorAll(".admin-only").forEach(function(el) { el.style.display = "none"; });
-    document.querySelectorAll(".assistant-visible").forEach(function(el) { el.style.display = ""; });
+    window.location.replace(Object.keys(assistantNav).find(canOpenAssistantPage));
+  } else {
+    var u = localStorage.getItem("username");
+    if (u) {
+      document.getElementById("welcome-msg").innerText = "Welcome back, " + u;
+      document.getElementById("username-text").innerText = u;
+    }
+    document.getElementById("welcome-date").innerText = new Date().toLocaleDateString("en-CA", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/Edmonton"
+    });
+    loadWeekly();
+    loadUpcomingAppointments();
   }
-  var u = localStorage.getItem("username");
-  if (u) {
-    document.getElementById("welcome-msg").innerText = "Welcome back, " + u;
-    document.getElementById("username-text").innerText = u;
-  }
-  document.getElementById("welcome-date").innerText = new Date().toLocaleDateString("en-CA", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/Edmonton"
-  });
-  loadWeekly();
 </script>
 </body>
 </html>

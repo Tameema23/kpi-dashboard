@@ -142,7 +142,7 @@ body {
   border: 1.5px solid #e2e8f0;
   background: #fafafa;
   font-family: inherit;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: #0f172a;
   cursor: pointer;
@@ -375,6 +375,10 @@ body {
   </div>
 
   <div class="bk-card" id="gridCard">
+    <div id="availabilityError" class="bk-empty" role="status" hidden>
+      <span id="availabilityMessage"></span>
+      <button type="button" class="bk-again" id="availabilityRetry">Retry</button>
+    </div>
     <div class="bk-nav">
       <button class="bk-arrow" id="prevBtn" aria-label="Previous week">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -455,7 +459,11 @@ body {
   var today     = null;   // first bookable day, set from the first response
   var selected  = null;   // { date, hour }
   var openDay   = null;   // mobile only: which day's times are expanded
-  var loading   = false;  // guards against overlapping fetches
+  var loading   = false;
+  var requestId = 0;
+  var requestedWeek = null;
+  var booking = false;
+  var linkClosed = false;
   var clientTz  = null;   // client's IANA zone; null until the server says the default
 
   // Time zone rules live on the server (backend/timezones.py) with current
@@ -581,51 +589,65 @@ body {
   // ── Load one week ─────────────────────────────────────────────
   // Each navigation fetches only the week being shown, so the calendar runs
   // forward with no limit and always reflects the planner as it stands now.
-  async function load() {
-    if (loading) return;
+  var availabilityError = document.getElementById("availabilityError");
+  var availabilityMessage = document.getElementById("availabilityMessage");
+  var retryButton = document.getElementById("availabilityRetry");
+
+  function updateSubmit() {
+    el.submit.disabled = booking || linkClosed || !data || data.client_tz.id !== clientTz;
+  }
+
+  async function load(targetWeek = weekStart) {
+    var id = ++requestId;
+    requestedWeek = targetWeek;
     loading = true;
     el.prev.disabled = el.next.disabled = true;
 
-    var qs = "?days=" + WINDOW_DAYS + (weekStart ? "&start=" + isoOf(weekStart) : "") +
+    var qs = "?days=" + WINDOW_DAYS + (targetWeek ? "&start=" + isoOf(targetWeek) : "") +
              (clientTz ? "&tz=" + encodeURIComponent(clientTz) : "");
-
     try {
       var res = await fetch("/api/book/" + encodeURIComponent(SLUG) + "/availability" + qs);
+      if (id !== requestId) return;
+      if (res.status === 404) {
+        linkClosed = true;
+        availabilityMessage.textContent = "This booking link has closed. Please contact the office for a current link.";
+        availabilityError.hidden = false;
+        retryButton.hidden = true;
+        return;
+      }
       if (!res.ok) throw new Error("unavailable");
-      data = await res.json();
-
-      // The server clamps a start date in the past, so trust its answer over
-      // ours and keep the view aligned with what was actually returned.
-      // "today" comes from the server too, so a page left open past midnight
-      // moves its back-stop forward instead of pointing at yesterday.
+      var fresh = await res.json();
+      if (id !== requestId) return;
+      data = fresh;
+      linkClosed = false;
+      availabilityError.hidden = true;
       weekStart = parseDate(data.start);
       today = parseDate(data.today || data.start);
 
       var note = document.getElementById("leadNote");
-      if (data.lead_hours > 0) {
-        note.textContent = "Same-day appointments need at least " +
-          data.lead_hours + " hours' notice.";
-        note.style.display = "";
-      } else {
-        note.style.display = "none";
-      }
+      note.textContent = "Same-day appointments need at least " + data.lead_hours + " hours' notice.";
+      note.style.display = data.lead_hours > 0 ? "" : "none";
 
       syncTimezones();
       dropStaleSelection();
       render();
       if (selected && el.formCard.style.display !== "none") updateChosen();
     } catch (e) {
-      data = null;
-      el.grid.innerHTML =
-        '<div class="bk-empty">This booking link is no longer available.<br>' +
-        'Please contact the office for a current link.</div>';
-      el.days.innerHTML = "";
-      el.label.textContent = "";
+      if (id !== requestId) return;
+      availabilityMessage.textContent = "Could not refresh availability. Please try again.";
+      availabilityError.hidden = false;
+      retryButton.hidden = false;
+      if (!data) el.grid.textContent = "";
     } finally {
-      loading = false;
-      updateNav();
+      if (id === requestId) {
+        loading = false;
+        updateNav();
+        updateSubmit();
+      }
     }
   }
+
+  retryButton.addEventListener("click", function () { load(requestedWeek); });
 
   // After a refresh, the slot the agent picked may have been booked, blocked
   // on the planner, or pushed inside the notice window. Drop it and say so
@@ -646,10 +668,10 @@ body {
   }
 
   function updateNav() {
-    if (!data) { el.prev.disabled = el.next.disabled = true; return; }
-    // Backwards stops at today. Forwards never stops.
-    el.prev.disabled = loading || (today !== null && isoOf(weekStart) <= isoOf(today));
-    el.next.disabled = loading;
+    if (!data || linkClosed) { el.prev.disabled = el.next.disabled = true; return; }
+    el.prev.disabled = loading || isoOf(weekStart) <= isoOf(today);
+    el.next.disabled = loading || (data.last_bookable_date &&
+      isoOf(addDays(weekStart, WINDOW_DAYS)) > data.last_bookable_date);
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -782,6 +804,7 @@ body {
   function bindSlots(nodes) {
     Array.prototype.forEach.call(nodes, function (btn) {
       btn.addEventListener("click", function () {
+        if (linkClosed) return;
         selected = { date: btn.dataset.date, hour: parseInt(btn.dataset.hour, 10) };
         clearError();
         render();
@@ -829,22 +852,21 @@ body {
 
   el.tzSel.addEventListener("change", function () {
     clientTz = el.tzSel.value;
-    load();   // same week, relabelled for the new zone
+    updateSubmit();
+    load(loading ? requestedWeek : weekStart);
   });
 
   el.prev.addEventListener("click", function () {
     if (loading || !weekStart) return;
     var back = addDays(weekStart, -WINDOW_DAYS);
-    weekStart = (today && back < today) ? today : back;
     openDay = null;
-    load();
+    load(today && back < today ? today : back);
   });
 
   el.next.addEventListener("click", function () {
     if (loading || !weekStart) return;
-    weekStart = addDays(weekStart, WINDOW_DAYS);
     openDay = null;
-    load();
+    load(addDays(weekStart, WINDOW_DAYS));
   });
 
   // Availability changes while the page sits open, so refresh whatever week is
@@ -854,12 +876,12 @@ body {
   // a manual reload.
   var POLL_MS = 30000;
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden && data) load();
+    if (!document.hidden && data && !loading && !booking && !linkClosed) load();
   });
   setInterval(function () {
-    if (document.hidden || !data) return;
+    if (document.hidden || !data || loading || linkClosed || !availabilityError.hidden) return;
     if (el.doneCard.style.display !== "none") return;   // on the success screen
-    if (el.submit.disabled) return;                     // a booking is in flight
+    if (booking) return;                     // a booking is in flight
     load();
   }, POLL_MS);
 
@@ -874,8 +896,10 @@ body {
       return;
     }
 
+    if (el.submit.disabled) return;
     clearError();
-    el.submit.disabled = true;
+    booking = true;
+    updateSubmit();
     el.submit.textContent = "Booking…";
 
     var body = {
@@ -903,6 +927,7 @@ body {
           doneHtml += "<br>For the client that is <strong>" + esc(out.client_date || "") +
             " at " + esc(out.client_time) + "</strong>.";
         }
+        doneHtml += "<br><br>Please give the client their local appointment time. The agency confirms attendance separately.";
         document.getElementById("doneText").innerHTML = doneHtml;
         el.gridCard.style.display = "none";
         el.formCard.style.display = "none";
@@ -917,7 +942,8 @@ body {
     } catch (e) {
       showError("Network error. Please try again.");
     } finally {
-      el.submit.disabled = false;
+      booking = false;
+      updateSubmit();
       el.submit.textContent = "Confirm booking";
     }
   });

@@ -195,21 +195,16 @@ async function submitAuth() {
 
 function navigateAfterLogin(data) {
   var role = data.role || localStorage.getItem("role") || "admin";
-  var canPlanner = data.can_planner !== undefined
-    ? data.can_planner
-    : localStorage.getItem("can_planner") === "1";
-  var canQuality = data.can_quality !== undefined
-    ? data.can_quality
-    : localStorage.getItem("can_quality") === "1";
   if (role === "admin") {
     window.location.replace("/index.html");
-  } else if (canPlanner && !canQuality) {
-    window.location.replace("/planner.html");
-  } else if (canQuality && !canPlanner) {
-    window.location.replace("/quality.html");
-  } else {
-    window.location.replace("/planner.html");
+    return;
   }
+  var pages = {planner: "/planner.html", quality: "/quality.html", confirmations: "/confirmations.html"};
+  var first = Object.keys(pages).find(function(page) {
+    var permission = "can_" + page;
+    return data[permission] ?? (localStorage.getItem(permission) === "1");
+  });
+  window.location.replace(pages[first] || "/timesheet.html");
 }
 
 async function submitPasswordReset() {

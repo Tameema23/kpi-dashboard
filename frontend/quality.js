@@ -374,7 +374,7 @@
 
   window.deleteEntry = function(id, name) {
     showConfirm(
-      "Delete the entry for <strong>" + esc(name) + "</strong>? This cannot be undone.",
+      "Delete the entry for " + name + "? This cannot be undone.",
       async function() {
         try {
           var res = await fetch("/quality/" + id, {

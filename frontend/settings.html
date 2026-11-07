@@ -542,7 +542,7 @@
 
     document.getElementById("bkRotate").onclick = function () {
       showConfirm(
-        "Generate a new booking link?<br><br>Any agent using the current link will " +
+        "Generate a new booking link?\n\nAny agent using the current link will " +
         "no longer be able to book until you send them the new one.",
         async function () {
           try {
@@ -749,8 +749,8 @@
   async function toggleSuspend(id, name, currentlySuspended) {
     var action = currentlySuspended ? "unsuspend" : "suspend";
     var msg    = currentlySuspended
-      ? "Unsuspend <strong>" + name + "</strong>? They will be able to log in again."
-      : "Suspend <strong>" + name + "</strong>? They will be immediately logged out and unable to log in.";
+      ? "Unsuspend " + name + "? They will be able to log in again."
+      : "Suspend " + name + "? They will be immediately logged out and unable to log in.";
     showConfirm(msg, async function() {
       try {
         const res = await fetch("/assistants/" + id + "/suspend", {
@@ -770,7 +770,7 @@
 
   function removeAssistant(id, name) {
     showConfirm(
-      "Remove <strong>" + name + "</strong>? They will no longer be able to log in.",
+      "Remove " + name + "? They will no longer be able to log in.",
       async function() {
         try {
           const res = await fetch("/assistants/" + id, {

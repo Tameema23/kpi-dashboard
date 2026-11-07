@@ -397,6 +397,7 @@
   document.getElementById("todayBtn").addEventListener("click", function () {
     currentWeekStart = getWeekStart(new Date());
     renderPlanner();
+    scrollToToday();
   });
 
   // On a phone only about three days fit, and the week starts on Sunday, so
@@ -426,7 +427,6 @@
       console.error("Failed to load appointments", e);
     }
     renderPlanner();
-    scrollToToday();
   }
 
   // ── Render grid ──────────────────────────────────────────────
@@ -442,7 +442,16 @@
     var grid = document.getElementById("plannerGrid");
     grid.innerHTML = "";
 
-    var today = mtStamp(Date.now()).slice(0, 10);   // business date, not the browser's
+    var today = mtStamp(Date.now()).slice(0, 10);
+    var byHour = new Map();
+    appointments.slice().sort(function(a, b) {
+      return (a.scheduled_for || "").localeCompare(b.scheduled_for || "");
+    }).forEach(function(appt) {
+      if (!appt.scheduled_for) return;
+      var key = appt.scheduled_for.slice(0, 13);
+      if (!byHour.has(key)) byHour.set(key, []);
+      byHour.get(key).push(appt);
+    });
 
     // Header row
     var headerRow = document.createElement("div");
@@ -658,17 +667,9 @@
         })(day, hour, isBlocked));
         }
 
-        // Appointments in this cell — sorted by time
-        var sortedAppts = appointments.slice().sort(function(a, b) {
-          return (a.scheduled_for || "").localeCompare(b.scheduled_for || "");
-        });
-        sortedAppts.forEach(function (appt) {
-          if (!appt.scheduled_for) return;
-          var parts    = appt.scheduled_for.split("T");
-          var apptDate = parts[0];
-          var apptHour = parseInt((parts[1] || "0").split(":")[0]);
-          if (apptDate !== fmtDate(day) || apptHour !== hour) return;
-
+        var hourKey = cellDateStr + "T" + pad2(hour);
+        (byHour.get(hourKey) || []).forEach(function(appt) {
+          var parts = appt.scheduled_for.split("T");
           var block = document.createElement("div");
           var isCallback = appt.appt_type === "callback";
           block.className = "pg-appt-block" + (isCallback ? " pg-appt-callback" : "");
@@ -676,14 +677,16 @@
           var smsStatus  = appt.sms_status  || "";
           var apptStatus = appt.appt_status || "";
           var smsBadge = "";
-          if (smsStatus === "confirmed" || apptStatus === "confirmed") {
+          if (!["cancelled", "rescheduled", "no_show"].includes(apptStatus)
+              && !["cancelled", "rescheduled"].includes(smsStatus)
+              && (smsStatus === "confirmed" || apptStatus === "confirmed")) {
             smsBadge = '<span style="font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px;">Confirmed</span>';
           }
           // Booked through the public agent link rather than by a signed-in
           // user. Also flags a missing phone, since those get no SMS at all.
           var agentBadge = "";
           if (appt.booked_by_agent) {
-            agentBadge = '<span class="pg-appt-agent" title="'
+            agentBadge = '<span class="pg-appt-agent" aria-label="Agent booking, manual confirmation" title="Agent booking, manual confirmation. '
               + (appt.booked_by_name
                   ? "Booked by " + escHtml(appt.booked_by_name) + ". No texts are sent."
                   : "Booked via the agent link. No texts are sent.")
@@ -738,7 +741,8 @@
     tip.innerHTML =
       typeBadge +
       '<div class="tip-name">' + escHtml(appt.lead_name) + "</div>" +
-      (appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + escHtml(appt.phone_number) + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
+      (appt.booked_by_agent ? '<div class="tip-row">Agent booking, manual confirmation</div>' :
+        appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + escHtml(appt.phone_number) + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
       (function() {
         // Business time always; the client's local time (worked out on the
         // server) underneath when they are in another zone.
@@ -808,7 +812,9 @@
     document.getElementById("m_attendee_name").value = "";
     document.getElementById("m_phone_number").value  = "";
     document.getElementById("m_comments").value      = "";
-    document.getElementById("m_phone_no_number_warn").style.display = "none";
+    var warnEl = document.getElementById("m_phone_no_number_warn");
+    warnEl.textContent = "⚠ No phone number — SMS reminders won't be sent for this appointment.";
+    warnEl.style.display = "none";
     document.getElementById("m_date").value = dateStr || fmtDate(new Date());
     document.getElementById("m_time").value = timeStr || "09:00";
     document.getElementById("modalBookedAt").classList.add("hidden");
@@ -928,13 +934,13 @@
     var row = document.createElement("div");
     row.className = "recipient-row";
     row.innerHTML =
-      '<input class="rcpt-name" type="text" placeholder="Name" value="' +
-        (name ? name.replace(/"/g, "&quot;") : "") + '">' +
-      '<input class="rcpt-phone" type="tel" placeholder="Phone number" value="' +
-        (phone ? phone.replace(/"/g, "&quot;") : "") + '">' +
+      '<input class="rcpt-name" type="text" placeholder="Name">' +
+      '<input class="rcpt-phone" type="tel" placeholder="Phone number">' +
       '<button type="button" class="recipient-remove-btn" title="Remove">' +
         '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
       '</button>';
+    row.querySelector(".rcpt-name").value = name || "";
+    row.querySelector(".rcpt-phone").value = phone || "";
     row.querySelector(".recipient-remove-btn").addEventListener("click", function () {
       row.remove();
     });
@@ -966,13 +972,12 @@
     document.getElementById("m_attendee_name").value = appt.attendee_name || "";
     document.getElementById("m_phone_number").value  = appt.phone_number || "";
 
-    // Warn if existing appointment has no phone number
     var warnEl = document.getElementById("m_phone_no_number_warn");
-    if (!appt.phone_number) {
-      warnEl.style.display = "block";
-    } else {
-      warnEl.style.display = "none";
-    }
+    warnEl.textContent = appt.booked_by_agent
+      ? "Agent booking, manual confirmation"
+      : "⚠ No phone number — SMS reminders won't be sent for this appointment.";
+    warnEl.style.display = appt.booked_by_agent || (!appt.phone_number && !(appt.recipients || []).length)
+      ? "block" : "none";
 
     // Parse and render history
     var history = parseHistory(appt.comments || "");
@@ -1378,7 +1383,7 @@
     // ── Blocked hour check ────────────────────────────────────
     var saveHour = parseInt(timeParts[0]);
     var hourBlockCheck = timeMoved ? isHourBlocked(mtDate, saveHour) : null;
-    if (hourBlockCheck) {
+    if (hourBlockCheck && role !== "admin") {
       var timeEl2 = document.getElementById("m_time");
       timeEl2.style.borderColor = "#dc2626";
       setTimeout(function() { timeEl2.style.borderColor = ""; }, 2000);
@@ -1428,7 +1433,8 @@
     var phone_number = normalizePhone(rawPhone);
 
     // Warn (non-blocking) if saving new appointment without a phone number
-    if (!editingId && !phone_number) {
+    var recipients = collectRecipients();
+    if (!editingId && !phone_number && !recipients.length) {
       document.getElementById("m_phone_no_number_warn").style.display = "block";
       showToast("No phone number entered — SMS reminders won't be sent.", "info");
     } else {
@@ -1470,7 +1476,7 @@
       scheduled_for: scheduledFor,
       appt_type:     apptType,
       booking_tz:    bookingTz,
-      recipients:    collectRecipients()
+      recipients:    recipients
     };
 
     // Sends the appointment. The server answers 409 when the slot sits inside an
@@ -1509,7 +1515,7 @@
         var info = await res.json().catch(function() { return {}; });
         var reason = info.detail || "This time is blocked.";
         showConfirm(
-          reason + "<br><br>Book over it anyway?",
+          reason + "\n\nBook over it anyway?",
           async function() {
             payload.override_block = true;
             var res2 = await submitAppt(payload);
