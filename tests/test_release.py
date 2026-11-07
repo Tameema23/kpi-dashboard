@@ -32,7 +32,6 @@ SECOND = "+14035550102"
 OTHER = "+14035550103"
 LINE = "+14035550199"
 STAFF = "+14035550198"
-VERIFY = "local-webhook-verification"
 
 
 def reply(message_id, number=SENDER):
@@ -45,7 +44,7 @@ async def post_replies(payload, repeat=1):
     transport = httpx.ASGITransport(app=app.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         for _ in range(repeat):
-            await client.post("/rc/webhook", headers={"Verification-Token": VERIFY}, json=payload)
+            await client.post("/rc/webhook", json=payload)
     pending = getattr(app, "_background_tasks", ())
     if pending:
         await asyncio.gather(*tuple(pending))
@@ -119,11 +118,6 @@ class ReleaseTests(unittest.TestCase):
                                         dedupe_key=f"out:{a.id}:booking:{a.scheduled_for}:{a.phone_number}"))
             db.commit()
 
-    def verify_webhook(self):
-        if hasattr(app, "_set_setting"):
-            with app.SessionLocal() as db:
-                app._set_setting(db, "rc_webhook_verified", VERIFY)
-
     def statuses(self, ids):
         with app.SessionLocal() as db:
             return [db.get(db_models.Appointment, key).sms_status for key in ids]
@@ -132,15 +126,6 @@ class ReleaseTests(unittest.TestCase):
         output = subprocess.check_output(
             [sys.executable, str(Path(__file__).resolve()), mode, str(value)], text=True)
         return json.loads(output.strip().splitlines()[-1])
-
-    def test_webhook_verification(self):
-        key = self.add_appointment("10:00")
-        self.add_prompt(key)
-        self.verify_webhook()
-        with patch.dict(os.environ, {"RC_WEBHOOK_TOKEN": VERIFY}), patch.object(app, "send_sms", fake_sender()):
-            response = self.client.post("/rc/webhook", json=reply("forged"))
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(self.statuses([key]), [""])
 
     def test_ambiguous_yes_alerts_staff(self):
         ids = [self.add_appointment(hour) for hour in ("10:00", "11:00", "12:00")]
@@ -243,7 +228,6 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.restart("--rerun", key), [SENDER, SECOND])
 
     def test_webhook_challenge_uses_a_small_header_only_response(self):
-        self.verify_webhook()
         challenge = "challenge" * 15
         response = self.client.post("/rc/webhook", headers={"Validation-Token": challenge})
         self.assertEqual(response.status_code, 200)
@@ -253,30 +237,67 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn("Content-Security-Policy", response.headers)
         self.assertIn("Content-Security-Policy", self.client.get("/").headers)
 
-    def test_failed_webhook_rotation_keeps_working_subscription(self):
-        self.verify_webhook()
+    def test_webhook_registration_reuses_active_subscription(self):
+        requests = []
+        existing = {"id": "existing", "status": "Active",
+                    "deliveryMode": {"address": app._rc_webhook_url()}}
+
+        def ringcentral(request):
+            requests.append(request.method)
+            return httpx.Response(200, json={"records": [existing]})
+
+        real_client = httpx.AsyncClient
+        with app.SessionLocal() as db, patch.dict(os.environ, {"RC_WEBHOOK_TOKEN": "stale-setting"}):
+            row = db.query(db_models.RcToken).first()
+            with patch.object(app.httpx, "AsyncClient",
+                              side_effect=lambda **kw: real_client(transport=httpx.MockTransport(ringcentral), **kw)):
+                result = asyncio.run(app._sync_rc_webhook_locked(db, row, create_if_missing=True))
+        self.assertEqual(result["status"], "already_registered")
+        self.assertEqual(result["subscription_id"], "existing")
+        self.assertEqual(requests, ["GET"])
+
+    def test_webhook_registration_creates_subscription_without_token(self):
+        requests = []
+
+        def ringcentral(request):
+            requests.append(request.method)
+            if request.method == "GET":
+                return httpx.Response(200, json={"records": []})
+            self.assertEqual(json.loads(request.content)["deliveryMode"], {
+                "transportType": "WebHook", "address": app._rc_webhook_url(),
+            })
+            return httpx.Response(201, json={"id": "new"})
+
+        real_client = httpx.AsyncClient
+        with app.SessionLocal() as db, patch.dict(os.environ, {"RC_WEBHOOK_TOKEN": "stale-setting"}):
+            row = db.query(db_models.RcToken).first()
+            with patch.object(app.httpx, "AsyncClient",
+                              side_effect=lambda **kw: real_client(transport=httpx.MockTransport(ringcentral), **kw)):
+                result = asyncio.run(app._sync_rc_webhook_locked(db, row, create_if_missing=True))
+        self.assertEqual(result["status"], "registered")
+        self.assertEqual(requests, ["GET", "POST"])
+
+    def test_failed_webhook_creation_keeps_existing_subscription(self):
         calls = []
         real_client = httpx.AsyncClient
         old_subscription = {
             "id": "old-webhook",
-            "status": "Active",
+            "status": "Blacklisted",
             "deliveryMode": {"address": app._rc_webhook_url()},
-            "eventFilters": ["/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"],
         }
 
         def ringcentral(request):
             calls.append(request.method)
             if request.method == "GET":
                 return httpx.Response(200, json={"records": [old_subscription]})
-            return httpx.Response(400, json={"errorCode": "SUB-525", "message": "next-token"})
+            return httpx.Response(400, json={"errorCode": "SUB-525", "message": "provider detail"})
 
-        with app.SessionLocal() as db, patch.dict(os.environ, {"RC_WEBHOOK_TOKEN": "next-token"}):
+        with app.SessionLocal() as db:
             row = db.query(db_models.RcToken).first()
             with patch.object(app.httpx, "AsyncClient",
                               side_effect=lambda **kw: real_client(transport=httpx.MockTransport(ringcentral), **kw)):
                 with self.assertRaisesRegex(RuntimeError, r"^RingCentral rejected the subscription \(400, SUB-525\)\.$"):
                     asyncio.run(app._sync_rc_webhook_locked(db, row, create_if_missing=True))
-            self.assertEqual(app._get_setting(db, "rc_webhook_verified"), VERIFY)
         self.assertEqual(calls, ["GET", "POST"])
 
     def test_dry_run_does_not_consume_live_send(self):

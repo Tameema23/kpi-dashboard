@@ -957,10 +957,11 @@
       var data = await res.json();
       if (res.ok) {
         var removed = data.removed_duplicates || 0;
-        showToast((data.status === "already_registered"
-          ? "Webhook already registered" + (removed ? "; removed " + removed + " duplicate(s)" : "")
-          : "Webhook registered. YES replies will now auto-confirm") +
-          (data.verified ? " (verified)." : "."));
+        var message = data.status === "already_registered"
+          ? "Webhook already registered."
+          : "Webhook registered. YES replies can now auto-confirm.";
+        if (removed) message += " Removed " + removed + " duplicate(s).";
+        showToast(message);
         console.log("Webhook details:", data);
       } else {
         showToast("Failed: " + (data.detail || "Unknown error"), "error");

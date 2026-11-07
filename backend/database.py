@@ -400,15 +400,6 @@ class BookingConfig(Base):
     rotated_at    = Column(String(20), default="")
 
 
-class AppSetting(Base):
-    """Small key/value store for app state that must survive a restart
-    (e.g. whether RingCentral webhook verification is switched on)."""
-    __tablename__ = "app_settings"
-
-    key   = Column(String(64), primary_key=True)
-    value = Column(Text, default="")
-
-
 class SmsLog(Base):
     """
     One row per text actually attempted, per recipient, plus one row per

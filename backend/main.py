@@ -51,7 +51,7 @@ from backend.timezones import (
 )
 
 # ── Import from same backend/ folder ─────────────────────────────────────────
-from backend.database import SessionLocal, create_db, AppSetting, SmsLog, User, DailyLog, Appointment, AppointmentRecipient, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken, BookingConfig
+from backend.database import SessionLocal, create_db, SmsLog, User, DailyLog, Appointment, AppointmentRecipient, QualityEntry, AuditLog, ReferralProgram, ReferralEntry, BlockedDay, BlockedDate, BlockedHour, BlockedHourRecurring, TimesheetEntry, TimesheetPunch, RcToken, BookingConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("kpi")
@@ -3473,39 +3473,6 @@ async def _post_sms(db: Session, token_row, to_number: str, message: str) -> dic
 
 # ── Inbound webhook — RingCentral posts here when a client replies ────────────
 
-# ── Webhook verification ─────────────────────────────────────────────────────
-# RingCentral puts the subscription's verification token in a
-# "Verification-Token" header on every event. Set RC_WEBHOOK_TOKEN in Render,
-# then press Register Webhook once: that recreates the subscription with the
-# token and switches checking on. From then on a POST without the token (anyone
-# who found the URL faking a client's "YES") is refused.
-
-def _get_setting(db: Session, key: str, default: str = "") -> str:
-    row = db.query(AppSetting).filter(AppSetting.key == key).first()
-    return row.value if row and row.value is not None else default
-
-
-def _set_setting(db: Session, key: str, value: str) -> None:
-    row = db.query(AppSetting).filter(AppSetting.key == key).first()
-    if row:
-        row.value = value
-    else:
-        db.add(AppSetting(key=key, value=value))
-    db.commit()
-
-
-def _rc_webhook_token() -> str:
-    return os.environ.get("RC_WEBHOOK_TOKEN", "").strip()
-
-
-def _webhook_request_trusted(db: Session, request: Request) -> bool:
-    token = _get_setting(db, "rc_webhook_verified")
-    if not token:
-        return True
-    got = request.headers.get("verification-token", "")
-    return secrets.compare_digest(got.encode(), token.encode())
-
-
 # ── Matching a "YES" to the right appointment ────────────────────────────────
 # Kinds of outbound text that ask the client to reply YES.
 _YES_PROMPT_KINDS = ("booking", "midpoint", "evening", "morning", "manual_confirm")
@@ -3615,10 +3582,6 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     challenge = request.headers.get("Validation-Token")
     if challenge:
         return Response(media_type="application/json", headers={"Validation-Token": challenge})
-
-    if not _webhook_request_trusted(db, request):
-        logger.warning("RC webhook: rejected an event without the verification token")
-        return Response(status_code=403)
 
     try:
         body = await request.json()
@@ -4449,19 +4412,7 @@ _rc_sync_lock = asyncio.Lock()
 
 
 async def _sync_rc_webhook(db: Session, token_row, create_if_missing: bool) -> dict:
-    """
-    Make sure exactly ONE healthy RingCentral subscription posts to our webhook.
-
-    Registering used to create a new subscription on every click and never
-    remove the old ones. RingCentral delivers every inbound text once per
-    subscription, so three registrations meant each YES hit /rc/webhook three
-    times. This keeps the newest Active subscription for our URL that listens
-    for SMS, deletes the rest, and only creates one when none is healthy.
-
-    When RC_WEBHOOK_TOKEN is set and an explicit registration (not startup)
-    runs, the subscription is recreated with that token and verification is
-    switched on, because an existing subscription can't be given a token.
-    """
+    """Reuse an active subscription for this URL. Create one only if needed."""
     async with _rc_sync_lock:     # two clicks can't race each other
         return await _sync_rc_webhook_locked(db, token_row, create_if_missing)
 
@@ -4472,11 +4423,6 @@ async def _sync_rc_webhook_locked(db: Session, token_row, create_if_missing: boo
 
     webhook_url = _rc_webhook_url()
     sms_filter  = "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
-    verify_token = _rc_webhook_token()
-    active_token = _get_setting(db, "rc_webhook_verified")
-    verify_token = verify_token or active_token
-    subscription_key = f"rc_verified_subscription:{token_row.owner_user_id}"
-    verified_id = _get_setting(db, subscription_key)
     headers = {
         "Authorization": f"Bearer {token_row.access_token}",
         "Content-Type": "application/json",
@@ -4490,26 +4436,19 @@ async def _sync_rc_webhook_locked(db: Session, token_row, create_if_missing: boo
 
         ours = [s for s in resp.json().get("records", [])
                 if (s.get("deliveryMode") or {}).get("address") == webhook_url]
-        healthy = sorted((s for s in ours
-                          if s.get("status") == "Active"
-                          # RingCentral may echo the filter with real account
-                          # and extension IDs instead of "~".
-                          and any("message-store/instant" in f and "SMS" in f
-                                  for f in s.get("eventFilters", []))),
-                         key=lambda s: s.get("creationTime") or "", reverse=True)
-        if verify_token:
-            healthy = [s for s in healthy if s.get("id") == verified_id and active_token == verify_token]
-        keep = healthy[0] if healthy else None
+        active = sorted(
+            (s for s in ours if s.get("status") == "Active"),
+            key=lambda s: s.get("creationTime") or "",
+            reverse=True,
+        )
+        keep = active[0] if active else None
         registered = False
         if keep is None:
             if not create_if_missing:
                 return {"status": "none_healthy", "webhook_url": webhook_url, "removed_duplicates": 0}
-            delivery = {"transportType": "WebHook", "address": webhook_url}
-            if verify_token:
-                delivery["verificationToken"] = verify_token
             resp = await client.post(base, headers=headers, json={
                 "eventFilters": [sms_filter],
-                "deliveryMode": delivery,
+                "deliveryMode": {"transportType": "WebHook", "address": webhook_url},
                 "expiresIn": RC_SUBSCRIPTION_SECONDS,
             })
             if resp.status_code not in (200, 201):
@@ -4527,9 +4466,6 @@ async def _sync_rc_webhook_locked(db: Session, token_row, create_if_missing: boo
             keep = resp.json()
             if not keep.get("id"):
                 raise RuntimeError("RingCentral did not return a subscription ID.")
-            if verify_token:
-                _set_setting(db, "rc_webhook_verified", verify_token)
-                _set_setting(db, subscription_key, keep["id"])
             registered = True
 
         removed = 0
@@ -4544,7 +4480,7 @@ async def _sync_rc_webhook_locked(db: Session, token_row, create_if_missing: boo
 
     return {"status": "registered" if registered else "already_registered",
             "webhook_url": webhook_url, "subscription_id": keep.get("id"),
-            "expires_at": keep.get("expirationTime"), "verified": bool(verify_token),
+            "expires_at": keep.get("expirationTime"),
             "removed_duplicates": removed}
 
 
