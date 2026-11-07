@@ -30,7 +30,9 @@
     // Hide bottom nav items assistants don't have access to
     document.querySelectorAll("#adminBottomNav .bottom-nav-item").forEach(function(el) {
       var href = el.getAttribute("href");
-      var keep = ["/settings.html", "/planner.html"];
+      // Timesheet too: assistants clock in and out there, and every other
+      // page already shows it to them.
+      var keep = ["/settings.html", "/planner.html", "/timesheet.html"];
       if (localStorage.getItem("can_quality") === "1") keep.push("/quality.html");
       if (keep.indexOf(href) === -1) el.style.display = "none";
     });
@@ -114,7 +116,11 @@
     return appointments.find(function(a) {
       return a.id !== excludeId &&
         (a.appt_type || "appointment") !== "callback" &&
+        // Cancelled and rescheduled appointments give their hour back
+        // (same rule as the server's appointment_conflict).
         (a.appt_status || "") !== "cancelled" &&
+        (a.appt_status || "") !== "rescheduled" &&
+        (a.sms_status || "") !== "rescheduled" &&
         (a.scheduled_for || "").slice(0, 13) === hourKey;
     }) || null;
   }
@@ -391,7 +397,20 @@
   document.getElementById("todayBtn").addEventListener("click", function () {
     currentWeekStart = getWeekStart(new Date());
     renderPlanner();
+    scrollToToday();
   });
+
+  // On a phone only about three days fit, and the week starts on Sunday, so
+  // the grid opened on days already gone. Bring today into view instead.
+  function scrollToToday() {
+    var grid = document.getElementById("plannerGrid");
+    var wrap = grid && grid.closest(".planner-wrap");
+    var head = grid && grid.querySelector(".pg-day-today");
+    if (!wrap || !head || wrap.scrollWidth <= wrap.clientWidth) return;
+    var timeCol = grid.querySelector(".pg-gutter-head");
+    var offset = head.getBoundingClientRect().left - wrap.getBoundingClientRect().left;
+    wrap.scrollLeft = Math.max(0, wrap.scrollLeft + offset - (timeCol ? timeCol.offsetWidth : 0));
+  }
 
   document.getElementById("newApptBtn").addEventListener("click", function () {
     openAddModal(null, null);
@@ -408,6 +427,7 @@
       console.error("Failed to load appointments", e);
     }
     renderPlanner();
+    scrollToToday();
   }
 
   // ── Render grid ──────────────────────────────────────────────
@@ -666,7 +686,7 @@
           if (appt.booked_by_agent) {
             agentBadge = '<span class="pg-appt-agent" title="'
               + (appt.booked_by_name
-                  ? "Booked by " + appt.booked_by_name + ". No texts are sent."
+                  ? "Booked by " + escHtml(appt.booked_by_name) + ". No texts are sent."
                   : "Booked via the agent link. No texts are sent.")
               + '">AGENT</span>';
           }
@@ -681,7 +701,7 @@
           block.innerHTML =
             (isCallback ? '<span class="pg-appt-type-badge">CB</span>' : '') +
             '<span class="pg-appt-time">' + fmtTime(parts[1]) + "</span>" +
-            '<span class="pg-appt-name">' + appt.lead_name + agentBadge + smsBadge + statusBadge + "</span>";
+            '<span class="pg-appt-name">' + escHtml(appt.lead_name) + agentBadge + smsBadge + statusBadge + "</span>";
 
           // An empty title stops the cell's own hint (blocked / notice) from
           // popping up over the appointment's tooltip.
@@ -718,8 +738,8 @@
       : '';
     tip.innerHTML =
       typeBadge +
-      '<div class="tip-name">' + appt.lead_name + "</div>" +
-      (appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + appt.phone_number + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
+      '<div class="tip-name">' + escHtml(appt.lead_name) + "</div>" +
+      (appt.phone_number ? '<div class="tip-row"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> ' + escHtml(appt.phone_number) + (appt.sms_status === "confirmed" ? ' <span style="color:#15803d;font-weight:700;">✓ Confirmed</span>' : '') + "</div>" : '<div class="tip-row" style="color:#f59e0b;">⚠ No phone — SMS won\'t send</div>') +
       (function() {
         // Business time always; the client's local time (worked out on the
         // server) underneath when they are in another zone.
@@ -750,15 +770,15 @@
             note = b;
           }
           if (note) {
-            html += '<div class="tip-row tip-comments">' + note + '</div>';
+            html += '<div class="tip-row tip-comments">' + escHtml(note) + '</div>';
           }
           if (date || by) {
-            html += '<div class="tip-row tip-meta">' + (date || "") + (by ? " by " + by : "") + '</div>';
+            html += '<div class="tip-row tip-meta">' + escHtml(date || "") + (by ? " by " + escHtml(by) : "") + '</div>';
           }
         });
         return html;
       })() : "") +
-      '<div class="tip-row tip-meta">Booked ' + fmtDateTime(appt.booked_at) + " by " + appt.created_by + "</div>";
+      '<div class="tip-row tip-meta">Booked ' + fmtDateTime(appt.booked_at) + " by " + escHtml(appt.created_by) + "</div>";
     tip.classList.remove("hidden");
     positionTooltip(e);
   }
@@ -896,8 +916,10 @@
     }
   }
 
+  // Quotes too: names from the public agent link end up inside title="..."
   function escHtml(s) {
-    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
   }
 
   // ── Modal: open edit ─────────────────────────────────────────
@@ -1955,6 +1977,8 @@
       // ── One appointment per hour for drag-drop ──
       if ((appt.appt_type || "appointment") !== "callback" &&
           (appt.appt_status || "") !== "cancelled" &&
+          (appt.appt_status || "") !== "rescheduled" &&
+          (appt.sms_status || "") !== "rescheduled" &&
           findHourClash(changes.scheduled_for, appt.id)) {
         showToast(clashMessage(changes.scheduled_for), "error");
         return null;

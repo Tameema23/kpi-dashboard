@@ -2,19 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="icon" type="image/png" href="/static/images/ApexTrack.png">
+  <link rel="icon" type="image/png" href="/static/images/favicon-48.png?v=1">
   <link rel="manifest" href="/manifest.json">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="ApexTrack">
-  <link rel="apple-touch-icon" href="/static/images/ApexTrack.png">
+  <link rel="apple-touch-icon" href="/static/images/apple-touch-icon.png?v=1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="preload" href="/static/fonts/inter-latin.woff2?v=1" as="font" type="font/woff2" crossorigin>
+  <meta name="theme-color" content="#2563eb">
   <link rel="stylesheet" href="/static/style.css?v=7">
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <title>Referral Program</title>
   <style>
     .ref-page-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
@@ -62,7 +60,7 @@
     .ref-empty span { font-size:13px; }
 
     /* Overlay */
-    .ref-overlay { display:none; position:fixed; inset:0; z-index:1000; background:rgba(15,23,42,0.45); backdrop-filter:blur(4px); align-items:flex-start; justify-content:center; padding:24px 16px 60px; overflow-y:auto; }
+    .ref-overlay { display:none; position:fixed; inset:0; z-index:1000; background:rgba(15,23,42,0.45); -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px); align-items:flex-start; justify-content:center; padding:24px 16px 60px; overflow-y:auto; }
     .ref-overlay.open { display:flex; }
     .ref-modal { background:#fff; border-radius:20px; width:100%; max-width:720px; box-shadow:0 24px 64px rgba(15,23,42,0.2); overflow:hidden; animation:refIn 0.18s ease; }
     @keyframes refIn { from{transform:scale(0.96);opacity:0} to{transform:scale(1);opacity:1} }
@@ -117,6 +115,11 @@
       display:inline-flex; align-items:center;
     }
     .ref-star-btn:hover { transform:scale(1.3); }
+    /* Phones: a finger needs a bigger target than the 25px star. */
+    @media (max-width: 768px) {
+      .ref-star-btn { padding:9px 8px; min-width:40px; min-height:40px; justify-content:center; }
+      .ref-star-btn:hover { transform:none; }
+    }
     .ref-star-btn svg { display:block; }
     /* default: grey outline star */
     .ref-star-btn.s-met    svg { fill:#16a34a; stroke:#16a34a; }
@@ -141,7 +144,7 @@
 <div class="topbar">
   <div class="topbar-left">
     <span class="topbar-brand">
-      <img src="/static/images/ApexTrack.png" alt="ApexTrack" style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
+      <img width="28" height="28" decoding="async" src="/static/images/logo-96.png?v=1" alt="ApexTrack" style="width:28px;height:28px;object-fit:contain;border-radius:6px;">
       ApexTrack
     </span>
     <nav class="topbar-nav">
@@ -578,6 +581,8 @@
 
     /* ── Export Excel ── */
     window.refExportExcel = function() {
+      // The Excel library is large, so it is only downloaded on first export.
+      if (typeof XLSX === "undefined") { withXLSX(window.refExportExcel); return; }
       var src = filteredData.length ? filteredData : programs;
       if (!src.length) { showToast("No data to export.","error"); return; }
       var rows = [["Type","First Name","Last Name","Organization","Phone","Email",

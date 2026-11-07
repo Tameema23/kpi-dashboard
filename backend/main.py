@@ -20,7 +20,7 @@ Security:
   ✓ Timing-safe login (prevents username enumeration)
 """
 
-import os, re, html, logging, shutil, hashlib, asyncio, urllib.parse, secrets, threading, time
+import os, re, json, html, logging, shutil, hashlib, asyncio, urllib.parse, secrets, threading, time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -65,9 +65,10 @@ logger.info(f"Time zones: business={BUSINESS_TZ_NAME}, tzdata={TZDATA_VERSION}")
 def _compute_build_hash() -> str:
     frontend_dir = "frontend"
     h = hashlib.md5()
-    extensions = (".js", ".css")
+    extensions = (".js", ".css", ".png", ".woff2")
     try:
-        for root, _, files in os.walk(frontend_dir):
+        for root, dirs, files in os.walk(frontend_dir):
+            dirs.sort()
             for fname in sorted(files):
                 if any(fname.endswith(ext) for ext in extensions):
                     fpath = os.path.join(root, fname)
@@ -870,104 +871,121 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# ── Security headers — added to every response ─────────────────────────────────
-from starlette.middleware.base import BaseHTTPMiddleware
+# ── Security + caching headers — added to every response ──────────────────────
+# Plain ASGI middleware rather than BaseHTTPMiddleware: it only edits headers
+# as they pass through, so it adds no per-request overhead and never buffers
+# a response body.
+from starlette.datastructures import MutableHeaders
+from starlette.middleware.gzip import GZipMiddleware
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        response = await call_next(request)
-        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
-        response.headers["X-Content-Type-Options"]    = "nosniff"
-        response.headers["X-Frame-Options"]           = "DENY"
-        response.headers["Referrer-Policy"]           = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"]        = "geolocation=(), microphone=(), camera=()"
-        # CSP — allows our CDN scripts, Google Fonts, own API
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.gstatic.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data:; "
-            "connect-src 'self'; "
-            "frame-ancestors 'none';"
-        )
-        # HTML pages must never be cached — ensures fresh content on every navigation
-        content_type = response.headers.get("content-type", "")
-        if "text/html" in content_type:
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-            response.headers["Pragma"]        = "no-cache"
-        return response
+_SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "X-Content-Type-Options":    "nosniff",
+    "X-Frame-Options":           "DENY",
+    "Referrer-Policy":           "strict-origin-when-cross-origin",
+    "Permissions-Policy":        "geolocation=(), microphone=(), camera=()",
+    # Everything (scripts, fonts, charts, Excel export) is served from this
+    # origin, so no third-party host is allowed.
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    ),
+}
+
+
+class SecurityHeadersMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        versioned = b"v=" in scope.get("query_string", b"")
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for k, v in _SECURITY_HEADERS.items():
+                    headers[k] = v
+                ctype = headers.get("content-type", "")
+                if "text/html" in ctype:
+                    # Pages must always be fresh so a deploy shows up at once.
+                    headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                    headers["Pragma"] = "no-cache"
+                elif path.startswith("/static/") and message.get("status", 200) == 200:
+                    # Every page links its assets with ?v=<build hash>, and the
+                    # hash changes whenever any asset changes. A versioned URL
+                    # therefore never changes content: cache it for a year.
+                    headers["Cache-Control"] = ("public, max-age=31536000, immutable"
+                                                if versioned else "public, max-age=3600")
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
 
 app.add_middleware(SecurityHeadersMiddleware)
-
-# ── Cache-busting middleware — rewrites ?v=... in HTML responses ───────────────
-# Replaces any ?v=<anything> on .js and .css references with ?v=BUILD_HASH.
-# Works on every FileResponse HTML page automatically — no manual version bumping.
-from fastapi.responses import Response as StarletteResponse
-
-class CacheBustMiddleware(BaseHTTPMiddleware):
-    _pattern = re.compile(rb'(\.(js|css))\?v=[^"\'&\s]+')
-
-    async def dispatch(self, request, call_next):
-        response = await call_next(request)
-        content_type = response.headers.get("content-type", "")
-        if "text/html" not in content_type:
-            return response
-        # Read and rewrite the body
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
-        new_body = self._pattern.sub(
-            lambda m: m.group(1) + b"?v=" + BUILD_HASH.encode(),
-            body
-        )
-        # Drop Content-Length — StarletteResponse recomputes it from new_body.
-        # Without this, uvicorn crashes with "Response content longer than Content-Length"
-        # because the rewritten body is longer than the original header value.
-        headers = dict(response.headers)
-        headers.pop("content-length", None)
-        headers.pop("Content-Length", None)
-        return StarletteResponse(
-            content=new_body,
-            status_code=response.status_code,
-            headers=headers,
-            media_type=content_type,
-        )
-
-app.add_middleware(CacheBustMiddleware)
+# Added last so it wraps everything: compresses HTML, JS, CSS and JSON
+# (app.js and style.css shrink to about a fifth of their size).
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # ── Frontend pages ─────────────────────────────────────────────────────────────
+# Each page is read once at startup with every ?v= asset reference stamped with
+# BUILD_HASH, then served from memory. No disk read and no body rewriting per
+# request, and every asset URL changes automatically on each deploy.
+_ASSET_VERSION = re.compile(r'(\.(?:js|css|png|woff2|json))\?v=[^"\'&\s]+')
+_PAGE_CACHE: dict = {}
+
+
+def _page(name: str, extra_headers: Optional[dict] = None) -> Response:
+    body = _PAGE_CACHE.get(name)
+    if body is None:
+        with open(os.path.join("frontend", name), encoding="utf-8") as f:
+            html_text = f.read()
+        body = _ASSET_VERSION.sub(lambda m: m.group(1) + "?v=" + BUILD_HASH,
+                                  html_text).encode("utf-8")
+        _PAGE_CACHE[name] = body
+    return Response(content=body, media_type="text/html; charset=utf-8",
+                    headers=extra_headers)
+
+
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/")
-def serve_home():    return FileResponse("frontend/login.html")
+def serve_home():     return _page("login.html")
 @app.get("/index.html")
-def dashboard():     return FileResponse("frontend/index.html")
+def dashboard():      return _page("index.html")
 @app.get("/log.html")
-def log_page():      return FileResponse("frontend/log.html")
+def log_page():       return _page("log.html")
 @app.get("/reports.html")
-def reports_page():  return FileResponse("frontend/reports.html")
+def reports_page():   return _page("reports.html")
 @app.get("/history.html")
-def history_page():  return FileResponse("frontend/history.html")
+def history_page():   return _page("history.html")
 @app.get("/settings.html")
-def settings_page(): return FileResponse("frontend/settings.html")
+def settings_page():  return _page("settings.html")
 @app.get("/planner.html")
-def planner_page():  return FileResponse("frontend/planner.html")
+def planner_page():   return _page("planner.html")
 @app.get("/quality.html")
-def quality_page():  return FileResponse("frontend/quality.html")
+def quality_page():   return _page("quality.html")
 @app.get("/referrals.html")
-def referrals_page(): return FileResponse("frontend/referrals.html")
+def referrals_page(): return _page("referrals.html")
 @app.get("/timesheet.html")
-def timesheet_page(): return FileResponse("frontend/timesheet.html")
+def timesheet_page(): return _page("timesheet.html")
 
 @app.get("/manifest.json")
 def manifest():      return FileResponse("frontend/manifest.json", media_type="application/manifest+json")
 
 @app.get("/icon-192.png")
-def icon192():       return FileResponse("frontend/icon-192.png", media_type="image/png")
+def icon192():       return FileResponse("frontend/images/icon-192.png", media_type="image/png")
 
 @app.get("/icon-512.png")
-def icon512():       return FileResponse("frontend/icon-512.png", media_type="image/png")
+def icon512():       return FileResponse("frontend/images/icon-512.png", media_type="image/png")
 
 # ── DB ─────────────────────────────────────────────────────────────────────────
 create_db()
@@ -1100,8 +1118,11 @@ def _require_admin(user: User):
     if user.role != "admin":
         raise HTTPException(403, "Admin access required.")
 
+def _has_planner_access(user: User) -> bool:
+    return user.role == "admin" or bool(user.can_planner)
+
 def _check_planner_access(user: User):
-    if user.role == "admin" or bool(user.can_planner):
+    if _has_planner_access(user):
         return
     raise HTTPException(403, "No planner access.")
 
@@ -1282,6 +1303,18 @@ def lead_time_reason(scheduled_for: str) -> Optional[str]:
 # Cancelled appointments release their hour. A missing appt_type is treated as
 # an appointment, matching _appt_dict. The planner, the agent link, and the
 # availability grid all ask this one helper, so they cannot disagree.
+# An appointment marked cancelled or rescheduled is not happening at that
+# time any more, so it gives its hour back. (Rescheduled used to keep holding
+# the old hour, so nobody else could be booked into a slot the client had
+# already moved out of.) Restoring one re-checks the hour first.
+RELEASED_STATUSES = ("cancelled", "rescheduled")
+
+
+def releases_slot(appt_status: Optional[str], sms_status: Optional[str] = "") -> bool:
+    return ((appt_status or "") in RELEASED_STATUSES
+            or (sms_status or "") == "rescheduled")
+
+
 def appointment_conflict(db: Session, owner: int, scheduled_for: str,
                          exclude_id: Optional[int] = None):
     """The active appointment already holding this hour, or None."""
@@ -1289,7 +1322,9 @@ def appointment_conflict(db: Session, owner: int, scheduled_for: str,
         Appointment.owner_id == owner,
         Appointment.scheduled_for.startswith(scheduled_for[:13]),
         or_(Appointment.appt_status.is_(None),
-            Appointment.appt_status != "cancelled"),
+            Appointment.appt_status.notin_(RELEASED_STATUSES)),
+        or_(Appointment.sms_status.is_(None),
+            Appointment.sms_status != "rescheduled"),
         or_(Appointment.appt_type.is_(None),
             Appointment.appt_type != "callback"),
     )
@@ -1313,8 +1348,29 @@ class UserPayload(BaseModel):
     username: str
     password: str
 
+def _signup_open(db: Session) -> bool:
+    """
+    Self-signup creates an ADMIN account, and every admin can see every
+    client on the Confirmations page and text them. So it is closed unless
+    this is a brand-new install with no accounts yet, or ALLOW_SIGNUP=1 is
+    set in Render's environment for the few minutes it takes to add an admin.
+    Assistants are added by an admin from Settings, as before.
+    """
+    if os.environ.get("ALLOW_SIGNUP", "").strip() == "1":
+        return True
+    return db.query(User.id).first() is None
+
+
+@app.get("/signup-status")
+def signup_status(db: Session = Depends(get_db)):
+    return {"open": _signup_open(db)}
+
+
 @app.post("/create-user", status_code=201)
-def create_user(data: UserPayload, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def create_user(request: Request, data: UserPayload, db: Session = Depends(get_db)):
+    if not _signup_open(db):
+        raise HTTPException(403, "New accounts are created by your administrator.")
     username = validate_username(data.username)
     password = validate_new_password(data.password)  # enforce 8+ on new accounts
     if db.query(User).filter(User.username.ilike(username)).first():
@@ -1767,14 +1823,66 @@ def create_appointment(data: AppointmentPayload,
     db.commit()
     return _appt_dict(appt, db)
 
+def _json_with_etag(request: Request, payload) -> Response:
+    """
+    JSON response with an ETag. The planner re-polls every 30 seconds; when
+    nothing changed the browser gets an empty 304 instead of the whole list.
+    """
+    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    etag = '"' + hashlib.md5(body).hexdigest() + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
 @app.get("/appointments")
-def get_appointments(user: User = Depends(get_current_user),
+def get_appointments(request: Request,
+                     start: Optional[str] = None,
+                     end: Optional[str] = None,
+                     limit: Optional[int] = None,
+                     user: User = Depends(get_current_user),
                      db: Session = Depends(get_db)):
+    """
+    Appointments for the user's planner, oldest first.
+    Optional filters, so a page that needs only part of the list doesn't
+    download all of it: start / end (YYYY-MM-DD, inclusive) on the
+    appointment date, and limit. With no filters it returns everything, as
+    the planner and its search expect.
+    """
     _check_planner_access(user)
     owner = get_owner_id(user)
-    return [_appt_dict(a, db) for a in
-            db.query(Appointment).filter(Appointment.owner_id == owner)
-              .order_by(Appointment.scheduled_for).all()]
+    q = db.query(Appointment).filter(Appointment.owner_id == owner)
+    if start:
+        q = q.filter(Appointment.scheduled_for >= validate_date(start))
+    if end:
+        q = q.filter(Appointment.scheduled_for < validate_date(end) + "T99")
+    q = q.order_by(Appointment.scheduled_for)
+    if limit:
+        q = q.limit(max(1, min(int(limit), 500)))
+    return _json_with_etag(request, _appt_dicts(q.all(), db))
+
+
+@app.get("/appointments/new-count")
+def appointments_new_count(since_ms: int = 0,
+                           user: User = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    """
+    How many appointments were booked after `since_ms` (browser epoch ms of
+    the user's last planner visit). Drives the red badge on the Planner link
+    on every page, which used to download the whole appointment list just to
+    count it.
+    """
+    if not _has_planner_access(user):
+        return {"count": 0}
+    owner = get_owner_id(user)
+    since = datetime.fromtimestamp(max(since_ms, 0) / 1000, tz=UTC) \
+        .astimezone(BUSINESS_TZ).strftime("%Y-%m-%dT%H:%M")
+    count = db.query(Appointment).filter(
+        Appointment.owner_id == owner,
+        Appointment.booked_at > since,
+    ).count()
+    return {"count": count}
 
 @app.put("/appointments/{appt_id}")
 def update_appointment(appt_id: int, data: AppointmentPayload,
@@ -1918,7 +2026,7 @@ def update_appointment(appt_id: int, data: AppointmentPayload,
     # name on an older pair that already overlaps still saves.
     needs_check = (appt.appt_type != "callback"
                    and (new_sched[:13] != prev_sched[:13] or prev_type == "callback")
-                   and (getattr(appt, "appt_status", "") or "") != "cancelled")
+                   and not releases_slot(getattr(appt, "appt_status", ""), appt.sms_status))
     with _booking_lock:
         if needs_check and appointment_conflict(db, owner, new_sched, exclude_id=appt.id):
             db.rollback()
@@ -1939,23 +2047,47 @@ def delete_appointment(appt_id: int,
     db.delete(appt); db.commit()
     return {"status": "deleted"}
 
-def _appt_dict(appt, db):
-    creator = db.query(User).filter(User.id == appt.created_by).first()
-    try:
-        recips = db.query(AppointmentRecipient).filter(
-            AppointmentRecipient.appointment_id == appt.id
-        ).all()
+def _appt_dicts(appts, db) -> list:
+    """
+    Serialize many appointments with two extra queries in total (creators and
+    recipients), instead of two per appointment. The planner loads every
+    appointment, so the per-row version got slower with each booking.
+    """
+    if not appts:
+        return []
+    creator_ids = {a.created_by for a in appts if a.created_by is not None}
+    names = dict(db.query(User.id, User.username).filter(User.id.in_(creator_ids)).all()) \
+        if creator_ids else {}
+    recips_by_appt: dict = {}
+    ids = [a.id for a in appts]
+    # Chunked so a very large planner never exceeds SQLite's variable limit.
+    for i in range(0, len(ids), 500):
+        for r in db.query(AppointmentRecipient).filter(
+                AppointmentRecipient.appointment_id.in_(ids[i:i + 500])
+        ).order_by(AppointmentRecipient.id).all():
+            recips_by_appt.setdefault(r.appointment_id, []).append(
+                {"name": r.name or "", "phone_number": r.phone_number or ""})
+    return [_appt_dict(a, db, names.get(a.created_by, "unknown"),
+                       recips_by_appt.get(a.id, [])) for a in appts]
+
+
+def _appt_dict(appt, db, creator_name: Optional[str] = None,
+               recipients: Optional[list] = None):
+    if creator_name is None:
+        creator = db.query(User).filter(User.id == appt.created_by).first()
+        creator_name = creator.username if creator else "unknown"
+    if recipients is None:
         recipients = [{"name": r.name or "", "phone_number": r.phone_number or ""}
-                      for r in recips]
-    except Exception:
-        recipients = []
+                      for r in db.query(AppointmentRecipient).filter(
+                          AppointmentRecipient.appointment_id == appt.id
+                      ).order_by(AppointmentRecipient.id).all()]
     return {"id": appt.id, "lead_name": appt.lead_name,
             "attendee_name": appt.attendee_name or "",
             "phone_number": appt.phone_number or "",
             "recipients": recipients,
             "comments": appt.comments, "scheduled_for": appt.scheduled_for,
             "booked_at": appt.booked_at,
-            "created_by": creator.username if creator else "unknown",
+            "created_by": creator_name,
             "appt_type": appt.appt_type or "appointment",
             "booking_tz": appt.booking_tz or BUSINESS_TZ_NAME,
             # The client's own local time, worked out here with the pinned
@@ -2369,7 +2501,19 @@ def backup_database(user: User = Depends(get_current_user)):
     filename = f"kpi_backup_{ts}.db"
     dest     = os.path.join(backup_dir, filename)
 
-    shutil.copy2(src, dest)
+    # SQLite's own backup API takes a consistent snapshot even if a booking or
+    # an SMS job writes mid-copy. A plain file copy at that moment can produce
+    # a backup that won't open.
+    import sqlite3
+    src_conn = sqlite3.connect(src)
+    try:
+        dest_conn = sqlite3.connect(dest)
+        try:
+            src_conn.backup(dest_conn)
+        finally:
+            dest_conn.close()
+    finally:
+        src_conn.close()
     logger.info(f"Backup created: {dest} by user {user.username}")
 
     # Keep only the 10 most recent backups to save disk space
@@ -3423,17 +3567,17 @@ def _get_booking_config(db: Session, owner: int,
 def _occupied_slots(db: Session, owner: int, start: str, end: str) -> set:
     """
     Set of "YYYY-MM-DDTHH" strings already taken by an appointment.
-    Cancelled appointments release their slot and callbacks never hold one,
-    the same rule appointment_conflict() applies.
+    Cancelled and rescheduled appointments release their slot and callbacks
+    never hold one, the same rule appointment_conflict() applies.
     """
     rows = db.query(Appointment.scheduled_for, Appointment.appt_status,
-                    Appointment.appt_type).filter(
+                    Appointment.appt_type, Appointment.sms_status).filter(
         Appointment.owner_id == owner,
         Appointment.scheduled_for >= start,
         Appointment.scheduled_for <= end,
     ).all()
     return {r[0][:13] for r in rows
-            if (r[1] or "") != "cancelled" and (r[2] or "appointment") != "callback"}
+            if not releases_slot(r[1], r[3]) and (r[2] or "appointment") != "callback"}
 
 
 def _client_slot_labels(date_str: str, hours: list, client_tz: str) -> list:
@@ -3635,10 +3779,7 @@ def regenerate_booking_slug(user: User = Depends(get_current_user),
 @limiter.limit("60/minute")
 def booking_page(slug: str, request: Request, db: Session = Depends(get_db)):
     _require_booking(db, slug)
-    return FileResponse(
-        "frontend/book.html",
-        headers={"X-Robots-Tag": "noindex, nofollow"},
-    )
+    return _page("book.html", {"X-Robots-Tag": "noindex, nofollow"})
 
 
 @app.get("/api/book/{slug}/availability")
@@ -3979,6 +4120,15 @@ async def set_confirmation_status(appt_id: int,
         raise HTTPException(404, "Appointment not found.")
     if data.status not in ("confirmed", "rescheduled", ""):
         raise HTTPException(422, "Invalid status.")
+    # Un-marking a rescheduled appointment takes its hour back, which someone
+    # else may have been booked into since.
+    if (releases_slot(appt.appt_status, appt.sms_status)
+            and not releases_slot(appt.appt_status, data.status)
+            and (appt.appt_type or "appointment") != "callback"
+            and appt.scheduled_for
+            and appointment_conflict(db, appt.owner_id, appt.scheduled_for, exclude_id=appt.id)):
+        raise HTTPException(400, "This appointment cannot be restored. "
+                                 + conflict_message(appt.scheduled_for))
     appt.sms_status = data.status
 
     # An appointment reads as confirmed if EITHER status field says so, so
@@ -4029,10 +4179,11 @@ async def set_appt_status(appt_id: int,
     valid = ("", "confirmed", "rescheduled", "no_show", "cancelled")
     if data.appt_status not in valid:
         raise HTTPException(422, "Invalid appt_status.")
-    # A cancelled appointment frees its hour, and the agent link may have
-    # filled it since. Restoring it must not put two appointments in one hour.
-    if ((getattr(appt, "appt_status", "") or "") == "cancelled"
-            and data.appt_status != "cancelled"
+    # A cancelled or rescheduled appointment frees its hour, and the agent
+    # link may have filled it since. Restoring it must not put two
+    # appointments in one hour.
+    if (releases_slot(getattr(appt, "appt_status", ""), appt.sms_status)
+            and not releases_slot(data.appt_status, appt.sms_status)
             and (appt.appt_type or "appointment") != "callback"
             and appt.scheduled_for
             and appointment_conflict(db, owner, appt.scheduled_for, exclude_id=appt.id)):
@@ -4277,4 +4428,4 @@ async def manual_send_booking_texts(user: User = Depends(get_current_user),
 
 @app.get("/confirmations.html")
 def confirmations_page():
-    return FileResponse("frontend/confirmations.html")
+    return _page("confirmations.html")

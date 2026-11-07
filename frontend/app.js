@@ -1,3 +1,38 @@
+/* ================= HTML ESCAPING ================= */
+
+/* Names and notes can come from the public agent booking link, so they are
+   escaped before being placed into HTML. */
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+
+/* ================= ON-DEMAND SCRIPTS ================= */
+
+/* Loads a script once and resolves when it is ready. Used for heavy
+   libraries that only some actions need (the Excel exporter is 880 KB). */
+var _scriptPromises = {};
+function loadScriptOnce(src) {
+  if (!_scriptPromises[src]) {
+    _scriptPromises[src] = new Promise(function(resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function() { delete _scriptPromises[src]; reject(new Error("load failed: " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  return _scriptPromises[src];
+}
+
+function withXLSX(fn) {
+  if (typeof showToast === "function") showToast("Preparing Excel file...");
+  return loadScriptOnce("/static/vendor/xlsx.full.min.js?v=1").then(fn).catch(function() {
+    if (typeof showToast === "function") showToast("Could not load the Excel exporter. Check your connection and try again.", "error");
+  });
+}
+
 /* ================= CONFIRM / ALERT DIALOGS ================= */
 
 function showConfirm(message, onConfirm, options) {
@@ -19,7 +54,7 @@ function showConfirm(message, onConfirm, options) {
 
   var backdrop = document.createElement("div");
   backdrop.id = "_cfModal";
-  backdrop.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.45);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;";
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;";
   backdrop.innerHTML =
     "<div style='background:#fff;border-radius:18px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(15,23,42,0.22);animation:_cfIn 0.18s ease;overflow:hidden;'>" +
       "<div style='padding:26px 26px 10px 26px;display:flex;gap:16px;align-items:flex-start;'>" +
@@ -60,7 +95,7 @@ function showAlert(message, type) {
   var c = cfg[type] || cfg.info;
   var backdrop = document.createElement("div");
   backdrop.id = "_cfModal";
-  backdrop.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.45);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;";
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;";
   backdrop.innerHTML =
     "<div style='background:#fff;border-radius:18px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(15,23,42,0.22);animation:_cfIn 0.18s ease;overflow:hidden;'>" +
       "<div style='padding:26px 26px 10px 26px;display:flex;gap:16px;align-items:flex-start;'>" +
@@ -85,12 +120,20 @@ async function loadUpcomingAppointments() {
   var container = document.getElementById("upcomingList");
   if (!container) return;
   try {
-    var res = await fetch(API_BASE + "/appointments", { headers: { Authorization: "Bearer " + TOKEN } });
+    // Only upcoming appointments are needed here, not the whole history.
+    var from = new Date(Date.now() - 86400000).toLocaleDateString("en-CA");
+    var res = await fetch(API_BASE + "/appointments?start=" + from + "&limit=60", { headers: { Authorization: "Bearer " + TOKEN } });
     if (!res.ok) return;
     var appts = await res.json();
     var now = new Date();
     var upcoming = appts
-      .filter(function(a) { return new Date(a.scheduled_for) >= now; })
+      .filter(function(a) {
+        // Cancelled and rescheduled appointments are not happening, so they
+        // don't belong in "Upcoming".
+        var st = a.appt_status || "";
+        if (st === "cancelled" || st === "rescheduled" || a.sms_status === "rescheduled") return false;
+        return new Date(a.scheduled_for) >= now;
+      })
       .sort(function(a, b) { return new Date(a.scheduled_for) - new Date(b.scheduled_for); })
       .slice(0, 5);
     var skeletonEl = document.getElementById("upcomingSkeleton");
@@ -103,7 +146,7 @@ async function loadUpcomingAppointments() {
       var dt        = new Date(a.scheduled_for);
       var mon       = dt.toLocaleDateString("en-CA", { month: "short" });
       var time      = dt.toLocaleTimeString("en-CA", { hour: "numeric", minute: "2-digit", hour12: true });
-      var comm      = a.comments ? " · " + a.comments.substring(0, 28) + (a.comments.length > 28 ? "…" : "") : "";
+      var comm      = a.comments ? " · " + escHtml(a.comments.substring(0, 28)) + (a.comments.length > 28 ? "…" : "") : "";
       var isCallback = a.appt_type === "callback";
       var iconBg    = isCallback ? "#fef3c7" : "#eff6ff";
       var iconColor = isCallback ? "#92400e" : "#2563eb";
@@ -117,7 +160,7 @@ async function loadUpcomingAppointments() {
           "<span style='font-size:17px;font-weight:800;color:" + numColor + ";line-height:1;'>" + dt.getDate() + "</span>" +
         "</div>" +
         "<div style='flex:1;min-width:0;'>" +
-          "<div style='font-size:14px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>" + a.lead_name + typeBadge + "</div>" +
+          "<div style='font-size:14px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'>" + escHtml(a.lead_name) + typeBadge + "</div>" +
           "<div style='font-size:12px;color:#64748b;margin-top:2px;'>" + time + "<span style='color:#94a3b8;'>" + comm + "</span></div>" +
         "</div>" +
       "</div>";
@@ -892,13 +935,17 @@ async function loadHistory(){
  const res = await fetch(`${API_BASE}/history`,{
    headers:{ "Authorization":"Bearer "+TOKEN }
  });
+ if (!res.ok) throw new Error("history " + res.status);
 
  const data = await res.json();
 
- historyBody.innerHTML="";
+ // Money columns are stored as raw floats (e.g. 217.30886); show cents.
+ const money = v => "$" + (Number(v) || 0).toLocaleString("en-CA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
- data.forEach(d=>{
-  historyBody.innerHTML+=`
+ // Build every row first and write the table once. Appending with
+ // innerHTML += re-parsed the whole table on every row, which is what made
+ // this page slow to appear on phones.
+ historyBody.innerHTML = data.map(d => `
    <tr class="data-row">
     <td class="select-col">
       <input type="checkbox"
@@ -906,13 +953,13 @@ async function loadHistory(){
              value="${d.id}"
              onchange="toggleRowHighlight(this)">
     </td>
-    <td>${d.date}</td>
+    <td style="white-space:nowrap;">${d.date}</td>
     <td>${d.appointments_start}</td>
     <td>${d.appointments_finish}</td>
     <td>${d.total_presentations}</td>
     <td>${d.total_sales}</td>
-    <td>${d.total_alp}</td>
-    <td>${d.total_ah}</td>
+    <td style="white-space:nowrap;">${money(d.total_alp)}</td>
+    <td style="white-space:nowrap;">${money(d.total_ah)}</td>
     <td>${d.referrals_collected}</td>
     <td>${d.referral_presentations}</td>
     <td>${d.referral_sales}</td>
@@ -925,8 +972,7 @@ async function loadHistory(){
     <td>
       <button class="btn small" onclick='editDay(${JSON.stringify(d)})'>Edit</button>
     </td>
-   </tr>`;
- });
+   </tr>`).join("");
 }
 
 /* ================= DELETE MODE ================= */
@@ -1065,7 +1111,8 @@ window.onload=()=>{
 
  if (document.getElementById("resolve_total")) initResolveTotal();
 
- if(typeof historyBody!=="undefined") loadHistory();
+ // history.html calls loadHistory() itself; calling it here too loaded
+ // and drew the table twice.
 };
 
 /* ================= LOGOUT ================= */
@@ -1340,19 +1387,17 @@ function initPlannerBadge() {
   }
   if (!TOKEN) return;
 
-  fetch(API_BASE + "/appointments", {
+  // The server counts; the page no longer downloads every appointment just
+  // to work out a number for the badge.
+  var lastSeen = parseInt(localStorage.getItem("planner_last_seen") || "0", 10) || 0;
+  fetch(API_BASE + "/appointments/new-count?since_ms=" + lastSeen, {
     headers: { Authorization: "Bearer " + TOKEN }
   }).then(function(r) {
     if (!r.ok) return null;
     return r.json();
-  }).then(function(appts) {
-    if (!appts) return;
-    var lastSeen = parseInt(localStorage.getItem("planner_last_seen") || "0");
-    var newCount = appts.filter(function(a) {
-      // booked_at is "YYYY-MM-DDTHH:MM" — convert to ms
-      var ts = new Date(a.booked_at).getTime();
-      return ts > lastSeen;
-    }).length;
+  }).then(function(data) {
+    if (!data) return;
+    var newCount = data.count || 0;
     if (newCount < 1) return;
     document.querySelectorAll("a[href='/planner.html']").forEach(function(link) {
       if (link.querySelector(".nav-badge")) return; // already has badge
@@ -1801,6 +1846,66 @@ window.uninstallPWA = function() {
   }
 })();
 
+/* ── MOBILE BOTTOM NAV — 4 main tabs + "More" ────────────────────
+   Up to eleven links were squeezed into one row on phones, so the labels
+   ran into each other. Keep the four most-used pages as tabs (by role) and
+   move the rest, plus Sign Out, into a "More" sheet. The page markup is
+   unchanged: the same links are moved, so role hiding, the active state and
+   the Planner badge all keep working. */
+function initMobileNav() {
+  var nav = document.querySelector(".bottom-nav .bottom-nav-items");
+  if (!nav || nav.dataset.enhanced) return;
+  nav.dataset.enhanced = "1";
+  if (typeof applyConfirmationsNav === "function") applyConfirmationsNav();
+
+  var links = Array.prototype.slice.call(nav.querySelectorAll("a.bottom-nav-item"));
+  var visible = links.filter(function(a) { return a.style.display !== "none"; });
+  var signout = nav.querySelector(".bottom-nav-signout");
+  if (visible.length + (signout ? 1 : 0) <= 5) return;   // already fits
+
+  var priority = ["/index.html", "/planner.html", "/confirmations.html", "/log.html",
+                  "/timesheet.html", "/settings.html"];
+  var primary = priority.map(function(href) {
+    return visible.filter(function(a) { return a.getAttribute("href") === href; })[0];
+  }).filter(Boolean).slice(0, 4);
+  var rest = visible.filter(function(a) { return primary.indexOf(a) === -1; });
+
+  var backdrop = document.createElement("div");
+  backdrop.className = "nav-sheet-backdrop";
+  backdrop.innerHTML = '<div class="nav-sheet" role="dialog" aria-label="More pages">' +
+    '<div class="nav-sheet-handle"></div><div class="nav-sheet-grid"></div></div>';
+  var grid = backdrop.querySelector(".nav-sheet-grid");
+  rest.forEach(function(a) { grid.appendChild(a); });
+  // Every page gets Sign Out in the sheet, whether or not its markup has one.
+  if (!signout && typeof logout === "function") {
+    signout = document.createElement("button");
+    signout.type = "button";
+    signout.className = "bottom-nav-signout";
+    signout.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign Out';
+    signout.addEventListener("click", function() { logout(); });
+  }
+  if (signout) backdrop.querySelector(".nav-sheet").appendChild(signout);
+  document.body.appendChild(backdrop);
+
+  var more = document.createElement("button");
+  more.type = "button";
+  more.className = "bottom-nav-item bottom-nav-more";
+  more.setAttribute("aria-label", "More pages");
+  more.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>More';
+  if (rest.some(function(a) { return a.classList.contains("active"); })) more.classList.add("active");
+  nav.appendChild(more);
+  // Keep the four tabs in a fixed, predictable order
+  primary.forEach(function(a) { nav.insertBefore(a, more); });
+
+  function open()  { backdrop.classList.add("open"); document.body.style.overflow = "hidden"; }
+  function close() { backdrop.classList.remove("open"); document.body.style.overflow = ""; }
+  more.addEventListener("click", function() {
+    if (backdrop.classList.contains("open")) close(); else open();
+  });
+  backdrop.addEventListener("click", function(e) { if (e.target === backdrop) close(); });
+  document.addEventListener("keydown", function(e) { if (e.key === "Escape") close(); });
+}
+
 /* ── Page-level init — runs once on DOMContentLoaded ─────────── */
 document.addEventListener("DOMContentLoaded", function() {
   var path = location.pathname;
@@ -1808,6 +1913,8 @@ document.addEventListener("DOMContentLoaded", function() {
   // Reveal the Confirmations nav link for admins + can_confirmations users.
   // Safe no-op on pages without the link.
   applyConfirmationsNav();
+
+  initMobileNav();
 
   // Log page
   if (path.includes("log")) {
@@ -1854,8 +1961,8 @@ document.addEventListener("DOMContentLoaded", function() {
     overlay.innerHTML =
       '<div class="cold-start-spinner"></div>' +
       '<div class="cold-start-text">' +
-        'Connecting to server...' +
-        '<div class="cold-start-sub">Render free tier is waking up — usually takes 20-40 seconds</div>' +
+        'Connecting to ApexTrack...' +
+        '<div class="cold-start-sub">This is taking longer than usual. Check your connection; the page will load as soon as the server responds.</div>' +
       '</div>';
     document.body.appendChild(overlay);
   }
@@ -1892,47 +1999,38 @@ document.addEventListener("DOMContentLoaded", function() {
    and last booked_at). Silently updates — no disruptive flash. */
 function initPlannerAutoRefresh(getAppointments, setAppointments, renderFn) {
   var INTERVAL = 30000; // 30 seconds
-  var lastHash = "";
+  var lastBody = "";
   var intervalId = null;
+  var busy = false;
 
-  function hashAppts(appts) {
-    // Quick hash: count + newest booked_at
-    var sorted = appts.slice().sort(function(a, b) {
-      return (b.booked_at || "").localeCompare(a.booked_at || "");
-    });
-    return appts.length + "|" + (sorted[0] ? sorted[0].booked_at : "");
-  }
-
+  // Compares the whole response, so ANY change shows up: a new booking, a
+  // client confirming by text, an edit or a status change made on another
+  // device. (Comparing only the count and newest booking missed all but the
+  // first.) The server answers 304 when nothing changed, so this stays cheap.
   async function poll() {
+    // Never rebuild the grid under the user's hands.
+    if (busy || document.querySelector(".pg-appt-block.dragging")) return;
+    var modal = document.getElementById("modalBackdrop");
+    if (modal && !modal.classList.contains("hidden")) return;
+    busy = true;
     try {
       var res = await fetch(API_BASE + "/appointments", {
         headers: { Authorization: "Bearer " + TOKEN }
       });
       if (!res.ok) return;
-      var fresh = await res.json();
-      var hash  = hashAppts(fresh);
-      if (hash !== lastHash) {
-        lastHash = hash;
+      var body = await res.text();
+      if (body !== lastBody) {
+        var first = lastBody === "";
+        lastBody = body;
+        var fresh = JSON.parse(body);
+        // First poll only records the baseline unless the data really moved on.
+        if (first && JSON.stringify(fresh) === JSON.stringify(getAppointments())) return;
         setAppointments(fresh);
         renderFn();
-        // Update badge timestamp
-        var newest = fresh.reduce(function(max, a) {
-          var t = new Date(a.booked_at).getTime();
-          return t > max ? t : max;
-        }, 0);
-        if (newest > 0) {
-          // If a new appointment was booked by someone else, show subtle indicator
-          var lastSeen = parseInt(localStorage.getItem("planner_last_seen") || "0");
-          if (newest > lastSeen) {
-            // Silent re-render already done above — no toast to avoid being annoying
-          }
-        }
       }
     } catch(e) { /* silent — don't disrupt the user */ }
+    finally { busy = false; }
   }
-
-  // Set initial hash
-  lastHash = hashAppts(getAppointments());
 
   intervalId = setInterval(poll, INTERVAL);
 

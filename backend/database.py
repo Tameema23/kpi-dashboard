@@ -10,7 +10,7 @@ Security additions:
 import os
 from sqlalchemy import (
     create_engine, Column, Integer, Float,
-    String, Boolean, ForeignKey, Text
+    String, Boolean, ForeignKey, Text, text
 )
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 
@@ -408,3 +408,21 @@ def create_db():
     run migrate_passwords.py which handles ALTER TABLE for SQLite.
     """
     Base.metadata.create_all(engine)
+
+    # Indexes for the lookups every page and SMS job makes. CREATE INDEX IF
+    # NOT EXISTS only adds an index (no table change, no data touched), so it
+    # is safe on the live database and needs no manual migration. Each one is
+    # tried on its own so a missing column on an old table can't block the rest.
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS ix_appt_owner_sched ON appointments (owner_id, scheduled_for)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_sched ON appointments (scheduled_for)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_owner_booked ON appointments (owner_id, booked_at)",
+        "CREATE INDEX IF NOT EXISTS ix_daily_logs_user_date ON daily_logs (user_id, date)",
+        "CREATE INDEX IF NOT EXISTS ix_appt_recipients_appt ON appointment_recipients (appointment_id)",
+        "CREATE INDEX IF NOT EXISTS ix_timesheet_owner_date ON timesheet_entries (owner_id, date)",
+    ):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(stmt))
+        except Exception:
+            pass

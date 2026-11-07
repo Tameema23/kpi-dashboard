@@ -122,6 +122,8 @@
   // ── Excel Export ──────────────────────────────────────────────
   window.exportQualityExcel = function() {
     if (!entriesCache || entriesCache.length === 0) { showToast("No entries to export.", "error"); return; }
+    // The Excel library is large, so it is only downloaded on first export.
+    if (typeof XLSX === "undefined") { withXLSX(window.exportQualityExcel); return; }
     var rows = [["Date","Insured Name","Policy #","Remarks","Phone","Follow Up","Action (Latest)","Due Date","ALP"]];
     entriesCache.forEach(function(e) {
       rows.push([
