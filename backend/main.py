@@ -3614,7 +3614,7 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     # RingCentral needs the challenge in the response header.
     challenge = request.headers.get("Validation-Token")
     if challenge:
-        return Response(headers={"Validation-Token": challenge})
+        return Response(media_type="application/json", headers={"Validation-Token": challenge})
 
     if not _webhook_request_trusted(db, request):
         logger.warning("RC webhook: rejected an event without the verification token")

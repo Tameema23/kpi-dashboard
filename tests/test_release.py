@@ -248,6 +248,7 @@ class ReleaseTests(unittest.TestCase):
         response = self.client.post("/rc/webhook", headers={"Validation-Token": challenge})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Validation-Token"], challenge)
+        self.assertEqual(response.headers["Content-Type"], "application/json")
         self.assertEqual(response.content, b"")
         self.assertNotIn("Content-Security-Policy", response.headers)
         self.assertIn("Content-Security-Policy", self.client.get("/").headers)
