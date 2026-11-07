@@ -932,7 +932,10 @@
       });
       var data = await res.json();
       if (res.ok) {
-        showToast("Webhook registered! YES replies will now auto-confirm.");
+        var removed = data.removed_duplicates || 0;
+        showToast(data.status === "already_registered"
+          ? "Webhook already registered" + (removed ? "; removed " + removed + " duplicate(s)." : ".")
+          : "Webhook registered. YES replies will now auto-confirm.");
         console.log("Webhook details:", data);
       } else {
         showToast("Failed: " + (data.detail || "Unknown error"), "error");

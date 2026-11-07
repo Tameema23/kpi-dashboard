@@ -20,7 +20,7 @@ Security:
   ✓ Timing-safe login (prevents username enumeration)
 """
 
-import os, re, html, logging, shutil, hashlib, asyncio, urllib.parse, secrets, threading
+import os, re, html, logging, shutil, hashlib, asyncio, urllib.parse, secrets, threading, time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional, List
@@ -158,10 +158,17 @@ def _appt_recipients(db: Session, appt: Appointment):
         return []
 
     out = []
+    seen = set()   # one text per phone number, even if it is entered twice
+
+    def _add(name: str, phone: str):
+        key = _phone_key(phone)
+        if key and key not in seen:
+            seen.add(key)
+            out.append((name, phone))
+
     primary_phone = (appt.phone_number or "").strip()
     if primary_phone:
-        out.append((_greeting_name_of(appt.attendee_name, appt.lead_name),
-                    primary_phone))
+        _add(_greeting_name_of(appt.attendee_name, appt.lead_name), primary_phone)
     try:
         extras = db.query(AppointmentRecipient).filter(
             AppointmentRecipient.appointment_id == appt.id
@@ -173,9 +180,13 @@ def _appt_recipients(db: Session, appt: Appointment):
         if ph:
             # Extra recipients are typed for messaging too, so their name is
             # used exactly as entered.
-            extra_name = (r.name or "").strip()
-            out.append((extra_name or "there", ph))
+            _add((r.name or "").strip() or "there", ph)
     return out
+
+
+def _phone_key(phone: str) -> str:
+    """Last 10 digits of a phone number. Used to compare numbers in any format."""
+    return re.sub(r"[^\d]", "", phone or "")[-10:]
 
 
 async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
@@ -195,7 +206,9 @@ async def _send_to_all_recipients(db: Session, appt: Appointment, build_message,
         # `name` is already the greeting name, used verbatim.
         message = build_message(name)
         result = await send_sms(db, appt.owner_id, phone, message)
-        ok = bool(result.get("sent") or result.get("dry_run"))
+        # A duplicate the guard skipped counts as handled: the person already
+        # has this exact text, so the job's sent flag should still go up.
+        ok = bool(result.get("sent") or result.get("dry_run") or result.get("skipped"))
         if ok:
             sent += 1
         else:
@@ -277,6 +290,10 @@ def _morning_text_hour(db: Session, owner: Optional[int], date_str: str) -> int:
 
 _ALL_OWNERS = object()   # sentinel: run a job across every owner
 
+# Daily summaries to Tameema go out within this many minutes of 8 AM / 9 PM.
+# Kept short so a restart later in the hour doesn't send a second summary.
+SUMMARY_WINDOW_MIN = 15
+
 
 async def _run_sms_job(job_type: str, owner_id=_ALL_OWNERS):
     """
@@ -308,8 +325,6 @@ async def _run_sms_job(job_type: str, owner_id=_ALL_OWNERS):
             Appointment.scheduled_for.startswith(target_date),
             Appointment.phone_number != "",
             Appointment.phone_number != None,
-            Appointment.appt_type != "callback",
-            Appointment.sms_status != "rescheduled",
         ).all()
         if owner_id is not _ALL_OWNERS:
             appts = [a for a in appts if a.owner_id == owner_id]
@@ -343,8 +358,7 @@ async def _run_sms_job(job_type: str, owner_id=_ALL_OWNERS):
                 appt.booking_tz or BUSINESS_TZ_NAME
             )
 
-            confirmed  = (appt.sms_status == "confirmed" or
-                          getattr(appt, "appt_status", "") == "confirmed")
+            confirmed  = _is_confirmed(appt)
 
             summary = await _send_to_all_recipients(
                 db, appt,
@@ -494,7 +508,8 @@ async def _run_reminder_job():
             Appointment.scheduled_for <= end_str,
             Appointment.phone_number != "",
             Appointment.phone_number != None,
-            Appointment.sms_sent_reminder == False,
+            or_(Appointment.sms_sent_reminder == False,
+                Appointment.sms_sent_reminder == None),
         ).all()
         appts = [a for a in appts
                  if _sms_status_allows_texting(a) and not _is_confirmed(a)]
@@ -527,13 +542,16 @@ async def _run_reminder_job():
                 appt.scheduled_for,
                 appt.booking_tz or BUSINESS_TZ_NAME
             )
-            await _send_to_all_recipients(
+            summary = await _send_to_all_recipients(
                 db, appt,
                 lambda fn: SMS_REMINDER_TEMPLATE.format(name=fn, time=time_display),
                 "SMS REMINDER"
             )
-            appt.sms_sent_reminder = True
-            db.commit()
+            # Only mark it done if a text actually went out, so a failed send
+            # is retried on the next pass inside the window.
+            if summary["sent"] > 0:
+                appt.sms_sent_reminder = True
+                db.commit()
 
     except Exception as e:
         logger.error(f"Reminder job error: {e}")
@@ -559,7 +577,6 @@ async def _run_booking_job():
             Appointment.booked_at.startswith(today),
             Appointment.phone_number != "",
             Appointment.phone_number != None,
-            Appointment.appt_type != "callback",
         ).all()
         appts = [a for a in appts
                  if not getattr(a, "sms_sent_booking", False)
@@ -597,16 +614,20 @@ async def _run_booking_job():
                 appt.scheduled_for,
                 appt.booking_tz or BUSINESS_TZ_NAME
             )
-            confirmed  = (appt.sms_status == "confirmed" or
-                          getattr(appt, "appt_status", "") == "confirmed")
+            confirmed  = _is_confirmed(appt)
 
-            await _send_to_all_recipients(
+            summary = await _send_to_all_recipients(
                 db, appt,
                 lambda fn: _build_sms(fn, time_display, date_display, confirmed),
                 "SMS BOOKING"
             )
-            appt.sms_sent_booking = True
-            db.commit()
+            # A failed send (e.g. RingCentral out of credits) stays retryable:
+            # this job runs every minute. A later retry that does get through
+            # can't double up, because the duplicate guard in send_sms skips
+            # anyone who already has this exact text.
+            if summary["sent"] > 0:
+                appt.sms_sent_booking = True
+                db.commit()
 
     except Exception as e:
         logger.error(f"Booking job error: {e}")
@@ -630,7 +651,6 @@ async def _run_booking_job_catchup():
             Appointment.scheduled_for >= today,
             Appointment.phone_number != "",
             Appointment.phone_number != None,
-            Appointment.appt_type != "callback",
         ).all()
         now_str = _mt_now_str()
         appts = [a for a in appts
@@ -644,17 +664,17 @@ async def _run_booking_job_catchup():
                 appt.scheduled_for,
                 appt.booking_tz or BUSINESS_TZ_NAME
             )
-            confirmed  = (appt.sms_status == "confirmed" or
-                          getattr(appt, "appt_status", "") == "confirmed")
+            confirmed  = _is_confirmed(appt)
 
-            await _send_to_all_recipients(
+            summary = await _send_to_all_recipients(
                 db, appt,
                 lambda fn: _build_sms(fn, time_display, date_display, confirmed),
                 "SMS BOOKING CATCHUP"
             )
-            appt.sms_sent_booking = True
-            db.commit()
-            sent_count += 1
+            if summary["sent"] > 0:
+                appt.sms_sent_booking = True
+                db.commit()
+                sent_count += 1
 
         logger.info(f"[SMS BOOKING CATCHUP] Sent to {sent_count} appointment(s).")
 
@@ -678,7 +698,6 @@ async def _run_midpoint_job():
         appts = db.query(Appointment).filter(
             Appointment.phone_number != "",
             Appointment.phone_number != None,
-            Appointment.appt_type != "callback",
         ).all()
         now_str = _mt_now_str()
         appts = [a for a in appts
@@ -692,16 +711,16 @@ async def _run_midpoint_job():
                 appt.scheduled_for,
                 appt.booking_tz or BUSINESS_TZ_NAME
             )
-            confirmed  = (appt.sms_status == "confirmed" or
-                          getattr(appt, "appt_status", "") == "confirmed")
+            confirmed  = _is_confirmed(appt)
 
-            await _send_to_all_recipients(
+            summary = await _send_to_all_recipients(
                 db, appt,
                 lambda fn: _build_sms(fn, time_display, date_display, confirmed),
                 "SMS MIDPOINT"
             )
-            appt.sms_sent_midpoint = True
-            db.commit()
+            if summary["sent"] > 0:
+                appt.sms_sent_midpoint = True
+                db.commit()
 
     except Exception as e:
         logger.error(f"Midpoint job error: {e}")
@@ -729,8 +748,14 @@ async def _scheduler_loop():
             tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
             h, min_ = now.hour, now.minute
 
+            # Fixed-time jobs match a window, not the exact minute. Each loop
+            # takes 60s plus however long that pass's work took, so the loop
+            # slowly drifts and can step straight over minute 0. A job pinned
+            # to `min_ == 0` (the 8 PM confirmations, for example) would then
+            # be skipped for the whole day. The `fired` dates and the per-
+            # appointment sms_sent_* flags stop anything running twice.
             # 8:00 AM — send TODAY's appointment list
-            if h == 8 and min_ == 0 and fired["summary_morning"] != today:
+            if h == 8 and min_ < SUMMARY_WINDOW_MIN and fired["summary_morning"] != today:
                 fired["summary_morning"] = today
                 logger.info("Scheduler: firing 8am daily summary (today's appointments)")
                 await _send_daily_summary(today)
@@ -742,8 +767,12 @@ async def _scheduler_loop():
             due_owners = []
             sdb = SessionLocal()
             try:
-                owner_keys = [a.id for a in sdb.query(User).filter(User.role == "admin").all()]
-                owner_keys.append(None)   # appointments with no owner: default hour
+                # Every owner with an appointment today, whatever their role.
+                # (Listing only admins skipped appointments owned by anyone
+                # else, so those clients never got a morning text.)
+                owner_keys = {row[0] for row in sdb.query(Appointment.owner_id)
+                              .filter(Appointment.scheduled_for.startswith(today))
+                              .distinct().all()}
                 for oid in owner_keys:
                     if morning_fired.get(oid) == today:
                         continue
@@ -756,27 +785,27 @@ async def _scheduler_loop():
                 logger.info(f"Scheduler: firing morning SMS job for owner {oid} at {h}:00")
                 await _run_sms_job("morning", owner_id=oid)
 
-            # 8:00 PM — evening client texts (tomorrow's appointments)
-            if h == 20 and min_ == 0 and fired["evening"] != today:
+            # 8:00 PM — evening client texts (tomorrow's appointments).
+            # Whole hour: sms_sent_evening stops repeats after a restart.
+            if h == 20 and fired["evening"] != today:
                 fired["evening"] = today
                 logger.info("Scheduler: firing evening SMS job")
                 await _run_sms_job("evening")
 
             # 9:00 PM — send TOMORROW's appointment list
-            if h == 21 and min_ == 0 and fired["summary_evening"] != today:
+            if h == 21 and min_ < SUMMARY_WINDOW_MIN and fired["summary_evening"] != today:
                 fired["summary_evening"] = today
                 logger.info("Scheduler: firing 9pm daily summary (tomorrow's appointments)")
                 sent = await _send_daily_summary(tomorrow)
                 summary_evening_sent[today] = sent
 
-            # 9:01 PM — retry once if 9pm summary failed
-            if h == 21 and min_ == 1 and fired["summary_retry"] != today:
-                if not summary_evening_sent.get(today, True):
-                    fired["summary_retry"] = today
+            # Next pass after 9 PM — retry once if the 9pm summary failed
+            elif (h == 21 and fired["summary_evening"] == today
+                    and fired["summary_retry"] != today):
+                fired["summary_retry"] = today
+                if summary_evening_sent.get(today) is False:
                     logger.info("Scheduler: retrying 9pm summary (previous attempt failed)")
                     await _send_daily_summary(tomorrow)
-                else:
-                    fired["summary_retry"] = today  # already sent, flag and skip
 
             # Every minute — 1hr reminder for unconfirmed appointments
             await _run_reminder_job()
@@ -784,8 +813,9 @@ async def _scheduler_loop():
             # Every minute — booking confirmation (~5 min after booking)
             await _run_booking_job()
 
-            # Once daily at 10:00 AM — midpoint reminders
-            if h == 10 and min_ == 0 and fired.get("midpoint") != today:
+            # Once daily at 10:00 AM — midpoint reminders.
+            # Whole hour: sms_sent_midpoint stops repeats after a restart.
+            if h == 10 and fired.get("midpoint") != today:
                 fired["midpoint"] = today
                 logger.info("Scheduler: firing midpoint SMS job")
                 await _run_midpoint_job()
@@ -793,13 +823,17 @@ async def _scheduler_loop():
         except Exception as e:
             logger.error(f"Scheduler loop error: {e}")
 
-        await asyncio.sleep(60)
+        # Wake just after the next minute boundary instead of a flat 60s,
+        # so the time spent sending texts doesn't push the loop later and later.
+        await asyncio.sleep(60 - (time.time() % 60) + 1)
 
 @asynccontextmanager
 async def lifespan(app):
     """Start background scheduler on app startup."""
     task = asyncio.create_task(_scheduler_loop())
     logger.info("SMS scheduler started.")
+    # Fire and forget: a RingCentral hiccup must never block startup.
+    cleanup = asyncio.create_task(_cleanup_rc_webhooks_on_startup())  # noqa: F841 (keep a reference)
     yield
     task.cancel()
     logger.info("SMS scheduler stopped.")
@@ -3090,11 +3124,38 @@ def rc_set_dry_run(data: DryRunPayload,
 
 # ── SMS sender ────────────────────────────────────────────────────────────────
 
+# Last-resort guard against texting the same person the same words twice.
+# Whatever path a duplicate comes from (a repeated webhook, a double click, two
+# jobs overlapping), an identical text to the same number inside this window
+# is skipped. Different wording (another appointment time, a new summary)
+# always goes through. Kept in memory: the app runs as a single process.
+SMS_DUPLICATE_WINDOW_SECONDS = 10 * 60
+_recent_sms: dict = {}   # (phone_key, message) -> time.monotonic() of send
+
+
+def _claim_sms_slot(to_number: str, message: str) -> Optional[tuple]:
+    """
+    Reserve (number, text) for sending. Returns the key if the send may go
+    ahead, or None if the same text went to this number inside the window.
+    Runs with no await, so two concurrent requests can never both claim it.
+    """
+    now = time.monotonic()
+    for k, t in list(_recent_sms.items()):
+        if now - t >= SMS_DUPLICATE_WINDOW_SECONDS:
+            del _recent_sms[k]
+    key = (_phone_key(to_number), message)
+    if key in _recent_sms:
+        return None
+    _recent_sms[key] = now
+    return key
+
+
 async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> dict:
     """
     Send an SMS via RingCentral API.
     If dry_run is True, logs the message instead of sending.
-    Returns {"sent": bool, "dry_run": bool, "detail": str}
+    Returns {"sent": bool, "dry_run": bool, "detail": str}, plus
+    "skipped": True when the duplicate guard held back a repeat text.
     """
     token_row = _get_rc_token(db, owner_id)
     if not token_row:
@@ -3104,6 +3165,21 @@ async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> 
         logger.info(f"[DRY RUN] SMS to {to_number}: {message}")
         return {"sent": False, "dry_run": True, "detail": f"[DRY RUN] Would send to {to_number}: {message}"}
 
+    slot = _claim_sms_slot(to_number, message)
+    if slot is None:
+        logger.warning(f"SMS to {to_number} skipped: identical text already sent "
+                       f"in the last {SMS_DUPLICATE_WINDOW_SECONDS // 60} min")
+        return {"sent": False, "dry_run": False, "skipped": True,
+                "detail": "Skipped duplicate"}
+
+    result = await _post_sms(db, token_row, to_number, message)
+    if not result["sent"]:
+        _recent_sms.pop(slot, None)   # failed sends must stay retryable
+    return result
+
+
+async def _post_sms(db: Session, token_row, to_number: str, message: str) -> dict:
+    """The RingCentral call itself. Use send_sms, which adds the guards."""
     ok = await _refresh_rc_token_if_needed(db, token_row)
     if not ok:
         return {"sent": False, "dry_run": False, "detail": "Token refresh failed"}
@@ -3131,6 +3207,26 @@ async def send_sms(db: Session, owner_id: int, to_number: str, message: str) -> 
         return {"sent": False, "dry_run": False, "detail": str(e)}
 
 # ── Inbound webhook — RingCentral posts here when a client replies ────────────
+
+INBOUND_DEDUPE_SECONDS = 6 * 60 * 60
+_seen_inbound: dict = {}   # RC message id -> time.monotonic() first seen
+
+
+def _first_delivery_of_inbound(message_key: str) -> bool:
+    """
+    True the first time a given inbound message is seen, False for every
+    repeat delivery inside the dedupe window. No await inside, so concurrent
+    deliveries of the same message cannot both get True.
+    """
+    now = time.monotonic()
+    for k, t in list(_seen_inbound.items()):
+        if now - t >= INBOUND_DEDUPE_SECONDS:
+            del _seen_inbound[k]
+    if message_key in _seen_inbound:
+        return False
+    _seen_inbound[message_key] = now
+    return True
+
 
 @app.post("/rc/webhook")
 async def rc_webhook(request: Request, db: Session = Depends(get_db)):
@@ -3173,6 +3269,17 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
 
     if not sender:
         return {"status": "ignored"}
+
+    # RingCentral can deliver the same inbound text more than once (one POST per
+    # active subscription, plus retries). Each copy used to confirm another of
+    # the client's appointments and text them again, so a single YES produced
+    # three "your appointment is confirmed" texts. Handle each message once.
+    message_key = str(body_data.get("id") or
+                      f"{_phone_key(sender)}|{text}|{body_data.get('creationTime', '')}")
+    if not _first_delivery_of_inbound(message_key):
+        logger.info(f"RC webhook: duplicate delivery of message {message_key} "
+                    f"(subscription {body.get('subscriptionId', '?')}); ignored")
+        return {"status": "duplicate"}
     # "Yes", "YES!", "yes thank you", "yes see you soon" all match. YES must be
     # a whole word, so "yesterday" or "eyes" never confirm anyone.
     if not re.search(r"\bYES\b", text):
@@ -3184,8 +3291,6 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
         logger.info(f"RC webhook: YES reply from {sender} also contains a negative; not auto-confirming: {text!r}")
         return {"status": "ignored"}
 
-    # Normalize sender number for matching (last 10 digits)
-    sender_digits = re.sub(r"[^\d]", "", sender)
 
     # Match any unconfirmed appointment that has received ANY outbound SMS
     # (booking, evening, morning, or the manual Send Confirmation Texts button —
@@ -3208,21 +3313,18 @@ async def rc_webhook(request: Request, db: Session = Depends(get_db)):
     appts = [a for a in appts
              if not _is_confirmed(a) and _sms_status_allows_texting(a)]
 
-    sender_tail = sender_digits[-10:]
+    sender_tail = _phone_key(sender)
+    if not sender_tail:
+        return {"status": "ignored"}
 
     def _phone_matches(a) -> bool:
         """True if the sender is the primary number or any extra recipient."""
-        appt_digits = re.sub(r"[^\d]", "", a.phone_number or "")
-        if appt_digits and appt_digits[-10:] == sender_tail:
+        if _phone_key(a.phone_number) == sender_tail:
             return True
         extras = db.query(AppointmentRecipient).filter(
             AppointmentRecipient.appointment_id == a.id
         ).all()
-        for r in extras:
-            rd = re.sub(r"[^\d]", "", r.phone_number or "")
-            if rd and rd[-10:] == sender_tail:
-                return True
-        return False
+        return any(_phone_key(r.phone_number) == sender_tail for r in extras)
 
     # A client may have more than one unconfirmed appointment on file. Taking
     # whichever row the DB happened to return first can confirm the wrong one,
@@ -3769,9 +3871,8 @@ async def _send_daily_summary(target_date: Optional[str] = None):
             appts = db.query(Appointment).filter(
                 Appointment.owner_id == admin.id,
                 Appointment.scheduled_for.startswith(date_str),
-                Appointment.appt_type != "callback",
-            ).order_by(Appointment.scheduled_for).all()
-            rows.extend(appts)
+                ).order_by(Appointment.scheduled_for).all()
+            rows.extend(a for a in appts if (a.appt_type or "") != "callback")
 
         rows.sort(key=lambda a: a.scheduled_for)
 
@@ -3808,6 +3909,10 @@ async def _send_daily_summary(target_date: Optional[str] = None):
 
         message = "\n".join(lines)
 
+        if not TAMEEMA_PHONE:
+            logger.warning("Daily summary: TAMEEMA_SUMMARY_PHONE is not set, cannot send.")
+            return False
+
         token_row = db.query(RcToken).first()
         if not token_row:
             logger.warning("Daily summary: no RC token found, cannot send.")
@@ -3815,8 +3920,9 @@ async def _send_daily_summary(target_date: Optional[str] = None):
 
         result = await send_sms(db, token_row.owner_user_id, TAMEEMA_PHONE, message)
         logger.info(f"Daily summary sent → {TAMEEMA_PHONE} | {result.get('detail')}")
-        # Report the real outcome so the 9:01 PM retry fires when a send fails
-        return bool(result.get("sent") or result.get("dry_run"))
+        # Report the real outcome so the 9:01 PM retry fires when a send fails.
+        # A skipped duplicate means Tameema already has this exact summary.
+        return bool(result.get("sent") or result.get("dry_run") or result.get("skipped"))
 
     except Exception as e:
         logger.error(f"Daily summary job error: {e}")
@@ -3980,45 +4086,104 @@ async def rc_register_webhook(user: User = Depends(get_current_user),
     if not token_row:
         raise HTTPException(404, "RingCentral not connected.")
 
-    ok = await _refresh_rc_token_if_needed(db, token_row)
-    if not ok:
-        raise HTTPException(500, "Token refresh failed.")
+    try:
+        result = await _sync_rc_webhook(db, token_row, create_if_missing=True)
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+    return result
 
-    webhook_url = f"{RC_REDIRECT_URI.replace('/rc/callback', '')}/rc/webhook"
 
-    payload = {
-        "eventFilters": [
-            "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
-        ],
-        "deliveryMode": {
-            "transportType": "WebHook",
-            "address": webhook_url,
-        },
-        "expiresIn": 630720000,  # max ~20 years in seconds
+def _rc_webhook_url() -> str:
+    return f"{RC_REDIRECT_URI.replace('/rc/callback', '')}/rc/webhook"
+
+
+async def _sync_rc_webhook(db: Session, token_row, create_if_missing: bool) -> dict:
+    """
+    Make sure exactly ONE RingCentral subscription posts to our webhook.
+
+    Registering used to create a new subscription on every click and never
+    remove the old ones. RingCentral delivers every inbound text once per
+    subscription, so three registrations meant each YES hit /rc/webhook three
+    times. This keeps the newest active subscription for our URL, deletes the
+    rest, and only creates one when none exists.
+    """
+    if not await _refresh_rc_token_if_needed(db, token_row):
+        raise RuntimeError("Token refresh failed.")
+
+    webhook_url = _rc_webhook_url()
+    headers = {
+        "Authorization": f"Bearer {token_row.access_token}",
+        "Content-Type": "application/json",
     }
+    base = f"{RC_AUTH_BASE}/restapi/v1.0/subscription"
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{RC_AUTH_BASE}/restapi/v1.0/subscription",
-            headers={
-                "Authorization": f"Bearer {token_row.access_token}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
+        resp = await client.get(base, headers=headers)
+        if resp.status_code != 200:
+            raise RuntimeError(f"RC error listing subscriptions: {resp.text}")
+
+        ours = [s for s in resp.json().get("records", [])
+                if (s.get("deliveryMode") or {}).get("address") == webhook_url]
+        active = sorted((s for s in ours if s.get("status") == "Active"),
+                        key=lambda s: s.get("creationTime") or "", reverse=True)
+        keep = active[0] if active else None
+
+        removed = 0
+        for s in ours:
+            if keep and s.get("id") == keep.get("id"):
+                continue
+            d = await client.delete(f"{base}/{s.get('id')}", headers=headers)
+            if d.status_code in (200, 204):
+                removed += 1
+                logger.info(f"RC webhook: removed extra subscription {s.get('id')}")
+            else:
+                logger.error(f"RC webhook: could not remove {s.get('id')}: {d.text}")
+
+        if keep:
+            logger.info(f"RC webhook: using subscription {keep.get('id')}; "
+                        f"removed {removed} extra")
+            return {"status": "already_registered", "webhook_url": webhook_url,
+                    "subscription_id": keep.get("id"),
+                    "expires_at": keep.get("expirationTime"),
+                    "removed_duplicates": removed}
+
+        if not create_if_missing:
+            return {"status": "none_registered", "webhook_url": webhook_url,
+                    "removed_duplicates": removed}
+
+        payload = {
+            "eventFilters": [
+                "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
+            ],
+            "deliveryMode": {"transportType": "WebHook", "address": webhook_url},
+            "expiresIn": 630720000,  # max ~20 years in seconds
+        }
+        resp = await client.post(base, headers=headers, json=payload)
 
     if resp.status_code in (200, 201):
         data = resp.json()
         logger.info(f"RC webhook registered: {data.get('id')} → {webhook_url}")
-        return {
-            "status": "registered",
-            "webhook_url": webhook_url,
-            "subscription_id": data.get("id"),
-            "expires_at": data.get("expirationTime"),
-        }
+        return {"status": "registered", "webhook_url": webhook_url,
+                "subscription_id": data.get("id"),
+                "expires_at": data.get("expirationTime"),
+                "removed_duplicates": removed}
 
     logger.error(f"RC webhook registration failed {resp.status_code}: {resp.text}")
-    raise HTTPException(500, f"RC error: {resp.text}")
+    raise RuntimeError(f"RC error: {resp.text}")
+
+
+async def _cleanup_rc_webhooks_on_startup():
+    """On boot, remove duplicate webhook subscriptions. Never creates one."""
+    db = SessionLocal()
+    try:
+        for token_row in db.query(RcToken).all():
+            try:
+                await _sync_rc_webhook(db, token_row, create_if_missing=False)
+            except Exception as e:
+                logger.error(f"RC webhook startup cleanup failed for owner "
+                             f"{token_row.owner_user_id}: {e}")
+    finally:
+        db.close()
 
 class SendConfirmationsPayload(BaseModel):
     date: Optional[str] = None  # YYYY-MM-DD; defaults to today (Mountain Time)
